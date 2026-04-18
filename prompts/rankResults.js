@@ -17,10 +17,10 @@ function buildRankingPrompt(rawItems, instructions = {}) {
 
   return `You are a content research assistant for a tech/AI creator on X (Twitter).
 
-Review these ${rawItems.length} items from multiple sources and return the TOP 20 most relevant items for a tech/AI audience.
+Review these ${rawItems.length} items from multiple sources and return the TOP 20 most relevant items for a broad audience interested in tech, AI, AND personal growth.
 
 HARD EXCLUDE — never include:
-- Religion, sports, celebrity gossip, politics
+- Religion, sports, celebrity gossip, partisan politics
 ${excludeNote}
 
 SOURCE DIVERSITY REQUIRED:
@@ -28,12 +28,18 @@ SOURCE DIVERSITY REQUIRED:
 - Do NOT pick only from one category (e.g. only twitter)
 - Aim for at least 3-4 different source categories in your final 20
 - If a category has strong items, include 3-5 from it; no single category should exceed 6 items
+- Include 2-3 wellness/productivity/self-help items if available (cat:wellness or productivity X posts)
+
+CONTENT MIX TARGET:
+- ~12 items: AI, tech, startups, research, dev tools, GitHub
+- ~5 items: productivity, self-help, habits, personal growth
+- ~3 items: mindfulness, mental wellness, calming practices
 
 RANKING CRITERIA:
 1. Timely — recent content preferred
 2. Surprising or counterintuitive
 3. Actionable — reader learns something or can do something
-4. AI/tech/startup relevance — new tools, models, research, funding
+4. AI/tech/startup OR self-improvement/productivity relevance
 5. High engagement (likes, upvotes, stars, views) signals resonance
 ${focusNote}
 ${downweightNote}
@@ -58,7 +64,7 @@ RETURN JSON ARRAY ONLY — no markdown, no explanation:
     "rank": 1,
     "title": "exact title from the item — do not rephrase",
     "snippet": "copy the Snippet text exactly from the item above — do not generate new text",
-    "source": "exact source category from [cat:] tag (hackernews|twitter|reddit|github|youtube|news|ai_research)",
+    "source": "exact source category from [cat:] tag (hackernews|twitter|reddit|github|youtube|news|ai_research|wellness)",
     "publisher": "exact publisher name from the item",
     "url": "exact url from the item — copy exactly, do not modify",
     "trendingScore": 85,

@@ -38,6 +38,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 .badge-ai_research { background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
 .badge-hackernews  { background:#fff7ed; color:#c2410c; border:1px solid #fed7aa; }
 .badge-reddit      { background:#fff1f0; color:#c0392b; border:1px solid #ffccc7; }
+.badge-wellness    { background:#f0fdf4; color:#166534; border:1px solid #86efac; }
 
 /* ── Post type ── */
 .type-thread { background:#f3f0ff; color:#6c5ce7; border:1px solid #d8ccf9; }
@@ -179,6 +180,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
             <option value="reddit">Reddit</option>
             <option value="news">News</option>
             <option value="ai_research">AI Research</option>
+            <option value="wellness">Wellness</option>
           </select>
 
           <!-- Post type filter -->
@@ -355,6 +357,7 @@ const CAT_META = {
   ai_research: { label:'AI Research',  icon:'⬢', cls:'badge-ai_research' },
   hackernews:  { label:'Hacker News',  icon:'▲', cls:'badge-hackernews'  },
   reddit:      { label:'Reddit',       icon:'●', cls:'badge-reddit'      },
+  wellness:    { label:'Wellness',     icon:'❋', cls:'badge-wellness'    },
 }
 
 // ══════════════════ WEBSOCKET ══════════════════

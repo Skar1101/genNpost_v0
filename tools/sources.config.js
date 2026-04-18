@@ -33,7 +33,7 @@ module.exports = [
     fetcher: './fetchReddit',
     maxResults: 25,
     requiresKey: false,
-    subreddits: ['artificial', 'MachineLearning', 'LocalLLaMA', 'startups', 'technology', 'singularity', 'ChatGPT', 'OpenAI'],
+    subreddits: ['artificial', 'MachineLearning', 'LocalLLaMA', 'startups', 'technology', 'singularity', 'ChatGPT', 'OpenAI', 'productivity', 'selfimprovement', 'Meditation', 'GetMotivated'],
   },
   {
     id: 'github',
@@ -72,6 +72,11 @@ module.exports = [
       { name: 'The AI Advantage', id: 'UCHhYXsLBEVVnbvsq57n1MTQ', tier: 2 },
       { name: 'Wes Roth',         id: 'UCqcbQf6yw5KzRoDDcZ_wBSw', tier: 2 },
       { name: 'Jeff Su',          id: 'UCwAnu01qlnVg1Ai2AbtTMaA', tier: 2 },
+      // Productivity & Wellness
+      { name: 'Ali Abdaal',       id: 'UCoOae5nYA7VqaXzerajD0lg', tier: 2 },
+      { name: 'Thomas Frank',     id: 'UCG-KntY7aVnIGXYEBQvmBAQ', tier: 2 },
+      { name: 'Andrew Huberman',  id: 'UC2D2CMWXMOVWx7giW1n3LIg', tier: 2 },
+      { name: 'Jay Shetty',       id: 'UCwk49IO9EWa4NeO5HVwEMpg',  tier: 2 },
     ],
   },
   {
@@ -94,6 +99,16 @@ module.exports = [
     maxResults: 30,
     requiresKey: false,
     runOncePerDay: true,   // enforced inside the fetcher itself
+  },
+  {
+    id: 'wellness',
+    name: 'Self-Help & Productivity',
+    enabled: true,
+    tier: 2,
+    category: 'wellness',
+    fetcher: './fetchWellness',
+    maxResults: 20,
+    requiresKey: false,
   },
   // ─── Add new sources below ────────────────────────────────────────────────
   // {

@@ -10,6 +10,9 @@ const QUERIES = [
   '(AI agent OR AI tool OR automation) lang:en',
   '(startup OR "venture capital" OR funding) AI lang:en',
   '(GitHub OR "open source") AI model lang:en',
+  // Self-help, productivity, mindfulness — top viral posts
+  '(productivity OR "deep work" OR "morning routine" OR "time management") tip lang:en',
+  '(mindfulness OR meditation OR stoicism OR "mental clarity" OR "calming") lang:en',
 ]
 
 function first20Words(text) {
