@@ -11,6 +11,7 @@ function getOpenAI() {
   return _openai
 }
 
+
 // Simple command pre-filter — no LLM needed
 const SIMPLE_COMMANDS = {
   '/latest': handleLatest,
