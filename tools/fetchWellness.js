@@ -3,16 +3,15 @@ const xml2js = require('xml2js')
 const logger = require('../utils/logger').source('wellness')
 
 const FEEDS = [
-  { name: 'James Clear',      url: 'https://jamesclear.com/feed' },
-  { name: 'Zen Habits',       url: 'https://zenhabits.net/feed/' },
-  { name: 'Scott H Young',    url: 'https://www.scotthyoung.com/blog/feed/' },
-  { name: 'Lifehacker',       url: 'https://lifehacker.com/rss' },
-  { name: 'Mark Manson',      url: 'https://markmanson.net/feed' },
-  { name: 'Inc Productivity', url: 'https://www.inc.com/rss/tag/productivity.xml' },
-  { name: 'Fast Company',     url: 'https://www.fastcompany.com/latest/rss' },
-  { name: 'Mindful.org',      url: 'https://www.mindful.org/feed/' },
-  { name: 'Psychology Today', url: 'https://www.psychologytoday.com/intl/blog/rss' },
-  { name: 'Harvard Health',   url: 'https://www.health.harvard.edu/blog/feed' },
+  { name: 'James Clear',       url: 'https://jamesclear.com/feed' },
+  { name: 'Mark Manson',       url: 'https://markmanson.net/feed' },
+  { name: 'Scott H Young',     url: 'https://www.scotthyoung.com/blog/feed/' },
+  { name: 'Lifehacker',        url: 'https://lifehacker.com/rss' },
+  { name: 'Fast Company',      url: 'https://www.fastcompany.com/latest/rss' },
+  { name: 'Tiny Buddha',       url: 'https://tinybuddha.com/feed/' },
+  { name: 'MindBodyGreen',     url: 'https://www.mindbodygreen.com/rss.xml' },
+  { name: 'Psychology Today',  url: 'https://feeds.feedburner.com/PsychologyToday' },
+  { name: 'Entrepreneur Prod', url: 'https://www.entrepreneur.com/topic/productivity/rss' },
 ]
 
 function extractText(val) {
@@ -43,8 +42,9 @@ async function fetchWellness(config) {
       const cleaned = res.data
         .replace(/xmlns(?::\w+)?="[^"]*"/g, '')
         .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, c) => c.trim())
+        .replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\da-fA-F]+);)/g, '&amp;')
 
-      const parsed = await xml2js.parseStringPromise(cleaned, { explicitArray: false })
+      const parsed = await xml2js.parseStringPromise(cleaned, { explicitArray: false, strict: false })
       let items = parsed?.rss?.channel?.item || parsed?.feed?.entry || []
       if (!Array.isArray(items)) items = [items]
 

@@ -1,6 +1,7 @@
 require('dotenv').config()
 const OpenAI = require('openai')
 const chitrag = require('./chitrag')
+const koel = require('./koel')
 const { readLatest } = require('../state/researchStore')
 const { getHistory, appendMessage } = require('../state/conversationStore')
 const { buildIntentPrompt } = require('../prompts/tittoReason')
@@ -151,6 +152,18 @@ async function handleMessage({ text, sessionId = 'default', source = 'web', broa
 
   if (parsed.intent === 'show_latest') {
     return handleLatest()
+  }
+
+  if (parsed.intent === 'write_post' && parsed.koelRequest) {
+    const req = parsed.koelRequest
+    const confirmReply = parsed.reply + `\n\nAsking Koel to write a ${req.format} post now…`
+    koel.write({ ...req, broadcast }).then(result => {
+      if (broadcast) broadcast({ type: 'koel_complete', data: result })
+    }).catch(err => {
+      console.error('[Titto] Koel write failed:', err.message)
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: 'Koel hit an error writing that post. Try again.' } })
+    })
+    return { reply: confirmReply, action: 'koel_writing' }
   }
 
   return { reply: parsed.reply, action: parsed.intent }

@@ -10,7 +10,7 @@ const FEEDS = [
   { name: 'VentureBeat',     url: 'https://venturebeat.com/feed/' },
   { name: 'MIT Tech Review', url: 'https://www.technologyreview.com/feed/' },
   { name: 'OpenAI Blog',     url: 'https://openai.com/news/rss.xml' },
-  { name: 'Anthropic Blog',  url: 'https://www.anthropic.com/rss.xml' },
+  { name: 'Simon Willison',  url: 'https://simonwillison.net/atom/everything/' },
   { name: 'Hugging Face',    url: 'https://huggingface.co/blog/feed.xml' },
   { name: 'Google DeepMind', url: 'https://deepmind.google/blog/rss.xml' },
   { name: 'Google AI Blog',  url: 'https://blog.google/technology/ai/rss/' },
@@ -44,8 +44,9 @@ async function fetchNews(config) {
       const cleaned = res.data
         .replace(/xmlns(?::\w+)?="[^"]*"/g, '')
         .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, c) => c.trim())
+        .replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\da-fA-F]+);)/g, '&amp;')
 
-      const parsed = await xml2js.parseStringPromise(cleaned, { explicitArray: false })
+      const parsed = await xml2js.parseStringPromise(cleaned, { explicitArray: false, strict: false })
       let items = parsed?.rss?.channel?.item || parsed?.feed?.entry || []
       if (!Array.isArray(items)) items = [items]
 

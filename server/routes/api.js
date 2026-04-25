@@ -2,8 +2,11 @@ const express = require('express')
 const router = express.Router()
 const titto = require('../../agents/titto')
 const chitrag = require('../../agents/chitrag')
+const toolsAgent = require('../../agents/toolsAgent')
+const koel = require('../../agents/koel')
 const logger = require('../../utils/logger')
 const { readLatest, listArchive, readArchive } = require('../../state/researchStore')
+const { readLatest: readToolsLatest } = require('../../state/toolsStore')
 
 // GET /api/research/latest
 router.get('/research/latest', (req, res) => {
@@ -48,6 +51,55 @@ router.post('/chat', async (req, res) => {
   } catch (err) {
     logger.error('[API] Chat error', err)
     res.status(500).json({ error: 'Titto hit an error. Check logs.' })
+  }
+})
+
+// ── Tools endpoints ───────────────────────────────────────────────
+
+// GET /api/tools/latest
+router.get('/tools/latest', (req, res) => {
+  const data = readToolsLatest()
+  if (!data) return res.json({ tools: [], message: 'No tools run yet. Use /api/tools/trigger.' })
+  res.json(data)
+})
+
+// POST /api/tools/trigger
+router.post('/tools/trigger', async (req, res) => {
+  const { broadcast } = req.app.locals
+  res.json({ message: 'Tools fetch triggered. Results will arrive via WebSocket.' })
+  try {
+    await toolsAgent.run({ broadcast })
+  } catch (err) {
+    logger.error('[API] Tools trigger failed', err)
+    if (broadcast) broadcast({ type: 'error', data: { message: 'Tools run failed: ' + err.message } })
+  }
+})
+
+// ── Koel endpoints ────────────────────────────────────────────────
+
+// POST /api/koel/reload — reload knowledge files without restart
+router.post('/koel/reload', (req, res) => {
+  try {
+    koel.reload()
+    res.json({ message: 'Koel knowledge files reloaded.' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/koel/write
+// Body: { format, input, inputType, count, extraInstructions }
+router.post('/koel/write', async (req, res) => {
+  const { format = 'short', input, inputType = 'freetext', count = 3, extraInstructions = '' } = req.body
+  if (!input?.trim()) return res.status(400).json({ error: 'input is required' })
+  const { broadcast } = req.app.locals
+  // Respond immediately, result comes via WebSocket AND in response body
+  try {
+    const result = await koel.write({ format, input, inputType, count, extraInstructions, broadcast })
+    res.json(result)
+  } catch (err) {
+    logger.error('[API] Koel write failed', err)
+    res.status(500).json({ error: 'Koel hit an error: ' + err.message })
   }
 })
 

@@ -64,6 +64,19 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 .cat-body { overflow:hidden; transition: max-height .3s ease; }
 .cat-body.closed { max-height:0 !important; }
 
+/* ── Koel format / input type buttons ── */
+.fmt-btn   { background:var(--surface2); border-color:var(--border); color:var(--text2); cursor:pointer; transition:all .15s; }
+.fmt-btn:hover { border-color:#d97706; color:#d97706; }
+.active-fmt { background:rgba(245,158,11,.12) !important; border-color:#d97706 !important; color:#d97706 !important; }
+.itype-btn  { background:var(--surface2); border-color:var(--border); color:var(--text2); cursor:pointer; transition:all .15s; }
+.itype-btn:hover { border-color:var(--accent); color:var(--accent); }
+.active-itype { background:var(--accent-glow) !important; border-color:var(--accent) !important; color:var(--accent) !important; }
+
+/* ── Draft card ── */
+.draft-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px 18px; }
+.draft-card textarea { background:var(--surface2); border:1px solid transparent; border-radius:10px; padding:12px; font-size:13px; line-height:1.65; color:var(--text); width:100%; resize:vertical; outline:none; font-family:inherit; }
+.draft-card textarea:focus { border-color:var(--accent); }
+
 /* ── Titto bubble ── */
 #tittoBubble { position:fixed; bottom:24px; right:24px; z-index:100; }
 #tittoPanel  { position:fixed; bottom:90px; right:24px; z-index:99;
@@ -139,10 +152,9 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
       ChitraG
     </div>
 
-    <!-- Future agents will appear here -->
-    <div class="px-4 py-2.5 text-sm flex items-center gap-2.5 opacity-30 cursor-not-allowed" style="color:var(--text3); border-left:2px solid transparent">
-      <div style="width:24px;height:24px;border-radius:8px;background:var(--surface3);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text3)">+</div>
-      Coming soon
+    <div class="agent-tab px-4 py-2.5 text-sm font-medium flex items-center gap-2.5" onclick="switchAgent('koel')" id="tab-koel">
+      <div style="width:24px;height:24px;border-radius:8px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#d97706">K</div>
+      Koel
     </div>
 
     <!-- Bottom: Titto hint -->
@@ -192,6 +204,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
           </select>
 
           <!-- View buttons -->
+          <button onclick="switchView('tools')" id="btnTools" class="text-xs px-3 py-1.5 rounded-lg" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">🛠 Tools</button>
           <button onclick="switchView('history')" id="btnHistory" class="text-xs px-3 py-1.5 rounded-lg" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">History</button>
           <button onclick="switchView('logs')" id="btnLogs" class="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
             <span id="errDot" style="width:6px;height:6px;border-radius:50%;background:#55556a;display:inline-block"></span>Logs
@@ -234,6 +247,25 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
           <div id="categorySections"></div>
         </div>
 
+        <!-- ── TOOLS VIEW ── -->
+        <div id="toolsView" class="hidden fade-up">
+          <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div>
+              <div class="text-sm font-semibold" style="color:var(--text)">🛠 AI Tools of the Day</div>
+              <div class="text-xs mt-0.5" style="color:var(--text3)" id="toolsLastRun">Not run yet</div>
+            </div>
+            <button onclick="triggerTools()" id="toolsRunBtn"
+              class="text-xs px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5"
+              style="background:var(--accent);color:white">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              Find Tools
+            </button>
+          </div>
+          <div id="toolsRunning" class="hidden text-sm pulse mb-4" style="color:var(--accent)">Finding top AI tools…</div>
+          <div id="toolsList" class="flex flex-col gap-4"></div>
+          <div id="toolsEmpty" class="text-sm" style="color:var(--text3)">Click "Find Tools" to discover today's top 3 AI tools.</div>
+        </div>
+
         <!-- ── HISTORY VIEW ── -->
         <div id="historyView" class="hidden fade-up">
           <div class="text-sm font-medium mb-4" style="color:var(--text2)">Past research runs</div>
@@ -259,6 +291,93 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
             <button onclick="loadLog(currentLogTab)" style="margin-left:auto;font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text3);cursor:pointer;">↻ Refresh</button>
           </div>
           <div id="logContent" style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px;font-family:monospace;font-size:11px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;max-height:calc(100vh - 280px);color:var(--text2);">Loading…</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══════════════════ KOEL PANEL ══════════════════ -->
+    <div id="panel-koel" class="hidden flex-1 flex flex-col overflow-hidden">
+
+      <!-- Koel toolbar -->
+      <div style="background:var(--surface); border-bottom:1px solid var(--border); padding:10px 20px;" class="flex items-center gap-3 shrink-0 flex-wrap">
+        <div class="flex items-center gap-2">
+          <div style="width:28px;height:28px;border-radius:8px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#d97706">K</div>
+          <span class="font-semibold text-sm" style="color:#d97706">Koel</span>
+          <span class="text-xs" style="color:var(--text3)">Writing Agent</span>
+          <button onclick="reloadKoelFiles()" class="ml-3 text-xs px-2.5 py-1 rounded-lg" style="background:var(--surface2);border:1px solid var(--border);color:var(--text3);cursor:pointer;" title="Reload knowledge files after editing">↻ Reload Files</button>
+        </div>
+      </div>
+
+      <!-- Koel content -->
+      <div class="flex-1 overflow-y-auto p-5" id="koelMain">
+
+        <!-- ── INPUT SECTION ── -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:20px;">
+          <div class="text-sm font-semibold mb-4" style="color:var(--text)">Write an X Post</div>
+
+          <!-- Format selector -->
+          <div class="mb-4">
+            <div class="text-xs font-medium mb-2" style="color:var(--text2)">Format</div>
+            <div class="flex gap-2 flex-wrap" id="formatBtns">
+              <button onclick="selectFormat('short')"       data-fmt="short"        class="fmt-btn active-fmt text-xs px-3 py-1.5 rounded-lg border font-medium">Short Form</button>
+              <button onclick="selectFormat('thread')"      data-fmt="thread"       class="fmt-btn text-xs px-3 py-1.5 rounded-lg border font-medium">Thread</button>
+              <button onclick="selectFormat('longform')"    data-fmt="longform"     class="fmt-btn text-xs px-3 py-1.5 rounded-lg border font-medium">Long Form</button>
+              <button onclick="selectFormat('motivational')" data-fmt="motivational" class="fmt-btn text-xs px-3 py-1.5 rounded-lg border font-medium">Motivational</button>
+              <button onclick="selectFormat('engagement')"  data-fmt="engagement"   class="fmt-btn text-xs px-3 py-1.5 rounded-lg border font-medium">Engagement</button>
+            </div>
+            <div id="fmtDesc" class="text-xs mt-2" style="color:var(--text3)">Single tweet, punchy & direct, max 280 chars</div>
+          </div>
+
+          <!-- Input type tabs -->
+          <div class="mb-3">
+            <div class="text-xs font-medium mb-2" style="color:var(--text2)">Input</div>
+            <div class="flex gap-2 mb-2">
+              <button onclick="selectInputType('freetext')" data-itype="freetext" class="itype-btn active-itype text-xs px-3 py-1 rounded-lg border">Topic / Instruction</button>
+              <button onclick="selectInputType('url')"      data-itype="url"      class="itype-btn text-xs px-3 py-1 rounded-lg border">Paste URL</button>
+              <button onclick="selectInputType('topic')"    data-itype="topic"    class="itype-btn text-xs px-3 py-1 rounded-lg border">From Research</button>
+            </div>
+            <textarea id="koelInput" rows="3" placeholder="Describe the topic, paste a URL, or give an instruction…"
+              class="w-full text-sm rounded-xl px-4 py-3 outline-none resize-none"
+              style="background:var(--surface2);border:1px solid var(--border);color:var(--text);line-height:1.5;"></textarea>
+          </div>
+
+          <!-- Extra instructions (collapsible) -->
+          <div class="mb-4">
+            <button onclick="toggleExtraInstructions()" class="text-xs flex items-center gap-1" style="color:var(--text3);background:none;border:none;cursor:pointer;">
+              <span id="extraToggleIcon">▶</span> Extra instructions (optional)
+            </button>
+            <textarea id="koelExtra" rows="2" placeholder="e.g. Make it more personal, reference the transplant story, use lowercase…"
+              class="hidden w-full text-xs rounded-xl px-4 py-2 mt-2 outline-none resize-none"
+              style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);line-height:1.5;"></textarea>
+          </div>
+
+          <!-- Generate button -->
+          <button onclick="generateDrafts()" id="koelGenBtn"
+            class="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
+            style="background:#d97706;color:white;">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+            Generate 3 Drafts
+          </button>
+        </div>
+
+        <!-- ── WRITING STATE ── -->
+        <div id="koelWriting" class="hidden text-center py-10 fade-up">
+          <div style="font-size:40px;margin-bottom:12px">✍️</div>
+          <div class="text-sm font-semibold" style="color:#d97706">Koel is writing…</div>
+          <div class="text-xs mt-1 pulse" style="color:var(--text3)">Crafting drafts in Souvik's voice</div>
+        </div>
+
+        <!-- ── DRAFTS ── -->
+        <div id="koelDrafts" class="hidden fade-up">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-sm font-semibold" style="color:var(--text)">Drafts</div>
+            <button onclick="generateDrafts()" class="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1"
+              style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
+              ↻ Regenerate All
+            </button>
+          </div>
+          <div id="draftsList" class="flex flex-col gap-4"></div>
         </div>
 
       </div>
@@ -377,6 +496,16 @@ function onWSEvent(ev) {
   if (ev.type === 'research_progress')  { document.getElementById('pgStep').textContent = `${ev.data.step === 'fetching' ? 'Fetching' : 'Ranking with AI'} — ${ev.data.source}` }
   if (ev.type === 'chat_reply')          { hideTyping(); addMsg('titto', ev.data.content); showUnread() }
   if (ev.type === 'error')               { stopRunning(); enableRun(); hideTyping(); addMsg('titto','⚠️ ' + ev.data.message) }
+  if (ev.type === 'koel_complete')       { hide('koelWriting'); renderDrafts(ev.data); switchAgent('koel') }
+  if (ev.type === 'koel_progress')       { /* writing state already shown */ }
+  if (ev.type === 'tools_complete')      {
+    document.getElementById('toolsRunning').classList.add('hidden')
+    document.getElementById('toolsRunBtn').disabled = false
+    renderTools(ev.data)
+  }
+  if (ev.type === 'tools_progress')      {
+    document.getElementById('toolsRunning').textContent = ev.data.step === 'enriching' ? 'Enriching with YouTube & Twitter…' : 'Finding top AI tools…'
+  }
 }
 
 // ══════════════════ RESEARCH RENDER ══════════════════
@@ -590,10 +719,11 @@ function showPg(on) {
 
 // ══════════════════ HISTORY ══════════════════
 function switchView(v) {
-  hide('resultsView'); hide('emptyState'); hide('historyView'); hide('logsView')
+  hide('resultsView'); hide('emptyState'); hide('historyView'); hide('logsView'); hide('toolsView')
   document.getElementById('btnToday').classList.add('hidden')
   document.getElementById('btnHistory').classList.remove('hidden')
   document.getElementById('btnLogs').classList.remove('hidden')
+  document.getElementById('btnTools').classList.remove('hidden')
 
   if (v === 'history') {
     show('historyView')
@@ -605,8 +735,83 @@ function switchView(v) {
     document.getElementById('btnLogs').classList.add('hidden')
     document.getElementById('btnToday').classList.remove('hidden')
     loadLog('today')
+  } else if (v === 'tools') {
+    show('toolsView')
+    document.getElementById('btnTools').classList.add('hidden')
+    document.getElementById('btnToday').classList.remove('hidden')
+    loadToolsLatest()
   } else {
     if (allResults.length) show('resultsView'); else show('emptyState')
+  }
+}
+
+// ══════════════════ TOOLS ══════════════════
+const SOURCE_LABEL = { ainews: 'AI News', producthunt: 'Product Hunt', aiweekly: 'AI Weekly' }
+
+function renderTools(data) {
+  if (!data || !data.tools || !data.tools.length) {
+    document.getElementById('toolsEmpty').style.display = 'block'
+    document.getElementById('toolsList').innerHTML = ''
+    return
+  }
+  document.getElementById('toolsEmpty').style.display = 'none'
+  const ts = data.fetchedAt ? `Last run: ${new Date(data.fetchedAt).toLocaleString()}` : ''
+  document.getElementById('toolsLastRun').textContent = ts
+
+  document.getElementById('toolsList').innerHTML = data.tools.map((tool, i) => {
+    const yt = tool.youtube
+    const src = SOURCE_LABEL[tool.source] || tool.source || 'AI Tools'
+    return `
+    <div class="hover-card" style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;">
+      <div class="flex items-start gap-3">
+        <div style="width:32px;height:32px;border-radius:10px;background:var(--accent-glow);border:1px solid rgba(108,92,231,.2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:var(--accent);flex-shrink:0">${i+1}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+            <a href="${tool.url}" target="_blank" rel="noopener" style="font-size:15px;font-weight:600;color:var(--text);text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">${tool.name}</a>
+            <span class="badge" style="background:#f3f0ff;color:#6c5ce7;border:1px solid #d8ccf9;font-size:9px">${src}</span>
+          </div>
+          <div style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px">${tool.description}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a href="${tool.url}" target="_blank" rel="noopener"
+              style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);text-decoration:none;">
+              🔗 Open Tool ↗
+            </a>
+            ${yt ? `<a href="${yt.url}" target="_blank" rel="noopener"
+              style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:#fff0f0;border:1px solid #fad7d7;color:#c0392b;text-decoration:none;">
+              ▶ ${yt.channel.slice(0,22)}${yt.channel.length>22?'…':''}
+            </a>` : `<a href="https://www.youtube.com/results?search_query=${encodeURIComponent(tool.name+' AI tool')}" target="_blank" rel="noopener"
+              style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:#fff0f0;border:1px solid #fad7d7;color:#c0392b;text-decoration:none;">
+              ▶ Search YouTube
+            </a>`}
+            <a href="${tool.twitterSearchUrl}" target="_blank" rel="noopener"
+              style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:#eff6ff;border:1px solid #bdd7f5;color:#1d6fa4;text-decoration:none;">
+              𝕏 X Posts
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>`
+  }).join('')
+}
+
+async function loadToolsLatest() {
+  try {
+    const r = await fetch('/api/tools/latest')
+    const data = await r.json()
+    renderTools(data)
+  } catch(_) {}
+}
+
+async function triggerTools() {
+  document.getElementById('toolsRunBtn').disabled = true
+  document.getElementById('toolsRunning').classList.remove('hidden')
+  document.getElementById('toolsEmpty').style.display = 'none'
+  try {
+    await fetch('/api/tools/trigger', { method: 'POST' })
+    // result comes via WebSocket tools_complete event
+  } catch(e) {
+    document.getElementById('toolsRunning').classList.add('hidden')
+    document.getElementById('toolsRunBtn').disabled = false
   }
 }
 
@@ -634,6 +839,134 @@ async function loadArchive(filename) {
 function switchAgent(name) {
   document.querySelectorAll('.agent-tab').forEach(t => t.classList.remove('active'))
   document.getElementById(`tab-${name}`)?.classList.add('active')
+  // Show/hide panels
+  document.getElementById('panel-chitrag').classList.toggle('hidden', name !== 'chitrag')
+  document.getElementById('panel-koel').classList.toggle('hidden', name !== 'koel')
+}
+
+// ══════════════════ KOEL ══════════════════
+const FORMAT_DESCS = {
+  short:        'Single tweet, punchy & direct, max 280 chars',
+  thread:       '5–10 tweet thread, numbered, story or how-to',
+  longform:     'Single detailed post, 400–900 chars, build-in-public voice',
+  motivational: 'Personal story or resilience post, emotional + universal lesson',
+  engagement:   'DM giveaway post with CTA keyword (comment X + follow)',
+}
+let koelFormat = 'short'
+let koelInputType = 'freetext'
+
+function selectFormat(fmt) {
+  koelFormat = fmt
+  document.querySelectorAll('.fmt-btn').forEach(b => b.classList.toggle('active-fmt', b.dataset.fmt === fmt))
+  document.getElementById('fmtDesc').textContent = FORMAT_DESCS[fmt] || ''
+}
+
+function selectInputType(itype) {
+  koelInputType = itype
+  document.querySelectorAll('.itype-btn').forEach(b => b.classList.toggle('active-itype', b.dataset.itype === itype))
+  const placeholders = {
+    freetext: 'Describe the topic, give an instruction, or write a seed idea…',
+    url:      'Paste an article URL here…',
+    topic:    'Copy a headline or topic from ChitraG's research results…',
+  }
+  document.getElementById('koelInput').placeholder = placeholders[itype] || ''
+}
+
+function toggleExtraInstructions() {
+  const el = document.getElementById('koelExtra')
+  const icon = document.getElementById('extraToggleIcon')
+  const hidden = el.classList.toggle('hidden')
+  icon.textContent = hidden ? '▶' : '▼'
+}
+
+async function generateDrafts() {
+  const input = document.getElementById('koelInput').value.trim()
+  if (!input) { document.getElementById('koelInput').focus(); return }
+  const extra = document.getElementById('koelExtra').value.trim()
+
+  document.getElementById('koelGenBtn').disabled = true
+  hide('koelDrafts')
+  show('koelWriting')
+
+  try {
+    const res = await fetch('/api/koel/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: koelFormat, input, inputType: koelInputType, count: 3, extraInstructions: extra }),
+    })
+    const data = await res.json()
+    if (data.error) throw new Error(data.error)
+    renderDrafts(data)
+  } catch (err) {
+    hide('koelWriting')
+    alert('Koel hit an error: ' + err.message)
+  } finally {
+    document.getElementById('koelGenBtn').disabled = false
+    hide('koelWriting')
+  }
+}
+
+function renderDrafts(data) {
+  const drafts = data.drafts || []
+  const fmtLabel = FORMAT_DESCS[data.format] ? data.format.charAt(0).toUpperCase() + data.format.slice(1) : data.format
+  document.getElementById('draftsList').innerHTML = drafts.map((text, i) => `
+    <div class="draft-card">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-semibold" style="color:#d97706">Draft ${i + 1} · ${fmtLabel}</span>
+        <div class="flex gap-2">
+          <button onclick="copyDraft(${i})" class="text-xs px-2.5 py-1 rounded-lg" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;" title="Copy to clipboard">
+            📋 Copy
+          </button>
+          <button onclick="regenerateDraft(${i})" class="text-xs px-2.5 py-1 rounded-lg" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;" title="Regenerate this draft">
+            ↻ Redo
+          </button>
+        </div>
+      </div>
+      <textarea id="draft-text-${i}" rows="${Math.max(4, Math.ceil(text.length / 60))}">${text}</textarea>
+    </div>
+  `).join('')
+  show('koelDrafts')
+  // Store current data for redo
+  window._koelLastData = data
+}
+
+function copyDraft(i) {
+  const el = document.getElementById(`draft-text-${i}`)
+  if (!el) return
+  navigator.clipboard.writeText(el.value).then(() => {
+    const btns = document.querySelectorAll('#draftsList .draft-card')
+    const btn = btns[i]?.querySelector('button')
+    if (btn) { btn.textContent = '✓ Copied!'; setTimeout(() => btn.textContent = '📋 Copy', 1500) }
+  })
+}
+
+async function reloadKoelFiles() {
+  try {
+    const r = await fetch('/api/koel/reload', { method: 'POST' })
+    const d = await r.json()
+    alert(d.message || 'Reloaded.')
+  } catch (e) {
+    alert('Reload failed: ' + e.message)
+  }
+}
+
+async function regenerateDraft(i) {
+  if (!window._koelLastData) return
+  const { format, inputType, input } = window._koelLastData
+  const extra = document.getElementById('koelExtra').value.trim()
+  const el = document.getElementById(`draft-text-${i}`)
+  if (el) { el.value = 'Koel is rewriting…'; el.disabled = true }
+  try {
+    const res = await fetch('/api/koel/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format, input, inputType, count: 1, extraInstructions: extra + ' (write a fresh variation, different from before)' }),
+    })
+    const data = await res.json()
+    if (el) { el.value = data.drafts?.[0] || el.value; el.disabled = false }
+  } catch (err) {
+    if (el) { el.value = 'Error. Try again.'; el.disabled = false }
+  }
 }
 
 // ══════════════════ UTILS ══════════════════

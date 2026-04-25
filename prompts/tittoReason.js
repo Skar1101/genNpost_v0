@@ -9,7 +9,7 @@ function buildIntentPrompt(userMessage, recentHistory = []) {
 
 Your squad:
 - ChitraG: research agent. Fetches trending AI/tech content. Returns ranked list of post ideas.
-- (More agents coming later)
+- Koel: writing agent. Writes X (Twitter) post drafts in Souvik's voice. Formats: short, thread, longform, motivational, engagement.
 
 Recent conversation:
 ${historyText || '(no prior context)'}
@@ -22,6 +22,7 @@ INTENT TYPES:
 - "redo_research" — Souvik wants ChitraG to re-run or adjust research
 - "show_latest" — Souvik wants to see current research results
 - "focus_change" — Souvik wants to bias future research toward specific topics
+- "write_post" — Souvik wants Koel to write an X post or thread
 - "question" — Souvik is asking a strategic or general question (answer directly)
 - "feedback" — Feedback on Titto's response quality or behavior
 - "other" — Doesn't fit above (handle conversationally)
@@ -32,19 +33,29 @@ For redo_research, extract instruction delta:
 - exclude_topics: topics to completely exclude (array)
 - full_rerun: true if Souvik wants a complete fresh fetch
 
+For write_post, extract:
+- format: short | thread | longform | motivational | engagement (infer from message, default "short")
+- input: the topic, URL, or instruction Souvik provided
+- inputType: url | topic | freetext
+- extraInstructions: any specific tone/style notes
+
 RETURN JSON ONLY:
 {
-  "intent": "redo_research|show_latest|focus_change|question|feedback|other",
+  "intent": "redo_research|show_latest|focus_change|write_post|question|feedback|other",
   "reply": "Titto's response to send back to Souvik (direct, warm, no filler)",
-  "instructionDelta": {
-    "focus": [],
-    "downweight": [],
-    "exclude_topics": [],
-    "full_rerun": false
-  }
+  "instructionDelta": null,
+  "koelRequest": null
 }
 
-Note: instructionDelta is only used when intent is "redo_research". Set it to null for other intents.`
+Where koelRequest (only for write_post intent) is:
+{
+  "format": "short|thread|longform|motivational|engagement",
+  "input": "the topic or URL",
+  "inputType": "url|topic|freetext",
+  "extraInstructions": ""
+}
+
+Note: instructionDelta only for redo_research. koelRequest only for write_post. Set unused fields to null.`
 }
 
 module.exports = { buildIntentPrompt }

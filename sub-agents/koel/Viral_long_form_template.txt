@@ -1,0 +1,96 @@
+# Viral AI Open-Source Announcement Playbook
+**Replicating @sharbel & @Saboo_Shubham_ 100K+ View Posts**
+*Updated: April 2026*
+
+---
+
+## 1. Why These Accounts Go Viral
+- **@sharbel** (69K followers): "Someone just open-sourced X" + weekly GitHub roundups. Niche: AI agents, Claude tools, multi-agent frameworks.
+- **@Saboo_Shubham_** (113K followers): Personal repo promotion (awesome-llm-apps = 107K+ stars) + practical Karpathy-style builds.
+- Audience: Starved indie AI builders who want **instant, free, actionable tools**.
+
+**Core Reason for 100K Views**: They deliver **signal in the noise** — clear problem → dead-simple solution → proof (stars + screenshot).
+
+---
+
+## 2. Virality Breakdown (What Actually Works)
+
+| Element          | Formula Used                          | Psychological/Algo Trigger                  | Result |
+|------------------|---------------------------------------|---------------------------------------------|--------|
+| **Hook**        | Emoji + bold claim + curiosity gap   | Stops scroll instantly                      | High CTR |
+| **Timeliness**  | "Just dropped", "48 hours", "This week" | FOMO + newsjacking                          | Early momentum |
+| **Pain → Solution** | One relatable frustration         | Immediate relatability                      | Bookmarks |
+| **How-To**      | 3-bullet maximum steps               | Zero friction to try                        | "Trying now!" replies |
+| **Proof**       | Stars count + "100% free/local"      | Trust + anti-hype signal                    | Reposts |
+| **Visual**      | One clean screenshot                 | Proof + aesthetic                           | Higher completion |
+| **Length**      | 8–15 lines (single post)             | Mobile-perfect                              | Algo boost |
+
+**Engagement Flywheel**: Early likes → algo push → community replies → quotes → sustained views.
+
+---
+
+## 3. Universal Copy-Paste Template
+
+```markdown
+🚨 [STRONG HOOK + CURIOSITY GAP]
+
+[One-line repo description]
+
+Why this matters:
+• [Main pain devs face]
+• [How this repo fixes it perfectly]
+• [Hidden benefit]
+
+How to use it (3 steps):
+1. [First dead-simple action]
+2. [Second action]
+3. [Third action — instant win]
+
+[One killer extra feature or note]
+
+[Stars] GitHub stars already. 100% free & open source.
+
+[Direct GitHub Link]
+
+Bookmark this. Next week's meta changes.
+
+
+
+Example 1:
+🚨 Hermes Agent is one of the most powerful open source AI agent frameworks.
+
+But nobody knows how to use it.
+
+This just changed.
+
+hermes-agent-orange-book dropped — complete guide from zero to production.
+
+568 stars in 48 hours.
+
+Why it's great:
+• Most people clone Hermes and get lost in docs
+• This turns it into a step-by-step playbook used by top AI labs
+
+How to use:
+1. Open the Orange Book
+2. Follow chapter by chapter
+3. Deploy a fully autonomous agent in one afternoon
+
+Open the repo. Build while you sleep.
+
+https://github.com/...
+
+Bookmark this
+
+example 2:
+Golden age of open source AI.
+
+100+ production-ready AI Agents, multi-agent teams & RAG templates.
+
+100% free & open source.
+
+Already [X]K GitHub stars.
+
+https://github.com/Shubhamsaboo/awesome-llm-apps
+
+Save this list.

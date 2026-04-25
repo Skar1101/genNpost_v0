@@ -1,0 +1,23 @@
+const fs = require('fs')
+const path = require('path')
+
+const DATA_DIR = path.join(__dirname, 'data')
+const LATEST_FILE = path.join(DATA_DIR, 'tools-latest.json')
+
+function ensureDir() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
+}
+
+function writeLatest(data) {
+  ensureDir()
+  const tmp = LATEST_FILE + '.tmp'
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2))
+  fs.renameSync(tmp, LATEST_FILE)
+}
+
+function readLatest() {
+  if (!fs.existsSync(LATEST_FILE)) return null
+  try { return JSON.parse(fs.readFileSync(LATEST_FILE, 'utf8')) } catch (_) { return null }
+}
+
+module.exports = { writeLatest, readLatest }
