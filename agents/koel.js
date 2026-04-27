@@ -1,6 +1,7 @@
 require('dotenv').config()
 const OpenAI = require('openai')
 const { buildKoelSystemPrompt, buildKoelUserPrompt, reloadKnowledge } = require('../prompts/koelWrite')
+const { appendEntry } = require('../state/koelStore')
 const logger = require('../utils/logger')
 const log = logger.source('koel')
 
@@ -93,6 +94,7 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
 
   if (broadcast) broadcast({ type: 'koel_complete', data: result })
   log.info(`${drafts.length} drafts generated for format: ${format}`)
+  appendEntry(result)
   return result
 }
 

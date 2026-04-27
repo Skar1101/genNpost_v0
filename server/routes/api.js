@@ -7,6 +7,7 @@ const koel = require('../../agents/koel')
 const logger = require('../../utils/logger')
 const { readLatest, listArchive, readArchive } = require('../../state/researchStore')
 const { readLatest: readToolsLatest } = require('../../state/toolsStore')
+const { readHistory: readKoelHistory } = require('../../state/koelStore')
 
 // GET /api/research/latest
 router.get('/research/latest', (req, res) => {
@@ -29,11 +30,11 @@ router.get('/research/archive/:filename', (req, res) => {
 
 // POST /api/research/trigger
 router.post('/research/trigger', async (req, res) => {
-  const { broadcast } = req.app.locals
+  const { broadcast, telegramSend } = req.app.locals
   res.json({ message: 'Research triggered. Results will arrive via WebSocket.' })
   try {
     const results = await chitrag.run({ triggeredBy: 'user', broadcast })
-    if (results) await titto.deliverResearch(results, null, broadcast)
+    if (results) await titto.deliverResearch(results, telegramSend, broadcast)
   } catch (err) {
     logger.error('[API] Research trigger failed', err)
     if (broadcast) broadcast({ type: 'error', data: { message: 'Research run failed: ' + err.message } })
@@ -76,6 +77,11 @@ router.post('/tools/trigger', async (req, res) => {
 })
 
 // ── Koel endpoints ────────────────────────────────────────────────
+
+// GET /api/koel/history
+router.get('/koel/history', (req, res) => {
+  res.json(readKoelHistory())
+})
 
 // POST /api/koel/reload — reload knowledge files without restart
 router.post('/koel/reload', (req, res) => {

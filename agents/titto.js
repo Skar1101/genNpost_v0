@@ -45,23 +45,14 @@ function handleLatest() {
   }
 }
 
-async function handleTriggerResearch(_, broadcast) {
+async function handleTriggerResearch(_, broadcast, telegramSend) {
   const reply = "On it. ChitraG is running research now — I'll let you know when it's ready."
-  // Run async — don't await here, deliver when done
-  chitrag.run({ triggeredBy: 'user', broadcast }).then(results => {
-    if (broadcast && results) {
-      broadcast({ type: 'research_complete', data: results })
-      broadcast({
-        type: 'chat_reply',
-        data: {
-          role: 'titto',
-          content: formatResearchSummary(results),
-        }
-      })
-    }
+  chitrag.run({ triggeredBy: 'user', broadcast }).then(async results => {
+    if (results) await deliverResearch(results, telegramSend, broadcast)
   }).catch(err => {
     console.error('[Titto] Research run failed:', err.message)
     if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: 'Research run hit an error. Check the logs.' } })
+    if (telegramSend) telegramSend('Research run hit an error. Check the logs.')
   })
   return { reply, action: 'research_started' }
 }
@@ -90,13 +81,13 @@ function formatResearchSummary(data) {
   return `Research done. ${data.results.length} results ranked.\n\nTop pick: "${top.title}" [Score: ${top.trendingScore}] — ${top.postPotential} · ${top.source}\n\nCheck the ChitraG panel for the full list.`
 }
 
-async function handleMessage({ text, sessionId = 'default', source = 'web', broadcast = null }) {
+async function handleMessage({ text, sessionId = 'default', source = 'web', broadcast = null, telegramSend = null }) {
   const input = text.trim()
 
   // Simple command routing — no LLM
   const commandFn = SIMPLE_COMMANDS[input.toLowerCase()]
   if (commandFn) {
-    const result = await commandFn(input, broadcast)
+    const result = await commandFn(input, broadcast, telegramSend)
     appendMessage(sessionId, 'user', input)
     appendMessage(sessionId, 'assistant', result.reply)
     return result
@@ -139,13 +130,11 @@ async function handleMessage({ text, sessionId = 'default', source = 'web', broa
   // Handle intent
   if (parsed.intent === 'redo_research' && parsed.instructionDelta) {
     const confirmReply = parsed.reply + '\n\nStarting re-research with updated focus...'
-    chitrag.run({ triggeredBy: 'feedback-redo', instructions: parsed.instructionDelta, broadcast }).then(results => {
-      if (broadcast && results) {
-        broadcast({ type: 'research_complete', data: results })
-        broadcast({ type: 'chat_reply', data: { role: 'titto', content: formatResearchSummary(results) } })
-      }
+    chitrag.run({ triggeredBy: 'feedback-redo', instructions: parsed.instructionDelta, broadcast }).then(async results => {
+      if (results) await deliverResearch(results, telegramSend, broadcast)
     }).catch(err => {
       console.error('[Titto] Re-research failed:', err.message)
+      if (telegramSend) telegramSend('Re-research hit an error. Check the logs.')
     })
     return { reply: confirmReply, action: 'research_started' }
   }

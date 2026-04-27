@@ -13,10 +13,8 @@ function init(app, broadcast) {
     return null
   }
 
-  bot = new TelegramBot(token)
-
   const sendToUser = async (text) => {
-    if (!chatId) return
+    if (!chatId || !bot) return
     try {
       await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' })
     } catch (err) {
@@ -29,28 +27,29 @@ function init(app, broadcast) {
     }
   }
 
-  // Register webhook if URL provided
-  if (webhookUrl) {
+  if (webhookUrl && webhookUrl.trim()) {
+    // ── Webhook mode (production) ──────────────────────────────
+    bot = new TelegramBot(token)
     bot.setWebHook(`${webhookUrl}/telegram/webhook`)
-      .then(() => console.log('[Telegram] Webhook registered:', webhookUrl))
+      .then(() => console.log('[Telegram] Webhook mode — registered:', webhookUrl))
       .catch(err => console.warn('[Telegram] Webhook registration failed:', err.message))
+
+    app.post('/telegram/webhook', (req, res) => {
+      bot.processUpdate(req.body)
+      res.sendStatus(200)
+    })
   } else {
-    console.warn('[Telegram] No TELEGRAM_WEBHOOK_URL — Telegram webhook not registered (add ngrok URL for local dev)')
+    // ── Polling mode (local dev — no public URL needed) ────────
+    bot = new TelegramBot(token, { polling: true })
+    console.log('[Telegram] Polling mode started')
   }
 
-  // Webhook endpoint
-  app.post('/telegram/webhook', (req, res) => {
-    bot.processUpdate(req.body)
-    res.sendStatus(200)
-  })
-
-  // Message handler
+  // Message handler (same for both modes)
   bot.on('message', async (msg) => {
     const incomingChatId = String(msg.chat.id)
     const text = msg.text || ''
     console.log(`[Telegram] Message from ${incomingChatId}: ${text}`)
 
-    // Reject if TELEGRAM_CHAT_ID is set and message is from a different chat
     if (chatId && incomingChatId !== String(chatId)) {
       console.warn('[Telegram] Message from unknown chat, ignoring')
       return
@@ -62,12 +61,17 @@ function init(app, broadcast) {
         sessionId: `telegram-${incomingChatId}`,
         source: 'telegram',
         broadcast,
+        telegramSend: sendToUser,
       })
       if (result.reply) await sendToUser(result.reply)
     } catch (err) {
       console.error('[Telegram] Handler error:', err.message)
       await sendToUser('Something went wrong on my end. Check the logs.')
     }
+  })
+
+  bot.on('polling_error', (err) => {
+    console.warn('[Telegram] Polling error:', err.message)
   })
 
   console.log('[Telegram] Bot initialized')

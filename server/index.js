@@ -24,6 +24,7 @@ app.use('/api', apiRouter)
 // Init Telegram
 const telegramResult = telegram.init(app, ws.broadcast)
 const telegramSend = telegramResult ? telegram.getSendFn() : null
+app.locals.telegramSend = telegramSend
 
 // Init scheduler
 initScheduler(ws.broadcast, telegramSend)
