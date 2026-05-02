@@ -1,30 +1,60 @@
 const cron = require('node-cron')
 const chitrag = require('../agents/chitrag')
 const titto = require('../agents/titto')
+const quill = require('../agents/quill')
 
 function initScheduler(broadcast, telegramSend) {
-  // 6:00 AM daily
-  cron.schedule('0 6 * * *', () => runScheduled('morning', broadcast, telegramSend))
+  // 6:00am IST = 00:30 UTC daily
+  cron.schedule('30 0 * * *', () => runMorning(broadcast, telegramSend), { timezone: 'UTC' })
 
-  // 6:00 PM daily
-  cron.schedule('0 18 * * *', () => runScheduled('evening', broadcast, telegramSend))
+  // 6:00pm IST = 12:30 UTC daily
+  cron.schedule('30 12 * * *', () => runEvening(broadcast, telegramSend), { timezone: 'UTC' })
 
-  console.log('[Scheduler] Cron jobs initialized — 6am + 6pm daily')
+  // Sunday 6:00am IST = 00:30 UTC Sunday (runs after daily morning)
+  cron.schedule('0 1 * * 0', () => runWeekly(broadcast, telegramSend), { timezone: 'UTC' })
+
+  console.log('[Scheduler] Cron jobs initialized — 6am IST + 6pm IST daily, Sunday weekly wrap')
 }
 
-async function runScheduled(label, broadcast, telegramSend) {
-  console.log(`[Scheduler] Starting ${label} research run`)
+async function runMorning(broadcast, telegramSend) {
+  console.log('[Scheduler] Starting morning research run (6am IST)')
   try {
     const results = await chitrag.run({ triggeredBy: 'scheduler', broadcast })
     if (results) {
       await titto.deliverResearch(results, telegramSend, broadcast)
-      console.log(`[Scheduler] ${label} run delivered — ${results.results?.length} results`)
+      console.log(`[Scheduler] Morning research delivered — ${results.results?.length} results`)
+
+      // Quill runs after research is delivered
+      await quill.runDaily({ research: results, broadcast, telegramSend })
     }
   } catch (err) {
-    console.error(`[Scheduler] ${label} run failed:`, err.message)
-    if (telegramSend) {
-      telegramSend(`Research run (${label}) failed: ${err.message}`).catch(() => {})
+    console.error('[Scheduler] Morning run failed:', err.message)
+    if (telegramSend) telegramSend(`⚠️ Morning run failed: ${err.message}`).catch(() => {})
+  }
+}
+
+async function runEvening(broadcast, telegramSend) {
+  console.log('[Scheduler] Starting evening research run (6pm IST)')
+  try {
+    const results = await chitrag.run({ triggeredBy: 'scheduler', broadcast })
+    if (results) {
+      await titto.deliverResearch(results, telegramSend, broadcast)
+      console.log(`[Scheduler] Evening research delivered — ${results.results?.length} results`)
     }
+  } catch (err) {
+    console.error('[Scheduler] Evening run failed:', err.message)
+    if (telegramSend) telegramSend(`⚠️ Evening run failed: ${err.message}`).catch(() => {})
+  }
+}
+
+async function runWeekly(broadcast, telegramSend) {
+  console.log('[Scheduler] Starting weekly wrap (Sunday)')
+  try {
+    await quill.runWeekly({ broadcast, telegramSend })
+    console.log('[Scheduler] Weekly wrap complete')
+  } catch (err) {
+    console.error('[Scheduler] Weekly run failed:', err.message)
+    if (telegramSend) telegramSend(`⚠️ Weekly wrap failed: ${err.message}`).catch(() => {})
   }
 }
 

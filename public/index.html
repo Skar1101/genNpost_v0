@@ -157,6 +157,11 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
       Koel
     </div>
 
+    <div class="agent-tab px-4 py-2.5 text-sm font-medium flex items-center gap-2.5" onclick="switchAgent('quill')" id="tab-quill">
+      <div style="width:24px;height:24px;border-radius:8px;background:rgba(236,72,153,.12);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#db2777">Q</div>
+      Quill
+    </div>
+
     <!-- Bottom: Titto hint -->
     <div class="mt-auto px-4 pt-4 border-t" style="border-color:var(--border)">
       <div class="text-xs" style="color:var(--text3)">Talk to Titto</div>
@@ -182,8 +187,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
           <!-- Last run info -->
           <span id="lastRunInfo" class="text-xs" style="color:var(--text3)">No run yet</span>
 
-          <!-- Category filter -->
-          <select id="catFilter" onchange="applyFilter()" class="text-xs px-2.5 py-1.5 rounded-lg outline-none" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
+          <!-- Source filter (acts as run-only-this-source button) -->
+          <select id="catFilter" onchange="applySourceFilter()" class="text-xs px-2.5 py-1.5 rounded-lg outline-none" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
             <option value="all">All sources</option>
             <option value="youtube">YouTube</option>
             <option value="twitter">Twitter / X</option>
@@ -196,20 +201,26 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
           </select>
 
           <!-- Post type filter -->
-          <select id="typeFilter" onchange="applyFilter()" class="text-xs px-2.5 py-1.5 rounded-lg outline-none" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
+          <select id="typeFilter" onchange="renderRunsView()" class="text-xs px-2.5 py-1.5 rounded-lg outline-none" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
             <option value="all">All types</option>
             <option value="thread">Thread</option>
             <option value="long">Long</option>
             <option value="short">Short</option>
           </select>
 
+          <!-- Sort toggle (latest run only) -->
+          <select id="sortOrder" onchange="renderRunsView()" class="text-xs px-2.5 py-1.5 rounded-lg outline-none" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
+            <option value="rank">Sort: Rank</option>
+            <option value="score">Sort: Score ↓</option>
+            <option value="score_asc">Sort: Score ↑</option>
+          </select>
+
           <!-- View buttons -->
           <button onclick="switchView('tools')" id="btnTools" class="text-xs px-3 py-1.5 rounded-lg" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">🛠 Tools</button>
-          <button onclick="switchView('history')" id="btnHistory" class="text-xs px-3 py-1.5 rounded-lg" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">History</button>
           <button onclick="switchView('logs')" id="btnLogs" class="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
             <span id="errDot" style="width:6px;height:6px;border-radius:50%;background:#55556a;display:inline-block"></span>Logs
           </button>
-          <button onclick="switchView('today')" id="btnToday" class="text-xs px-3 py-1.5 rounded-lg hidden" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">← Today</button>
+          <button onclick="switchView('today')" id="btnToday" class="text-xs px-3 py-1.5 rounded-lg hidden" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">← Results</button>
 
           <!-- Run button -->
           <button onclick="triggerResearch()" id="runBtn"
@@ -239,12 +250,21 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
           <div id="pgStep" class="text-sm pulse" style="color:var(--text2)">Starting…</div>
         </div>
 
-        <!-- ── RESULTS VIEW ── -->
+        <!-- ── RUNS VIEW (replaces old resultsView) ── -->
         <div id="resultsView" class="hidden fade-up">
-          <!-- source summary chips -->
-          <div id="sourceSummary" class="flex gap-2 flex-wrap mb-5"></div>
-          <!-- category sections injected here -->
-          <div id="categorySections"></div>
+          <!-- source filter banner (shown when a source is selected) -->
+          <div id="sourceFilterBanner" class="hidden mb-3 px-4 py-2.5 rounded-xl flex items-center gap-3" style="background:rgba(108,92,231,.07);border:1px solid rgba(108,92,231,.15);">
+            <span class="text-xs font-semibold" style="color:var(--accent)" id="sourceFilterLabel"></span>
+            <span class="text-xs" style="color:var(--text3)">Showing only this source across all runs</span>
+            <button onclick="runSourceOnly()" class="ml-1 text-xs px-2.5 py-1 rounded-lg font-semibold" style="background:var(--accent);color:white;border:none;cursor:pointer;">Run This Source</button>
+            <button onclick="clearSourceFilter()" class="ml-auto text-xs px-2 py-0.5 rounded-lg" style="background:none;border:1px solid var(--border2);color:var(--text3);cursor:pointer;">✕ Clear</button>
+          </div>
+          <!-- run sections injected here -->
+          <div id="runSections"></div>
+          <!-- show-more button -->
+          <div id="showMoreRuns" class="hidden text-center py-4">
+            <button onclick="showMoreRunsClick()" class="text-xs px-4 py-2 rounded-xl" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">Show more runs</button>
+          </div>
         </div>
 
         <!-- ── TOOLS VIEW ── -->
@@ -264,12 +284,6 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
           <div id="toolsRunning" class="hidden text-sm pulse mb-4" style="color:var(--accent)">Finding top AI tools…</div>
           <div id="toolsList" class="flex flex-col gap-4"></div>
           <div id="toolsEmpty" class="text-sm" style="color:var(--text3)">Click "Find Tools" to discover today's top 3 AI tools.</div>
-        </div>
-
-        <!-- ── HISTORY VIEW ── -->
-        <div id="historyView" class="hidden fade-up">
-          <div class="text-sm font-medium mb-4" style="color:var(--text2)">Past research runs</div>
-          <div id="historyList" class="flex flex-col gap-2"></div>
         </div>
 
         <!-- ── LOGS VIEW ── -->
@@ -400,6 +414,56 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 
     </div>
 
+    <!-- ══ QUILL PANEL ══ -->
+    <div id="panel-quill" class="hidden flex-1 flex flex-col overflow-hidden">
+
+      <!-- Quill toolbar -->
+      <div style="background:var(--surface); border-bottom:1px solid var(--border); padding:10px 20px;" class="flex items-center gap-3 shrink-0 flex-wrap">
+        <div class="flex items-center gap-2">
+          <div style="width:28px;height:28px;border-radius:8px;background:rgba(236,72,153,.12);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#db2777">Q</div>
+          <span class="font-semibold text-sm" style="color:#db2777">Quill</span>
+          <span class="text-xs" style="color:var(--text3)">Daily Content Agent</span>
+        </div>
+        <div class="flex gap-2 ml-auto flex-wrap">
+          <button onclick="triggerQuillDaily()" id="quillDailyBtn"
+            class="text-xs px-3 py-1.5 rounded-lg font-semibold"
+            style="background:#db2777;color:white;border:none;cursor:pointer;">
+            ✍️ Generate Today
+          </button>
+          <button onclick="triggerQuillWeekly()" id="quillWeeklyBtn"
+            class="text-xs px-3 py-1.5 rounded-lg font-medium"
+            style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">
+            📝 Weekly Run
+          </button>
+        </div>
+      </div>
+
+      <!-- Quill content -->
+      <div class="flex-1 overflow-y-auto p-5" id="quillMain">
+
+        <!-- Writing state -->
+        <div id="quillWorking" class="hidden text-center py-10 fade-up">
+          <div style="font-size:40px;margin-bottom:12px">🪶</div>
+          <div class="text-sm font-semibold" style="color:#db2777">Quill is writing your daily lineup...</div>
+          <div id="quillWorkingStep" class="text-xs mt-1 pulse" style="color:var(--text3)">Assigning topics from research...</div>
+        </div>
+
+        <!-- Empty state -->
+        <div id="quillEmpty" class="text-center py-16">
+          <div style="font-size:48px;margin-bottom:16px">🪶</div>
+          <div class="text-sm font-semibold mb-2" style="color:var(--text)">No drafts yet</div>
+          <div class="text-xs mb-6" style="color:var(--text3)">Quill runs automatically at 6am IST after ChitraG.<br>Or trigger it manually above.</div>
+          <button onclick="triggerQuillDaily()" class="text-sm px-5 py-2.5 rounded-xl font-semibold" style="background:#db2777;color:white;border:none;cursor:pointer;">
+            Generate Today's Drafts
+          </button>
+        </div>
+
+        <!-- Day-by-day history -->
+        <div id="quillHistory" class="hidden flex flex-col gap-5"></div>
+
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -482,7 +546,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 
 <script>
 // ══════════════════ GLOBALS ══════════════════
-let ws, allResults = [], currentData = null
+let ws, allRuns = [], visibleRunCount = 2
 const sessionId = 'web-' + Math.random().toString(36).slice(2,9)
 
 const CAT_META = {
@@ -509,12 +573,25 @@ function setWS(on) {
   document.getElementById('wsLbl').textContent = on ? 'live' : 'offline'
 }
 function onWSEvent(ev) {
-  if (ev.type === 'research_complete') { stopRunning(); renderResults(ev.data); enableRun() }
+  if (ev.type === 'research_complete') { stopRunning(); addOrUpdateRun(ev.data); enableRun() }
   if (ev.type === 'research_progress')  { document.getElementById('pgStep').textContent = `${ev.data.step === 'fetching' ? 'Fetching' : 'Ranking with AI'} — ${ev.data.source}` }
   if (ev.type === 'chat_reply')          { hideTyping(); addMsg('titto', ev.data.content); showUnread() }
   if (ev.type === 'error')               { stopRunning(); enableRun(); hideTyping(); addMsg('titto','⚠️ ' + ev.data.message) }
   if (ev.type === 'koel_complete')       { hide('koelWriting'); renderDrafts(ev.data); switchAgent('koel') }
   if (ev.type === 'koel_progress')       { /* writing state already shown */ }
+  if (ev.type === 'quill_complete')      { hide('quillWorking'); loadQuillLatest() }
+  if (ev.type === 'quill_progress')      {
+    const step = ev.data?.step || ''
+    const labels = {
+      assigning_topics: 'Assigning topics from research\u2026',
+      writing_motivational: 'Writing motivational posts\u2026',
+      writing_threads: 'Writing threads\u2026',
+      writing_shorts: 'Writing short tweets\u2026',
+      writing_trending: 'Writing trending post\u2026',
+    }
+    const el = document.getElementById('quillWorkingStep')
+    if (el) el.textContent = labels[step] || 'Writing\u2026'
+  }
   if (ev.type === 'tools_complete')      {
     document.getElementById('toolsRunning').classList.add('hidden')
     document.getElementById('toolsRunBtn').disabled = false
@@ -526,63 +603,134 @@ function onWSEvent(ev) {
 }
 
 // ══════════════════ RESEARCH RENDER ══════════════════
-function renderResults(data) {
+function addOrUpdateRun(data) {
   if (!data) return
-  currentData = data
-  allResults = data.results || []
+  // Replace if same runId, else prepend
+  const idx = allRuns.findIndex(r => r.runId === data.runId)
+  if (idx >= 0) allRuns[idx] = data
+  else allRuns.unshift(data)
+  visibleRunCount = Math.max(visibleRunCount, 2)
 
-  const ts = data.rankedAt ? new Date(data.rankedAt).toLocaleString() : ''
-  document.getElementById('lastRunInfo').textContent = `${allResults.length} items · ${ts}`
+  const latest = allRuns[0]
+  const ts = latest.rankedAt ? new Date(latest.rankedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST' : ''
+  document.getElementById('lastRunInfo').textContent = `${latest.results?.length || 0} items · ${ts}`
 
   hide('emptyState'); hide('runningState')
   show('resultsView')
-  renderSourceChips(data)
-  applyFilter()
+  renderRunsView()
 }
 
-function renderSourceChips(data) {
-  const counts = {}
-  for (const r of allResults) counts[r.source] = (counts[r.source]||0)+1
-  document.getElementById('sourceSummary').innerHTML = Object.entries(counts).map(([s,n]) => {
-    const m = CAT_META[s] || { label:s, icon:'◈', cls:'badge-news' }
-    return `<span class="badge ${m.cls}" style="cursor:pointer;padding:4px 10px;font-size:11px;" onclick="filterBySource('${s}')">${m.label} <span style="opacity:.55;font-weight:400">${n}</span></span>`
-  }).join('')
+// Called when source filter dropdown changes
+function applySourceFilter() {
+  const src = document.getElementById('catFilter').value
+  const banner = document.getElementById('sourceFilterBanner')
+  const label = document.getElementById('sourceFilterLabel')
+  if (src !== 'all') {
+    const m = CAT_META[src] || { label: src }
+    label.textContent = m.label
+    banner.classList.remove('hidden')
+  } else {
+    banner.classList.add('hidden')
+  }
+  renderRunsView()
 }
 
-function applyFilter() {
-  const catF = document.getElementById('catFilter').value
-  const typeF = document.getElementById('typeFilter').value
-
-  let filtered = allResults
-  if (catF !== 'all') filtered = filtered.filter(r => r.source === catF)
-  if (typeF !== 'all') filtered = filtered.filter(r => r.postPotential === typeF)
-
-  renderCategorySections(filtered)
+function clearSourceFilter() {
+  document.getElementById('catFilter').value = 'all'
+  document.getElementById('sourceFilterBanner').classList.add('hidden')
+  renderRunsView()
 }
 
 function filterBySource(src) {
   document.getElementById('catFilter').value = src
-  applyFilter()
+  applySourceFilter()
 }
 
-function renderCategorySections(items) {
-  // Sort all items by publishedAt descending (latest first)
-  const sorted = [...items].sort((a, b) => {
-    const ta = a.publishedAt ? new Date(a.publishedAt).getTime() : 0
-    const tb = b.publishedAt ? new Date(b.publishedAt).getTime() : 0
-    return tb - ta
-  })
+// Trigger a run for only the selected source
+function runSourceOnly() {
+  const src = document.getElementById('catFilter').value
+  if (src === 'all') { triggerResearch(); return }
+  disableRun(); startRunning()
+  addMsg('titto', `Searching ${CAT_META[src]?.label || src} only.`)
+  if (!tittoOpen) toggleTitto()
+  fetch('/api/research/trigger', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filterSources: [src] })
+  }).catch(() => { stopRunning(); enableRun() })
+}
 
-  const container = document.getElementById('categorySections')
-  if (!sorted.length) {
-    container.innerHTML = `<div style="color:var(--text3);text-align:center;padding:60px 0;font-size:14px">No results match the current filters.</div>`
-    return
+function renderRunsView() {
+  const catF = document.getElementById('catFilter').value
+  const typeF = document.getElementById('typeFilter').value
+  const sortOrder = document.getElementById('sortOrder').value
+
+  const container = document.getElementById('runSections')
+  if (!allRuns.length) { container.innerHTML = ''; return }
+
+  const toShow = allRuns.slice(0, visibleRunCount)
+  container.innerHTML = toShow.map((run, ri) => renderRunSection(run, ri, catF, typeF, sortOrder)).join('')
+
+  // Show-more button
+  const btn = document.getElementById('showMoreRuns')
+  if (allRuns.length > visibleRunCount) {
+    btn.classList.remove('hidden')
+  } else {
+    btn.classList.add('hidden')
   }
+}
 
-  container.innerHTML = `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;">
-      ${sorted.map((item, i) => renderRow(item, i)).join('')}
-    </div>`
+function showMoreRunsClick() {
+  visibleRunCount += 2
+  renderRunsView()
+}
+
+function renderRunSection(run, ri, catF, typeF, sortOrder) {
+  let items = run.results || []
+  if (catF !== 'all') items = items.filter(r => r.source === catF)
+  if (typeF !== 'all') items = items.filter(r => r.postPotential === typeF)
+
+  // Sort (only meaningful to sort; rank is default order)
+  if (sortOrder === 'score') items = [...items].sort((a,b) => (b.trendingScore||0)-(a.trendingScore||0))
+  else if (sortOrder === 'score_asc') items = [...items].sort((a,b) => (a.trendingScore||0)-(b.trendingScore||0))
+  // else keep rank order
+
+  const rankedAt = run.rankedAt ? new Date(run.rankedAt) : null
+  const runLabel = rankedAt ? rankedAt.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata', weekday: 'short', day: '2-digit', month: 'short',
+    hour: '2-digit', minute: '2-digit', hour12: true
+  }) + ' IST' : run.runId || 'Unknown'
+
+  const filterLabel = run.filterSources?.length ? ` · ${run.filterSources.join(', ')} only` : ''
+  const isLatest = ri === 0
+
+  return `
+  <div style="margin-bottom:12px;">
+    <!-- Run header -->
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:12px 12px ${items.length ? '0 0' : '12px 12px'};cursor:pointer;user-select:none;"
+      onclick="toggleRunSection(${ri})">
+      <span style="font-size:12px;font-weight:700;color:var(--text)">${esc(runLabel)}</span>
+      ${filterLabel ? `<span class="text-xs px-2 py-0.5 rounded-full" style="background:var(--accent-glow);color:var(--accent);font-size:10px;">${esc(filterLabel)}</span>` : ''}
+      ${isLatest ? `<span style="font-size:10px;padding:1px 7px;border-radius:99px;background:var(--green-dim);color:var(--green);font-weight:700;">LATEST</span>` : ''}
+      <span style="font-size:11px;color:var(--text3);margin-left:auto;">${items.length} items</span>
+      <span id="run-arrow-${ri}" style="font-size:11px;color:var(--text3);">${ri < 2 ? '▼' : '▶'}</span>
+    </div>
+    <div id="run-body-${ri}" style="${ri < 2 ? '' : 'display:none;'}">
+      ${items.length ? `
+      <div style="background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 12px 12px;overflow:hidden;">
+        ${items.map((item, i) => renderRow(item, i)).join('')}
+      </div>` : `<div style="padding:16px;font-size:12px;color:var(--text3);background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 12px 12px;">No results match the current filters.</div>`}
+    </div>
+  </div>`
+}
+
+function toggleRunSection(ri) {
+  const body = document.getElementById(`run-body-${ri}`)
+  const arrow = document.getElementById(`run-arrow-${ri}`)
+  if (!body) return
+  const hidden = body.style.display === 'none'
+  body.style.display = hidden ? '' : 'none'
+  arrow.textContent = hidden ? '▼' : '▶'
 }
 
 function renderRow(item, i) {
@@ -694,7 +842,7 @@ async function sendMsg() {
     hideTyping()
     if (data.reply) addMsg('titto', data.reply)
     if (data.action === 'research_started') { startRunning(); disableRun() }
-    if (data.action === 'show_results' && data.data) renderResults(data.data)
+    if (data.action === 'show_results' && data.data) addOrUpdateRun(data.data)
   } catch(_) { hideTyping(); addMsg('titto','⚠️ Could not reach server.') }
 }
 
@@ -718,7 +866,7 @@ async function triggerResearch() {
 }
 
 function startRunning() {
-  hide('emptyState'); hide('resultsView'); hide('historyView')
+  hide('emptyState'); hide('resultsView')
   show('runningState'); showPg(true)
   document.getElementById('runningState').style.display='flex'
   document.getElementById('runningState').style.flexDirection='column'
@@ -736,18 +884,12 @@ function showPg(on) {
 
 // ══════════════════ HISTORY ══════════════════
 function switchView(v) {
-  hide('resultsView'); hide('emptyState'); hide('historyView'); hide('logsView'); hide('toolsView')
+  hide('resultsView'); hide('emptyState'); hide('logsView'); hide('toolsView')
   document.getElementById('btnToday').classList.add('hidden')
-  document.getElementById('btnHistory').classList.remove('hidden')
   document.getElementById('btnLogs').classList.remove('hidden')
   document.getElementById('btnTools').classList.remove('hidden')
 
-  if (v === 'history') {
-    show('historyView')
-    document.getElementById('btnHistory').classList.add('hidden')
-    document.getElementById('btnToday').classList.remove('hidden')
-    loadHistory()
-  } else if (v === 'logs') {
+  if (v === 'logs') {
     show('logsView')
     document.getElementById('btnLogs').classList.add('hidden')
     document.getElementById('btnToday').classList.remove('hidden')
@@ -758,7 +900,7 @@ function switchView(v) {
     document.getElementById('btnToday').classList.remove('hidden')
     loadToolsLatest()
   } else {
-    if (allResults.length) show('resultsView'); else show('emptyState')
+    if (allRuns.length) show('resultsView'); else show('emptyState')
   }
 }
 
@@ -832,33 +974,15 @@ async function triggerTools() {
   }
 }
 
-async function loadHistory() {
-  const list = document.getElementById('historyList')
-  list.innerHTML = `<div style="color:var(--text3);font-size:13px">Loading…</div>`
-  try {
-    const r = await fetch('/api/research/history')
-    const h = await r.json()
-    if (!h.length) { list.innerHTML = `<div style="color:var(--text3);font-size:13px">No archived runs yet.</div>`; return }
-    list.innerHTML = h.map(item => `
-      <div onclick="loadArchive('${item.file}')" class="hover-card" style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
-        <span style="font-size:13px;color:var(--text)">${item.runId}</span>
-        <span style="font-size:11px;color:var(--text3)">View →</span>
-      </div>`).join('')
-  } catch(_) { list.innerHTML = `<div style="color:var(--text3)">Failed to load.</div>` }
-}
-
-async function loadArchive(filename) {
-  switchView('today')
-  try { const r = await fetch(`/api/research/archive/${filename}`); renderResults(await r.json()) } catch(_) {}
-}
 
 // ══════════════════ AGENT TABS ══════════════════
 function switchAgent(name) {
   document.querySelectorAll('.agent-tab').forEach(t => t.classList.remove('active'))
   document.getElementById(`tab-${name}`)?.classList.add('active')
-  // Show/hide panels
   document.getElementById('panel-chitrag').classList.toggle('hidden', name !== 'chitrag')
   document.getElementById('panel-koel').classList.toggle('hidden', name !== 'koel')
+  document.getElementById('panel-quill').classList.toggle('hidden', name !== 'quill')
+  if (name === 'quill') loadQuillLatest()
 }
 
 // ══════════════════ KOEL ══════════════════
@@ -1119,6 +1243,197 @@ function restoreFromHistory(input, format, inputType) {
   if (inputType) selectInputType(inputType)
 }
 
+// ══════════════════ QUILL ══════════════════
+// ══════════════════ QUILL ══════════════════
+const QUILL_SECTION_META = {
+  motivational: { emoji: '✍️', label: 'Motivational / Self-Help', color: '#7c3aed', bg: 'rgba(124,58,237,.08)' },
+  domain:       { emoji: '🌐', label: 'Domain Posts',             color: '#0369a1', bg: 'rgba(3,105,161,.08)' },
+  trending:     { emoji: '🔥', label: 'Trending on X',            color: '#db2777', bg: 'rgba(219,39,119,.08)' },
+}
+
+async function triggerQuillDaily() {
+  const btn = document.getElementById('quillDailyBtn')
+  btn.disabled = true; btn.textContent = 'Writing...'
+  hide('quillEmpty'); hide('quillHistory'); show('quillWorking')
+  try {
+    await fetch('/api/quill/trigger', { method: 'POST' })
+  } catch (e) {
+    alert('Quill trigger failed: ' + e.message)
+    show('quillEmpty'); hide('quillWorking')
+    btn.disabled = false; btn.textContent = '✍️ Generate Today'
+  }
+}
+
+async function triggerQuillWeekly() {
+  const btn = document.getElementById('quillWeeklyBtn')
+  btn.disabled = true; btn.textContent = 'Running...'
+  try {
+    await fetch('/api/quill/weekly', { method: 'POST' })
+    alert('Weekly run triggered. Check Telegram for results.')
+  } catch (e) { alert('Weekly trigger failed: ' + e.message) }
+  finally { btn.disabled = false; btn.textContent = '📝 Weekly Run' }
+}
+
+async function loadQuillLatest() {
+  try {
+    const r = await fetch('/api/quill/history')
+    const history = await r.json()
+    if (history.length) renderQuillHistory(history)
+    else { show('quillEmpty'); hide('quillHistory') }
+  } catch (_) {}
+  const btn = document.getElementById('quillDailyBtn')
+  if (btn) { btn.disabled = false; btn.textContent = '✍️ Generate Today' }
+}
+
+function renderQuillHistory(history) {
+  hide('quillEmpty'); hide('quillWorking')
+  const container = document.getElementById('quillHistory')
+
+  container.innerHTML = history.map((run, ri) => {
+    const runDate = run.generatedAt ? new Date(run.generatedAt) : null
+    const dayLabel = runDate ? runDate.toLocaleDateString('en-IN', {
+      timeZone: 'Asia/Kolkata', weekday: 'long', day: '2-digit', month: 'short', year: 'numeric'
+    }) : 'Unknown date'
+    const timeLabel = runDate ? runDate.toLocaleTimeString('en-IN', {
+      timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true
+    }) : ''
+
+    // Group drafts by section
+    const bySection = {}
+    for (const d of (run.drafts || [])) {
+      if (!bySection[d.section]) bySection[d.section] = []
+      bySection[d.section].push(d)
+    }
+
+    // Draft rows — compact row layout like ChitraG
+    const sectionsHtml = ['motivational', 'domain', 'trending'].map(sec => {
+      const drafts = bySection[sec]
+      if (!drafts?.length) return ''
+      const meta = QUILL_SECTION_META[sec]
+      const rowsHtml = drafts.map((d, di) => {
+        const uid = `qd-${ri}-${sec}-${di}`
+        const draftTime = d.generatedAt ? new Date(d.generatedAt).toLocaleTimeString('en-IN', {
+          timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true
+        }) : ''
+        const preview = (d.text || '').replace(/\n+/g, ' ').slice(0, 90) + ((d.text||'').length > 90 ? '\u2026' : '')
+        return `
+        <div style="border-bottom:1px solid var(--border);">
+          <!-- Collapsed row -->
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;"
+            onclick="toggleQuillRow('${uid}')">
+            <span style="font-size:10px;padding:2px 7px;border-radius:99px;background:${meta.bg};color:${meta.color};font-weight:600;flex-shrink:0;">${meta.emoji} ${esc(d.label||'')}</span>
+            <span style="flex:1;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(preview)}</span>
+            <span style="font-size:10px;color:var(--text3);white-space:nowrap;flex-shrink:0;">${draftTime} IST</span>
+            <div style="display:flex;gap:5px;flex-shrink:0;">
+              <button onclick="event.stopPropagation();editQuillRow('${uid}')" id="editQBtn-${uid}"
+                style="font-size:10px;padding:2px 8px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text3);cursor:pointer;">✏️ Edit</button>
+              <button onclick="event.stopPropagation();copyQuillDraft('${uid}')" id="copyQ-${uid}"
+                style="font-size:10px;padding:2px 8px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text3);cursor:pointer;">📋 Copy</button>
+            </div>
+          </div>
+          <!-- Expanded edit area (hidden by default) -->
+          <div id="quill-expand-${uid}" style="display:none;padding:0 14px 12px;">
+            <div style="font-size:11px;color:var(--text3);margin-bottom:4px;font-style:italic;">${esc(d.topic?.slice(0,80)||'')}</div>
+            <textarea id="${uid}" rows="${Math.max(3, Math.ceil((d.text||'').length/65))}"
+              style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--text);resize:vertical;line-height:1.6;font-family:inherit;">${esc(d.text||'')}</textarea>
+          </div>
+        </div>`
+      }).join('')
+
+      return `
+      <div style="margin-bottom:0;">
+        <div style="padding:7px 14px;font-size:11px;font-weight:600;color:${meta.color};background:${meta.bg};border-top:1px solid var(--border);">
+          ${meta.emoji} ${meta.label} <span style="font-weight:400;color:var(--text3)">${drafts.length} posts</span>
+        </div>
+        ${rowsHtml}
+      </div>`
+    }).join('')
+
+    // Sources section
+    const sourcesHtml = (run.topSources?.length) ? `
+      <div style="margin-bottom:0;">
+        <div style="padding:7px 14px;font-size:11px;font-weight:600;color:#b45309;background:rgba(180,83,9,.07);border-top:1px solid var(--border);">
+          📰 Top Sources <span style="font-weight:400;color:var(--text3)">click to read · ask Titto to write</span>
+        </div>
+        ${run.topSources.map((s, si) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);">
+          <span style="font-size:11px;font-weight:700;color:var(--text3);width:18px;flex-shrink:0;">${si+1}</span>
+          <span style="font-size:11px;padding:1px 6px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text3);flex-shrink:0;">${esc(s.source||'')}</span>
+          <span style="flex:1;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(s.title||'')}</span>
+          <span style="font-size:11px;font-weight:700;color:#b45309;flex-shrink:0;">${s.score||'?'}</span>
+          <a href="${esc(s.url||'')}" target="_blank" onclick="event.stopPropagation()"
+            style="font-size:12px;color:var(--text3);text-decoration:none;padding:2px 6px;border-radius:6px;border:1px solid var(--border);flex-shrink:0;"
+            onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text3)'">↗</a>
+          <button onclick="askAbout('${esc((s.title||'').replace(/'/g,"\\'"))}')"
+            style="font-size:10px;padding:2px 8px;border-radius:6px;background:var(--accent-glow);border:1px solid rgba(108,92,231,.2);color:var(--accent);cursor:pointer;flex-shrink:0;">Ask Titto</button>
+        </div>`).join('')}
+      </div>` : ''
+
+    // Viral X links section
+    const viralHtml = (run.viralXLinks?.length) ? `
+      <div>
+        <div style="padding:7px 14px;font-size:11px;font-weight:600;color:#0369a1;background:rgba(3,105,161,.07);border-top:1px solid var(--border);">
+          𝕏 Viral in your domain
+        </div>
+        ${run.viralXLinks.map((x, xi) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);">
+          <span style="font-size:11px;font-weight:700;color:var(--text3);width:18px;flex-shrink:0;">${xi+1}</span>
+          <span style="flex:1;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(x.title||'')}</span>
+          <a href="${esc(x.url||'')}" target="_blank"
+            style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:#eff6ff;border:1px solid #bdd7f5;color:#1d6fa4;text-decoration:none;flex-shrink:0;">
+            View Post ↗
+          </a>
+        </div>`).join('')}
+      </div>` : ''
+
+    return `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:12px;">
+      <!-- Day header -->
+      <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;background:var(--surface2);"
+        onclick="toggleQuillDay(${ri})">
+        <div>
+          <span class="text-sm font-semibold" style="color:var(--text)">${esc(dayLabel)}</span>
+          <span class="text-xs ml-2" style="color:var(--text3)">${timeLabel} IST &middot; ${run.totalDrafts||0} drafts</span>
+        </div>
+        <span id="quill-arrow-${ri}" style="color:var(--text3);font-size:11px;">${ri === 0 ? '▼' : '▶'}</span>
+      </div>
+      <div id="quill-day-${ri}" style="${ri === 0 ? '' : 'display:none;'}">
+        ${sectionsHtml}${sourcesHtml}${viralHtml}
+      </div>
+    </div>`
+  }).join('')
+
+  show('quillHistory')
+}
+
+function toggleQuillDay(ri) {
+  const el = document.getElementById(`quill-day-${ri}`)
+  const arrow = document.getElementById(`quill-arrow-${ri}`)
+  const hidden = el.style.display === 'none'
+  el.style.display = hidden ? '' : 'none'
+  arrow.textContent = hidden ? '▼' : '▶'
+}
+
+function toggleQuillRow(uid) {
+  const el = document.getElementById(`quill-expand-${uid}`)
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none'
+}
+
+function editQuillRow(uid) {
+  const el = document.getElementById(`quill-expand-${uid}`)
+  if (el) { el.style.display = ''; el.querySelector('textarea')?.focus() }
+}
+
+function copyQuillDraft(uid) {
+  const ta = document.getElementById(uid)
+  const text = ta ? ta.value : ''
+  if (!text) return
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById(`copyQ-${uid}`)
+    if (btn) { btn.textContent = '✓ Copied!'; setTimeout(() => btn.textContent = '📋 Copy', 1500) }
+  })
+}
+
 // ══════════════════ UTILS ══════════════════
 function show(id) { const el=document.getElementById(id); if(el){el.classList.remove('hidden'); el.style.display=''} }
 function hide(id) { const el=document.getElementById(id); if(el){el.classList.add('hidden'); el.style.display='none'} }
@@ -1212,10 +1527,24 @@ async function init() {
   connectWS()
   updateNextRun(); setInterval(updateNextRun, 30000)
   checkErrorLog(); setInterval(checkErrorLog, 60000)
+  await loadAllRuns()
+}
+
+// ══════════════════ LOAD ALL RUNS ══════════════════
+async function loadAllRuns() {
   try {
-    const r = await fetch('/api/research/latest')
-    const d = await r.json()
-    if (d.results?.length) renderResults(d)
+    const r = await fetch('/api/research/runs?limit=30')
+    const runs = await r.json()
+    if (runs.length) {
+      allRuns = runs
+      visibleRunCount = 2
+      const latest = allRuns[0]
+      const ts = latest.rankedAt ? new Date(latest.rankedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST' : ''
+      document.getElementById('lastRunInfo').textContent = `${latest.results?.length || 0} items · ${ts}`
+      hide('emptyState')
+      show('resultsView')
+      renderRunsView()
+    }
   } catch(_) {}
 }
 

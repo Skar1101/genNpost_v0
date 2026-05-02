@@ -45,9 +45,10 @@ function handleLatest() {
   }
 }
 
-async function handleTriggerResearch(_, broadcast, telegramSend) {
-  const reply = "On it. ChitraG is running research now — I'll let you know when it's ready."
-  chitrag.run({ triggeredBy: 'user', broadcast }).then(async results => {
+async function handleTriggerResearch(_, broadcast, telegramSend, filterSources = null) {
+  const srcLabel = filterSources?.length ? ` (${filterSources.join(', ')} only)` : ''
+  const reply = `On it. ChitraG is running research${srcLabel} now — I'll let you know when it's ready.`
+  chitrag.run({ triggeredBy: 'user', broadcast, filterSources }).then(async results => {
     if (results) await deliverResearch(results, telegramSend, broadcast)
   }).catch(err => {
     console.error('[Titto] Research run failed:', err.message)
@@ -55,6 +56,14 @@ async function handleTriggerResearch(_, broadcast, telegramSend) {
     if (telegramSend) telegramSend('Research run hit an error. Check the logs.')
   })
   return { reply, action: 'research_started' }
+}
+
+// Map common source names/aliases to source IDs
+const SOURCE_NAME_MAP = {
+  reddit: ['reddit'], github: ['github'], twitter: ['twitter'], x: ['twitter'],
+  hackernews: ['hackernews'], hn: ['hackernews'], youtube: ['youtube'], yt: ['youtube'],
+  arxiv: ['ai_research'], research: ['ai_research'], ai: ['ai_research'],
+  news: ['news'],
 }
 
 function handleStatus() {
@@ -81,7 +90,7 @@ function formatResearchSummary(data) {
   return `Research done. ${data.results.length} results ranked.\n\nTop pick: "${top.title}" [Score: ${top.trendingScore}] — ${top.postPotential} · ${top.source}\n\nCheck the ChitraG panel for the full list.`
 }
 
-async function handleMessage({ text, sessionId = 'default', source = 'web', broadcast = null, telegramSend = null }) {
+async function handleMessage({ text, sessionId = 'default', broadcast = null, telegramSend = null }) {
   const input = text.trim()
 
   // Simple command routing — no LLM
@@ -91,6 +100,14 @@ async function handleMessage({ text, sessionId = 'default', source = 'web', broa
     appendMessage(sessionId, 'user', input)
     appendMessage(sessionId, 'assistant', result.reply)
     return result
+  }
+
+  // /research <source> shorthand — no LLM, direct filtered run
+  const researchMatch = input.match(/^\/research\s+(.+)/i)
+  if (researchMatch) {
+    const alias = researchMatch[1].trim().toLowerCase()
+    const filterSources = SOURCE_NAME_MAP[alias] || null
+    return handleTriggerResearch(input, broadcast, telegramSend, filterSources)
   }
 
   // Show all command — no LLM
@@ -128,9 +145,11 @@ async function handleMessage({ text, sessionId = 'default', source = 'web', broa
   appendMessage(sessionId, 'assistant', parsed.reply)
 
   // Handle intent
-  if (parsed.intent === 'redo_research' && parsed.instructionDelta) {
-    const confirmReply = parsed.reply + '\n\nStarting re-research with updated focus...'
-    chitrag.run({ triggeredBy: 'feedback-redo', instructions: parsed.instructionDelta, broadcast }).then(async results => {
+  if (parsed.intent === 'redo_research') {
+    const filterSources = parsed.filterSources?.length ? parsed.filterSources : null
+    const srcLabel = filterSources ? ` (${filterSources.join(', ')} only)` : ''
+    const confirmReply = parsed.reply + `\n\nStarting re-research${srcLabel}...`
+    chitrag.run({ triggeredBy: 'feedback-redo', instructions: parsed.instructionDelta || null, broadcast, filterSources }).then(async results => {
       if (results) await deliverResearch(results, telegramSend, broadcast)
     }).catch(err => {
       console.error('[Titto] Re-research failed:', err.message)
@@ -169,8 +188,7 @@ async function deliverResearch(results, telegramFn = null, broadcast = null) {
     // Send top 5 as individual messages
     const top5 = (results.results || []).slice(0, 5)
     for (const r of top5) {
-      const msg = `*${r.rank}. [${r.trendingScore}] ${r.title}*\n${r.summary}\n_${r.postPotential?.toUpperCase()} · ${r.source}_\n${r.url}`
-      await telegramFn(msg)
+      await telegramFn(`*${r.rank}. [${r.trendingScore}] ${r.title}*\n${r.summary}\n_${r.postPotential?.toUpperCase()} · ${r.source}_\n${r.url}`)
     }
   }
 }

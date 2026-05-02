@@ -43,9 +43,10 @@ function groupByCategory(items) {
   return groups
 }
 
-async function fetchAllSources(broadcast) {
+async function fetchAllSources(broadcast, filterSources = null) {
   const enabledSources = sourcesConfig.filter(s => {
     if (!s.enabled) return false
+    if (filterSources && filterSources.length > 0 && !filterSources.includes(s.id)) return false
     if (s.requiresKey && !process.env[s.envKey]) {
       log.warn(`"${s.name}" skipped — missing env var ${s.envKey}`)
       return false
@@ -212,18 +213,19 @@ async function rankWithLLM(rawItems, instructions, broadcast) {
   }
 }
 
-async function run({ triggeredBy = 'user', instructions = null, broadcast = null, forceRefetch = false } = {}) {
-  log.info(`Run started — triggeredBy: ${triggeredBy}${instructions ? ' (with instruction delta)' : ''}`)
+async function run({ triggeredBy = 'user', instructions = null, broadcast = null, forceRefetch = false, filterSources = null } = {}) {
+  log.info(`Run started — triggeredBy: ${triggeredBy}${instructions ? ' (with instruction delta)' : ''}${filterSources ? ` (sources: ${filterSources.join(',')})` : ''}`)
   const runId = new Date().toISOString().slice(0, 16).replace('T', '-').replace(/:/g, '')
 
   let raw, failed
 
-  if (!forceRefetch && instructions && isCacheValid()) {
+  // Skip cache if filterSources is set — always re-fetch for filtered runs
+  if (!forceRefetch && !filterSources && instructions && isCacheValid()) {
     log.info('Using cached raw results for re-ranking (cache still valid)')
     raw = _rawCache
     failed = []
   } else {
-    ;({ raw, failed } = await fetchAllSources(broadcast))
+    ;({ raw, failed } = await fetchAllSources(broadcast, filterSources))
     _rawCache = raw
     _cacheTs = Date.now()
   }
@@ -243,7 +245,8 @@ async function run({ triggeredBy = 'user', instructions = null, broadcast = null
     triggeredBy,
     rankedAt: new Date().toISOString(),
     instructions: instructions || null,
-    sourcesRun: sourcesConfig.filter(s => s.enabled).map(s => s.id),
+    filterSources: filterSources || null,
+    sourcesRun: filterSources ? filterSources : sourcesConfig.filter(s => s.enabled).map(s => s.id),
     sourcesFailed: failed,
     totalFetched: raw.length,
     results: ranked,

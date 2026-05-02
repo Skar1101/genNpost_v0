@@ -33,6 +33,12 @@ For redo_research, extract instruction delta:
 - exclude_topics: topics to completely exclude (array)
 - full_rerun: true if Souvik wants a complete fresh fetch
 
+Also extract filterSources if Souvik wants to search ONLY specific sources:
+- filterSources: array of source IDs to restrict fetch to (e.g. ["reddit"], ["github","hackernews"])
+- Source IDs: reddit, github, hackernews, twitter, youtube, ai_research, news
+- Set filterSources when Souvik says things like "search only reddit", "check github", "what's on twitter", "hackernews only"
+- Leave as null for full searches
+
 For write_post, extract:
 - format: short | thread | longform | motivational | engagement (infer from message, default "short")
 - input: the topic, URL, or instruction Souvik provided
@@ -44,6 +50,7 @@ RETURN JSON ONLY:
   "intent": "redo_research|show_latest|focus_change|write_post|question|feedback|other",
   "reply": "Titto's response to send back to Souvik (direct, warm, no filler)",
   "instructionDelta": null,
+  "filterSources": null,
   "koelRequest": null
 }
 

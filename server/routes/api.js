@@ -4,10 +4,12 @@ const titto = require('../../agents/titto')
 const chitrag = require('../../agents/chitrag')
 const toolsAgent = require('../../agents/toolsAgent')
 const koel = require('../../agents/koel')
+const quill = require('../../agents/quill')
 const logger = require('../../utils/logger')
 const { readLatest, listArchive, readArchive } = require('../../state/researchStore')
 const { readLatest: readToolsLatest } = require('../../state/toolsStore')
 const { readHistory: readKoelHistory } = require('../../state/koelStore')
+const { readLatest: readQuillLatest, readHistory: readQuillHistory } = require('../../state/quillStore')
 
 // GET /api/research/latest
 router.get('/research/latest', (req, res) => {
@@ -21,6 +23,14 @@ router.get('/research/history', (req, res) => {
   res.json(listArchive())
 })
 
+// GET /api/research/runs — full run objects, newest first (for multi-run history view)
+router.get('/research/runs', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 30, 50)
+  const archive = listArchive()
+  const runs = archive.slice(0, limit).map(a => readArchive(a.file)).filter(Boolean)
+  res.json(runs)
+})
+
 // GET /api/research/archive/:filename
 router.get('/research/archive/:filename', (req, res) => {
   const data = readArchive(req.params.filename)
@@ -29,12 +39,15 @@ router.get('/research/archive/:filename', (req, res) => {
 })
 
 // POST /api/research/trigger
+// Manual trigger — updates web UI only, does NOT send to Telegram or run Quill
+// Body: { filterSources: ['reddit'] } to restrict to specific sources
 router.post('/research/trigger', async (req, res) => {
-  const { broadcast, telegramSend } = req.app.locals
+  const { broadcast } = req.app.locals
+  const { filterSources = null } = req.body || {}
   res.json({ message: 'Research triggered. Results will arrive via WebSocket.' })
   try {
-    const results = await chitrag.run({ triggeredBy: 'user', broadcast })
-    if (results) await titto.deliverResearch(results, telegramSend, broadcast)
+    const results = await chitrag.run({ triggeredBy: 'user', broadcast, filterSources })
+    if (results) await titto.deliverResearch(results, null, broadcast)  // null = no Telegram
   } catch (err) {
     logger.error('[API] Research trigger failed', err)
     if (broadcast) broadcast({ type: 'error', data: { message: 'Research run failed: ' + err.message } })
@@ -73,6 +86,44 @@ router.post('/tools/trigger', async (req, res) => {
   } catch (err) {
     logger.error('[API] Tools trigger failed', err)
     if (broadcast) broadcast({ type: 'error', data: { message: 'Tools run failed: ' + err.message } })
+  }
+})
+
+// ── Quill endpoints ───────────────────────────────────────────────
+
+// GET /api/quill/latest
+router.get('/quill/latest', (req, res) => {
+  const data = readQuillLatest()
+  if (!data) return res.json({ drafts: [], message: 'No drafts generated yet. Use /api/quill/trigger.' })
+  res.json(data)
+})
+
+// GET /api/quill/history
+router.get('/quill/history', (req, res) => {
+  res.json(readQuillHistory())
+})
+
+// POST /api/quill/trigger — manual daily run
+router.post('/quill/trigger', async (req, res) => {
+  const { broadcast, telegramSend } = req.app.locals
+  const research = readLatest()
+  if (!research) return res.status(400).json({ error: 'No research data. Run /api/research/trigger first.' })
+  res.json({ message: 'Quill triggered. Drafts will arrive via Telegram + WebSocket.' })
+  try {
+    await quill.runDaily({ research, broadcast, telegramSend })
+  } catch (err) {
+    logger.error('[API] Quill trigger failed', err)
+  }
+})
+
+// POST /api/quill/weekly — manual weekly run
+router.post('/quill/weekly', async (req, res) => {
+  const { broadcast, telegramSend } = req.app.locals
+  res.json({ message: 'Quill weekly triggered. Results will arrive via Telegram + WebSocket.' })
+  try {
+    await quill.runWeekly({ broadcast, telegramSend })
+  } catch (err) {
+    logger.error('[API] Quill weekly failed', err)
   }
 })
 
