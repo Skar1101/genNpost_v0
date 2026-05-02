@@ -48,7 +48,10 @@ function handleLatest() {
 async function handleTriggerResearch(_, broadcast, telegramSend, filterSources = null) {
   const srcLabel = filterSources?.length ? ` (${filterSources.join(', ')} only)` : ''
   const reply = `On it. ChitraG is running research${srcLabel} now — I'll let you know when it's ready.`
-  chitrag.run({ triggeredBy: 'user', broadcast, filterSources }).then(async results => {
+  const label = filterSources?.length
+    ? `📱 Telegram · ${filterSources.join(', ')}`
+    : '📱 Telegram · /research'
+  chitrag.run({ triggeredBy: 'user', triggerLabel: label, broadcast, filterSources }).then(async results => {
     if (results) await deliverResearch(results, telegramSend, broadcast)
   }).catch(err => {
     console.error('[Titto] Research run failed:', err.message)
@@ -107,7 +110,7 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
   if (researchMatch) {
     const alias = researchMatch[1].trim().toLowerCase()
     const filterSources = SOURCE_NAME_MAP[alias] || null
-    return handleTriggerResearch(input, broadcast, telegramSend, filterSources)
+    return handleTriggerResearch(null, broadcast, telegramSend, filterSources)
   }
 
   // Show all command — no LLM
@@ -149,7 +152,10 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
     const filterSources = parsed.filterSources?.length ? parsed.filterSources : null
     const srcLabel = filterSources ? ` (${filterSources.join(', ')} only)` : ''
     const confirmReply = parsed.reply + `\n\nStarting re-research${srcLabel}...`
-    chitrag.run({ triggeredBy: 'feedback-redo', instructions: parsed.instructionDelta || null, broadcast, filterSources }).then(async results => {
+    const tLabel = filterSources
+      ? `💬 Titto · ${filterSources.join(', ')} · "${input.slice(0, 40)}"`
+      : `💬 Titto · "${input.slice(0, 50)}"`
+    chitrag.run({ triggeredBy: 'feedback-redo', triggerLabel: tLabel, instructions: parsed.instructionDelta || null, broadcast, filterSources }).then(async results => {
       if (results) await deliverResearch(results, telegramSend, broadcast)
     }).catch(err => {
       console.error('[Titto] Re-research failed:', err.message)

@@ -213,8 +213,8 @@ async function rankWithLLM(rawItems, instructions, broadcast) {
   }
 }
 
-async function run({ triggeredBy = 'user', instructions = null, broadcast = null, forceRefetch = false, filterSources = null } = {}) {
-  log.info(`Run started — triggeredBy: ${triggeredBy}${instructions ? ' (with instruction delta)' : ''}${filterSources ? ` (sources: ${filterSources.join(',')})` : ''}`)
+async function run({ triggeredBy = 'user', triggerLabel = null, instructions = null, broadcast = null, forceRefetch = false, filterSources = null } = {}) {
+  log.info(`Run started — triggeredBy: ${triggeredBy}${triggerLabel ? ` [${triggerLabel}]` : ''}${instructions ? ' (with instruction delta)' : ''}${filterSources ? ` (sources: ${filterSources.join(',')})` : ''}`)
   const runId = new Date().toISOString().slice(0, 16).replace('T', '-').replace(/:/g, '')
 
   let raw, failed
@@ -243,6 +243,7 @@ async function run({ triggeredBy = 'user', instructions = null, broadcast = null
   const output = {
     runId,
     triggeredBy,
+    triggerLabel: triggerLabel || null,
     rankedAt: new Date().toISOString(),
     instructions: instructions || null,
     filterSources: filterSources || null,

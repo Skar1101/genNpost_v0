@@ -651,12 +651,13 @@ function runSourceOnly() {
   const src = document.getElementById('catFilter').value
   if (src === 'all') { triggerResearch(); return }
   disableRun(); startRunning()
-  addMsg('titto', `Searching ${CAT_META[src]?.label || src} only.`)
+  const label = CAT_META[src]?.label || src
+  addMsg('titto', `Searching ${label} only.`)
   if (!tittoOpen) toggleTitto()
   fetch('/api/research/trigger', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filterSources: [src] })
+    body: JSON.stringify({ filterSources: [src], triggerLabel: `🖱 Manual · ${label}` })
   }).catch(() => { stopRunning(); enableRun() })
 }
 
@@ -704,16 +705,27 @@ function renderRunSection(run, ri, catF, typeF, sortOrder) {
   const filterLabel = run.filterSources?.length ? ` · ${run.filterSources.join(', ')} only` : ''
   const isLatest = ri === 0
 
+  // Derive trigger badge style
+  const tLabel = run.triggerLabel || (run.triggeredBy === 'scheduler' ? '⏰ Scheduled' : '🖱 Manual Run')
+  const isScheduled = tLabel.startsWith('⏰')
+  const isTitto    = tLabel.startsWith('💬')
+  const isTelegram = tLabel.startsWith('📱')
+  const isManual   = tLabel.startsWith('🖱')
+  const badgeBg = isScheduled ? 'rgba(0,184,148,.10)' : isTitto ? 'rgba(108,92,231,.10)' : isTelegram ? 'rgba(29,143,243,.10)' : 'rgba(245,158,11,.10)'
+  const badgeColor = isScheduled ? 'var(--green)' : isTitto ? 'var(--accent)' : isTelegram ? '#1d8ff3' : '#d97706'
+
   return `
   <div style="margin-bottom:12px;">
     <!-- Run header -->
-    <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:12px 12px ${items.length ? '0 0' : '12px 12px'};cursor:pointer;user-select:none;"
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:12px 12px ${items.length ? '0 0' : '12px 12px'};cursor:pointer;user-select:none;"
       onclick="toggleRunSection(${ri})">
-      <span style="font-size:12px;font-weight:700;color:var(--text)">${esc(runLabel)}</span>
-      ${filterLabel ? `<span class="text-xs px-2 py-0.5 rounded-full" style="background:var(--accent-glow);color:var(--accent);font-size:10px;">${esc(filterLabel)}</span>` : ''}
-      ${isLatest ? `<span style="font-size:10px;padding:1px 7px;border-radius:99px;background:var(--green-dim);color:var(--green);font-weight:700;">LATEST</span>` : ''}
-      <span style="font-size:11px;color:var(--text3);margin-left:auto;">${items.length} items</span>
-      <span id="run-arrow-${ri}" style="font-size:11px;color:var(--text3);">${ri < 2 ? '▼' : '▶'}</span>
+      <!-- Trigger badge -->
+      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;background:${badgeBg};color:${badgeColor};white-space:nowrap;flex-shrink:0;">${esc(tLabel)}</span>
+      <!-- Timestamp -->
+      <span style="font-size:11px;color:var(--text2);white-space:nowrap;">${esc(runLabel)}</span>
+      ${isLatest ? `<span style="font-size:10px;padding:1px 7px;border-radius:99px;background:var(--green-dim);color:var(--green);font-weight:700;flex-shrink:0;">LATEST</span>` : ''}
+      <span style="font-size:11px;color:var(--text3);margin-left:auto;flex-shrink:0;">${items.length} items</span>
+      <span id="run-arrow-${ri}" style="font-size:11px;color:var(--text3);flex-shrink:0;">${ri < 2 ? '▼' : '▶'}</span>
     </div>
     <div id="run-body-${ri}" style="${ri < 2 ? '' : 'display:none;'}">
       ${items.length ? `
@@ -764,7 +776,9 @@ function renderRow(item, i) {
     <span class="badge ${srcMeta.cls}" style="flex-shrink:0;">${srcMeta.label}</span>
 
     <!-- Actions -->
-    <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+    <div style="display:flex;gap:5px;align-items:center;flex-shrink:0;">
+      <button onclick="event.stopPropagation();writeFromItem(${JSON.stringify(item).replace(/"/g,'&quot;')})"
+        style="font-size:11px;padding:3px 9px;border-radius:99px;background:rgba(245,158,11,.10);border:1px solid rgba(217,119,6,.25);color:#d97706;cursor:pointer;white-space:nowrap;">✍️ Write</button>
       <button onclick="event.stopPropagation();askAbout('${esc(item.title||'').replace(/'/g,"\\'")}')"
         style="font-size:11px;padding:3px 9px;border-radius:99px;background:var(--accent-glow);border:1px solid rgba(108,92,231,.2);color:var(--accent);cursor:pointer;white-space:nowrap;">Ask Titto</button>
       <a href="${esc(item.url||'')}" target="_blank" onclick="event.stopPropagation()"
@@ -854,6 +868,31 @@ function askAbout(title) {
   document.getElementById('chatIn').value = `Tell me more about: "${title}"`
   if (!tittoOpen) toggleTitto()
   sendMsg()
+}
+
+function writeFromItem(item) {
+  if (typeof item === 'string') item = JSON.parse(item)
+  // Switch to Koel, pre-fill with the item
+  switchAgent('koel')
+  switchKoelTab('write')
+  // Use URL if available, otherwise fall back to topic
+  if (item.url) {
+    selectInputType('url')
+    document.getElementById('koelInput').value = item.url
+  } else {
+    selectInputType('topic')
+    document.getElementById('koelInput').value = item.title || ''
+  }
+  // Pick format based on postPotential
+  const fmtMap = { thread: 'thread', long: 'longform', short: 'short' }
+  selectFormat(fmtMap[item.postPotential] || 'short')
+  // Pre-fill extra instructions with context
+  const extra = document.getElementById('koelExtra')
+  extra.classList.remove('hidden')
+  document.getElementById('extraToggleIcon').textContent = '▼'
+  extra.value = `Topic: ${item.title || ''}${item.why ? '\nWhy it matters: ' + item.why : ''}${item.snippet ? '\nContext: ' + item.snippet.slice(0, 200) : ''}`
+  // Scroll Koel input into view
+  document.getElementById('koelInput').focus()
 }
 
 // ══════════════════ RESEARCH TRIGGER ══════════════════

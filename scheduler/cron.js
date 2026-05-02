@@ -19,7 +19,7 @@ function initScheduler(broadcast, telegramSend) {
 async function runMorning(broadcast, telegramSend) {
   console.log('[Scheduler] Starting morning research run (6am IST)')
   try {
-    const results = await chitrag.run({ triggeredBy: 'scheduler', broadcast })
+    const results = await chitrag.run({ triggeredBy: 'scheduler', triggerLabel: '⏰ Scheduled · 6:00 AM IST', broadcast })
     if (results) {
       await titto.deliverResearch(results, telegramSend, broadcast)
       console.log(`[Scheduler] Morning research delivered — ${results.results?.length} results`)
@@ -36,7 +36,7 @@ async function runMorning(broadcast, telegramSend) {
 async function runEvening(broadcast, telegramSend) {
   console.log('[Scheduler] Starting evening research run (6pm IST)')
   try {
-    const results = await chitrag.run({ triggeredBy: 'scheduler', broadcast })
+    const results = await chitrag.run({ triggeredBy: 'scheduler', triggerLabel: '⏰ Scheduled · 6:00 PM IST', broadcast })
     if (results) {
       await titto.deliverResearch(results, telegramSend, broadcast)
       console.log(`[Scheduler] Evening research delivered — ${results.results?.length} results`)

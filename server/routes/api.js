@@ -43,10 +43,11 @@ router.get('/research/archive/:filename', (req, res) => {
 // Body: { filterSources: ['reddit'] } to restrict to specific sources
 router.post('/research/trigger', async (req, res) => {
   const { broadcast } = req.app.locals
-  const { filterSources = null } = req.body || {}
+  const { filterSources = null, triggerLabel = null } = req.body || {}
   res.json({ message: 'Research triggered. Results will arrive via WebSocket.' })
   try {
-    const results = await chitrag.run({ triggeredBy: 'user', broadcast, filterSources })
+    const label = triggerLabel || (filterSources?.length ? `🖱 Manual · ${filterSources.join(', ')}` : '🖱 Manual Run')
+    const results = await chitrag.run({ triggeredBy: 'user', triggerLabel: label, broadcast, filterSources })
     if (results) await titto.deliverResearch(results, null, broadcast)  // null = no Telegram
   } catch (err) {
     logger.error('[API] Research trigger failed', err)
