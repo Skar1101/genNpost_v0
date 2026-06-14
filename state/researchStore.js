@@ -49,4 +49,24 @@ function readArchive(filename) {
   return JSON.parse(fs.readFileSync(file, 'utf8'))
 }
 
-module.exports = { readLatest, writeLatest, archiveRun, listArchive, readArchive }
+// Find the most recent archived run explicitly filtered to a given source.
+// Falls back to the most recent run that simply contains results from that source.
+function findLatestRunBySource(sourceId) {
+  if (!sourceId) return null
+  const archive = listArchive()
+  // Pass 1: run was explicitly targeted at this source
+  for (const { file } of archive) {
+    const run = readArchive(file)
+    if (!run) continue
+    if (run.filterSources?.includes(sourceId)) return run
+  }
+  // Pass 2: full run that included results from this source
+  for (const { file } of archive) {
+    const run = readArchive(file)
+    if (!run) continue
+    if ((run.results || []).some(r => r.source === sourceId)) return run
+  }
+  return null
+}
+
+module.exports = { readLatest, writeLatest, archiveRun, listArchive, readArchive, findLatestRunBySource }

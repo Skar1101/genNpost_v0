@@ -2,6 +2,7 @@ const cron = require('node-cron')
 const chitrag = require('../agents/chitrag')
 const titto = require('../agents/titto')
 const quill = require('../agents/quill')
+const { isEnabled } = require('../state/schedulerStore')
 
 function initScheduler(broadcast, telegramSend) {
   // 6:00am IST = 00:30 UTC daily
@@ -17,6 +18,7 @@ function initScheduler(broadcast, telegramSend) {
 }
 
 async function runMorning(broadcast, telegramSend) {
+  if (!isEnabled()) { console.log('[Scheduler] Morning run SKIPPED — auto-runs disabled'); return }
   console.log('[Scheduler] Starting morning research run (6am IST)')
   try {
     const results = await chitrag.run({ triggeredBy: 'scheduler', triggerLabel: '⏰ Scheduled · 6:00 AM IST', broadcast })
@@ -34,6 +36,7 @@ async function runMorning(broadcast, telegramSend) {
 }
 
 async function runEvening(broadcast, telegramSend) {
+  if (!isEnabled()) { console.log('[Scheduler] Evening run SKIPPED — auto-runs disabled'); return }
   console.log('[Scheduler] Starting evening research run (6pm IST)')
   try {
     const results = await chitrag.run({ triggeredBy: 'scheduler', triggerLabel: '⏰ Scheduled · 6:00 PM IST', broadcast })
@@ -48,6 +51,7 @@ async function runEvening(broadcast, telegramSend) {
 }
 
 async function runWeekly(broadcast, telegramSend) {
+  if (!isEnabled()) { console.log('[Scheduler] Weekly run SKIPPED — auto-runs disabled'); return }
   console.log('[Scheduler] Starting weekly wrap (Sunday)')
   try {
     await quill.runWeekly({ broadcast, telegramSend })

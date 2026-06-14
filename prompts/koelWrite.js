@@ -100,11 +100,25 @@ function buildKoelUserPrompt({ format, input, inputType, count = 3, extraInstruc
   }
 
   const countNote = count !== 3 ? `Produce ${count} drafts instead of 3.` : ''
-  const extra = extraInstructions ? `\nADDITIONAL INSTRUCTIONS: ${extraInstructions}` : ''
+
+  // Titto's instructions always take highest priority — placed first so the LLM sees them before format defaults
+  if (extraInstructions) {
+    return `INSTRUCTIONS (HIGHEST PRIORITY — follow these precisely, they override format defaults below):
+${extraInstructions}
+
+---
+FORMAT REFERENCE: ${meta.label} — ${meta.desc}
+${formatGuide}
+${countNote}
+
+${inputLabel}:
+${input}
+
+Write now. No preamble.`
+  }
 
   return `${formatGuide}
 ${countNote}
-${extra}
 
 ${inputLabel}:
 ${input}

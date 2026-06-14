@@ -24,6 +24,7 @@
   --text3: #9aa3b0;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html { zoom: 1.4; }
 body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; height: 100dvh; overflow: hidden; }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -79,14 +80,22 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 
 /* ── Titto bubble ── */
 #tittoBubble { position:fixed; bottom:24px; right:24px; z-index:100; }
-#tittoPanel  { position:fixed; bottom:90px; right:24px; z-index:99;
-  width:360px; max-height:520px; border-radius:20px;
+#tittoPanel {
+  position:fixed; z-index:99;
   background:var(--surface); border:1px solid var(--border2);
   box-shadow: 0 24px 60px rgba(0,0,0,.7), 0 0 0 1px rgba(124,111,247,.1);
-  display:flex; flex-direction:column; transform-origin:bottom right;
-  transition: transform .22s cubic-bezier(.34,1.56,.64,1), opacity .18s;
+  display:flex; flex-direction:column;
+  transition: all .22s cubic-bezier(.34,1.56,.64,1), opacity .18s;
 }
-#tittoPanel.hidden-panel { transform:scale(.85); opacity:0; pointer-events:none; }
+#tittoPanel.titto-small {
+  bottom:90px; right:24px; width:360px; max-height:520px;
+  border-radius:20px; transform-origin:bottom right;
+}
+#tittoPanel.titto-full {
+  top:52px; right:0; bottom:0; width:380px; max-height:none;
+  border-radius:20px 0 0 0; border-right:none; transform-origin:top right;
+}
+#tittoPanel.titto-hidden { transform:scale(.85); opacity:0; pointer-events:none; }
 
 /* ── Spinner / progress ── */
 @keyframes spin { to { transform:rotate(360deg); } }
@@ -95,6 +104,63 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 .pulse { animation:pulse 1.5s ease infinite; }
 @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
 .fade-up { animation:fadeUp .25s ease forwards; }
+
+/* ── Chat error pill ── */
+.errPill { background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.35); border-radius:10px; padding:7px 10px; font-size:11px; color:#fca5a5; display:flex; align-items:center; gap:8px; margin:2px 32px 0 32px; max-width:260px; }
+.errPill .errMsg { flex:1; }
+.errPill button { background:rgba(239,68,68,.12); border:1px solid rgba(239,68,68,.4); color:#fca5a5; padding:3px 8px; border-radius:6px; font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:3px; }
+.errPill button:hover { background:rgba(239,68,68,.2); color:#fecaca; }
+.failedDot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#ef4444; margin-left:6px; vertical-align:middle; }
+
+/* ── Editable user message ── */
+.userMsgRow .msgEditBtn { opacity:0; transition:opacity .15s; background:none; border:none; cursor:pointer; color:var(--text3); font-size:13px; padding:2px 6px; align-self:center; line-height:1; }
+.userMsgRow:hover .msgEditBtn { opacity:.55; }
+.userMsgRow .msgEditBtn:hover { opacity:1; color:var(--text); }
+
+/* ── Quill pillars + plan ── */
+.pillarChip { display:inline-flex; align-items:center; background:rgba(236,72,153,.1); border:1px solid rgba(236,72,153,.3); border-radius:99px; padding:4px 12px; font-size:11px; color:#db2777; font-weight:600; cursor:help; }
+.pillarChip:hover { background:rgba(236,72,153,.18); border-color:rgba(236,72,153,.5); }
+.qFmtChip { background:var(--surface); border:1px solid var(--border); border-radius:99px; padding:4px 10px; font-size:11px; color:var(--text2); cursor:pointer; font-weight:500; }
+.qFmtActive { background:#db2777; border-color:#db2777; color:white; }
+.qFmtAdd { background:var(--surface); border:1px dashed var(--border2); border-radius:6px; padding:3px 8px; font-size:11px; color:var(--text2); cursor:pointer; }
+.qFmtAdd:hover { border-color:#db2777; color:#db2777; }
+.qDraftCard { background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:14px 16px; }
+.qDraftBadge { display:inline-block; font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; background:rgba(236,72,153,.12); color:#db2777; letter-spacing:.04em; text-transform:uppercase; margin-right:6px; }
+.qDraftMeta { font-size:11px; color:var(--text3); margin-bottom:8px; }
+.qDraftText { width:100%; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 12px; font-size:13px; line-height:1.5; color:var(--text); resize:vertical; outline:none; font-family:inherit; white-space:pre-wrap; min-height:120px; }
+.qDraftActions { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; align-items:center; }
+.qDraftActions button { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:5px 12px; font-size:11px; font-weight:600; color:var(--text2); cursor:pointer; }
+.qDraftActions button:hover { color:var(--text); border-color:var(--border2); }
+
+/* Suggestion cards */
+.qPillarGroup { display:flex; flex-direction:column; gap:10px; }
+.qPillarHeader { font-size:11px; font-weight:700; color:#db2777; letter-spacing:.06em; text-transform:uppercase; padding:0 4px 4px; border-bottom:1px solid rgba(236,72,153,.18); }
+.qSuggCard { background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
+.qSuggMeta { display:flex; align-items:center; gap:8px; font-size:10px; color:var(--text3); }
+.qSuggSrc { font-size:10px; font-weight:700; padding:2px 7px; border-radius:99px; background:var(--surface); border:1px solid var(--border); color:var(--text2); letter-spacing:.04em; text-transform:uppercase; }
+.qSuggTitle { font-size:13px; font-weight:600; color:var(--text); line-height:1.4; }
+.qSuggSnippet { font-size:11px; color:var(--text3); line-height:1.4; }
+.qSuggAngle { font-size:12px; color:var(--text2); line-height:1.45; padding:6px 10px; background:rgba(236,72,153,.06); border-left:2px solid #db2777; border-radius:4px; }
+.qSuggFormats { display:flex; gap:6px; flex-wrap:wrap; }
+.qFmtBtn { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:5px 12px; font-size:11px; font-weight:600; color:var(--text2); cursor:pointer; transition:all .15s; }
+.qFmtBtn:hover { background:rgba(236,72,153,.12); border-color:#db2777; color:#db2777; }
+.qFmtBtn:disabled { opacity:.5; cursor:wait; }
+.qFmtArticle { background:rgba(236,72,153,.08); border-color:rgba(236,72,153,.4); color:#db2777; }
+.qFmtArticle:hover { background:rgba(236,72,153,.18); border-color:#db2777; }
+.qSuggDraftsInline { display:flex; flex-direction:column; gap:10px; }
+.qRefineRow { display:flex; gap:6px; margin-top:6px; align-items:center; }
+.qRefineRow input { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:12px; color:var(--text); outline:none; }
+.qRefineRow input:focus { border-color:#db2777; }
+.qRefineRow button { background:rgba(236,72,153,.12); border:1px solid rgba(236,72,153,.4); border-radius:8px; padding:6px 12px; font-size:11px; font-weight:700; color:#db2777; cursor:pointer; flex-shrink:0; }
+.qRefineRow button:hover { background:rgba(236,72,153,.22); }
+.qRefineRow button:disabled { opacity:.5; cursor:wait; }
+
+/* Previous-plans collapsible cards */
+.qPrevCard { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:0; overflow:hidden; }
+.qPrevHeader { display:flex; align-items:center; gap:6px; padding:8px 12px; font-size:12px; cursor:pointer; user-select:none; }
+.qPrevHeader:hover { background:var(--surface3); }
+.qPrevArrow { color:var(--text3); font-size:9px; width:10px; display:inline-block; }
+.qPrevBody { padding:0 12px 12px; border-top:1px solid var(--border); background:rgba(255,255,255,.02); }
 
 /* ── Progress bar ── */
 @keyframes pgbar { 0%{left:-40%;width:40%} 100%{left:100%;width:40%} }
@@ -184,6 +250,14 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
         </div>
 
         <div class="flex items-center gap-2 ml-auto flex-wrap">
+          <!-- Auto-run toggle -->
+          <button id="schedToggle" onclick="toggleScheduler()" title="Toggle scheduled auto-runs (6am + 6pm + Sunday weekly)"
+            class="text-xs px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1.5"
+            style="background:var(--surface2);border:1px solid var(--border);color:var(--text3);cursor:pointer;">
+            <span id="schedDot" style="width:7px;height:7px;border-radius:50%;background:var(--text3);"></span>
+            <span id="schedLabel">Auto: …</span>
+          </button>
+
           <!-- Last run info -->
           <span id="lastRunInfo" class="text-xs" style="color:var(--text3)">No run yet</span>
 
@@ -438,30 +512,67 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
         </div>
       </div>
 
-      <!-- Quill content -->
-      <div class="flex-1 overflow-y-auto p-5" id="quillMain">
+      <!-- Quill content (single pane) -->
+      <div class="flex-1 overflow-y-auto p-5" id="quillMain" style="display:flex;flex-direction:column;gap:18px;">
 
-        <!-- Writing state -->
-        <div id="quillWorking" class="hidden text-center py-10 fade-up">
-          <div style="font-size:40px;margin-bottom:12px">🪶</div>
-          <div class="text-sm font-semibold" style="color:#db2777">Quill is writing your daily lineup...</div>
-          <div id="quillWorkingStep" class="text-xs mt-1 pulse" style="color:var(--text3)">Assigning topics from research...</div>
+        <!-- ── Pillars section ── -->
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;">CONTENT PILLARS</div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:11px;color:var(--text3);" id="pillarsCountLabel">0</span>
+              <button onclick="loadPillars()" title="Reload from PILLARS.md"
+                style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:11px;color:var(--text2);cursor:pointer;">↻ Reload</button>
+            </div>
+          </div>
+          <div id="pillarsList" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+          <div style="font-size:11px;color:var(--text3);line-height:1.5;">
+            Edit pillars in <code style="background:var(--surface);padding:1px 5px;border-radius:4px;font-size:10px;">sub-agents/quill/PILLARS.md</code>, then click ↻ Reload.
+          </div>
         </div>
 
-        <!-- Empty state -->
-        <div id="quillEmpty" class="text-center py-16">
-          <div style="font-size:48px;margin-bottom:16px">🪶</div>
-          <div class="text-sm font-semibold mb-2" style="color:var(--text)">No drafts yet</div>
-          <div class="text-xs mb-6" style="color:var(--text3)">Quill runs automatically at 6am IST after ChitraG.<br>Or trigger it manually above.</div>
-          <button onclick="triggerQuillDaily()" class="text-sm px-5 py-2.5 rounded-xl font-semibold" style="background:#db2777;color:white;border:none;cursor:pointer;">
-            Generate Today's Drafts
-          </button>
+        <!-- ── Plan controls ── -->
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="flex:1;">
+              <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;margin-bottom:3px;">PLAN TODAY'S POSTS</div>
+              <div style="font-size:11px;color:var(--text3);">Quill finds 2–3 trending items per pillar. Pick what to write.</div>
+            </div>
+            <label title="Force a fresh ChitraG scrape, bypass cache. Slower but always-new content."
+              style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);cursor:pointer;user-select:none;flex-shrink:0;">
+              <input type="checkbox" id="planFreshChk" style="cursor:pointer;accent-color:#db2777;">
+              Fresh search
+            </label>
+            <button id="planNowBtn" onclick="planNow()" style="background:#db2777;border:none;border-radius:10px;padding:8px 18px;font-size:13px;font-weight:700;color:white;cursor:pointer;flex-shrink:0;">
+              ✨ Plan Today's Posts
+            </button>
+          </div>
         </div>
 
-        <!-- Day-by-day history -->
-        <div id="quillHistory" class="hidden flex flex-col gap-5"></div>
+        <!-- ── Working state ── -->
+        <div id="quillWorking" class="hidden text-center py-8 fade-up">
+          <div style="font-size:32px;margin-bottom:10px">🪶</div>
+          <div class="text-sm font-semibold" style="color:#db2777">Quill is planning your posts...</div>
+          <div id="quillWorkingStep" class="text-xs mt-1 pulse" style="color:var(--text3)">Picking angles...</div>
+        </div>
+
+        <!-- ── Suggestions area (grouped by pillar; drafts appear inline per suggestion) ── -->
+        <div id="quillSuggestionsArea" style="display:flex;flex-direction:column;gap:18px;"></div>
+
+        <!-- ── Previous plans (collapsible, ChitraG-style) ── -->
+        <div id="quillPrevPlansArea"></div>
+
+        <!-- ── Empty state ── -->
+        <div id="quillEmpty" class="text-center py-10" style="color:var(--text3);">
+          <div style="font-size:36px;margin-bottom:10px">🪶</div>
+          <div class="text-sm">Add pillars and click "Plan Today's Posts" to get started.</div>
+        </div>
+
+        <!-- ── History (collapsed) ── -->
+        <div id="quillHistory" class="hidden flex flex-col gap-3"></div>
 
       </div>
+
     </div>
 
   </main>
@@ -478,7 +589,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 </div>
 
 <!-- ══════════════════ TITTO CHAT PANEL ══════════════════ -->
-<div id="tittoPanel" class="hidden-panel">
+<div id="tittoPanel" class="titto-hidden">
   <!-- Header -->
   <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
     <div style="width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#7c6ff7,#a99cf7);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">T</div>
@@ -486,9 +597,14 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
       <div style="font-weight:600;font-size:13px;color:var(--text)">Titto</div>
       <div style="font-size:11px;color:var(--text3)">Chief of Staff</div>
     </div>
-    <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
-      <div id="tittoDot" style="width:7px;height:7px;border-radius:50%;background:var(--green)"></div>
-      <button onclick="toggleTitto()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;line-height:1;">✕</button>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+      <div id="tittoDot" style="width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:4px;"></div>
+      <button id="tittoBtnHide" onclick="setTittoSize('hidden')" title="Minimize"
+        style="background:none;border:1px solid var(--border2);border-radius:6px;color:var(--text2);width:28px;height:28px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;">─</button>
+      <button id="tittoBtnSmall" onclick="setTittoSize('small')" title="Small panel"
+        style="background:none;border:1px solid var(--border2);border-radius:6px;color:var(--text2);width:28px;height:28px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;">⊡</button>
+      <button id="tittoBtnFull" onclick="setTittoSize('full')" title="Full panel"
+        style="background:none;border:1px solid var(--border2);border-radius:6px;color:var(--text2);width:28px;height:28px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;">⊞</button>
     </div>
   </div>
 
@@ -512,6 +628,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
         <div style="width:5px;height:5px;border-radius:50%;background:var(--text3);animation:pulse 1s infinite .2s"></div>
         <div style="width:5px;height:5px;border-radius:50%;background:var(--text3);animation:pulse 1s infinite .4s"></div>
       </div>
+      <span id="typingStatus" style="font-size:12px;color:var(--text3);"></span>
     </div>
   </div>
 
@@ -575,11 +692,30 @@ function setWS(on) {
 function onWSEvent(ev) {
   if (ev.type === 'research_complete') { stopRunning(); addOrUpdateRun(ev.data); enableRun() }
   if (ev.type === 'research_progress')  { document.getElementById('pgStep').textContent = `${ev.data.step === 'fetching' ? 'Fetching' : 'Ranking with AI'} — ${ev.data.source}` }
+  if (ev.type === 'reply_progress')      { showTyping(ev.data.message) }
   if (ev.type === 'chat_reply')          { hideTyping(); addMsg('titto', ev.data.content); showUnread() }
   if (ev.type === 'error')               { stopRunning(); enableRun(); hideTyping(); addMsg('titto','⚠️ ' + ev.data.message) }
   if (ev.type === 'koel_complete')       { hide('koelWriting'); renderDrafts(ev.data); switchAgent('koel') }
   if (ev.type === 'koel_progress')       { /* writing state already shown */ }
   if (ev.type === 'quill_complete')      { hide('quillWorking'); loadQuillLatest() }
+  if (ev.type === 'quill_suggestions_complete') {
+    // /quill plan from Titto chat — render suggestions in Quill panel automatically
+    hide('quillWorking')
+    _quillSuggestions = ev.data?.suggestions || []
+    _currentSessionId = ev.data?.sessionId || null
+    _qDraftMeta.clear()
+    _qDraftSaved.clear()
+    renderQuillSuggestions(_quillSuggestions)
+    loadPreviousPlans()
+    // Flash the Quill tab to draw attention
+    const tab = document.getElementById('tab-quill')
+    if (tab) {
+      tab.style.transition = 'background .25s'
+      const orig = tab.style.background
+      tab.style.background = 'rgba(236,72,153,.18)'
+      setTimeout(() => { tab.style.background = orig }, 1200)
+    }
+  }
   if (ev.type === 'quill_progress')      {
     const step = ev.data?.step || ''
     const labels = {
@@ -588,9 +724,18 @@ function onWSEvent(ev) {
       writing_threads: 'Writing threads\u2026',
       writing_shorts: 'Writing short tweets\u2026',
       writing_trending: 'Writing trending post\u2026',
+      fetching_trending: 'Fetching trending content\u2026',
+      matching_pillars: 'Matching items to your pillars\u2026',
+      writing_long: 'Writing long-form post\u2026',
+      writing_thread: 'Writing thread\u2026',
+      writing_medium: 'Writing medium post\u2026',
+      writing_short: 'Writing short post\u2026',
+      researching_similar: 'Researching similar articles\u2026',
+      writing_article: 'Writing X article\u2026',
+      refining: 'Refining draft\u2026',
     }
     const el = document.getElementById('quillWorkingStep')
-    if (el) el.textContent = labels[step] || 'Writing\u2026'
+    if (el) el.textContent = labels[step] || 'Working\u2026'
   }
   if (ev.type === 'tools_complete')      {
     document.getElementById('toolsRunning').classList.add('hidden')
@@ -621,6 +766,51 @@ function addOrUpdateRun(data) {
 }
 
 // Called when source filter dropdown changes
+// ── Scheduler toggle ────────────────────────────────────────────────────────
+let _schedEnabled = null
+async function loadSchedulerStatus() {
+  try {
+    const r = await fetch('/api/scheduler')
+    const data = await r.json()
+    _schedEnabled = !!data.enabled
+    renderSchedulerToggle()
+  } catch (_) { _schedEnabled = null; renderSchedulerToggle() }
+}
+function renderSchedulerToggle() {
+  const dot = document.getElementById('schedDot')
+  const label = document.getElementById('schedLabel')
+  const btn = document.getElementById('schedToggle')
+  if (!dot || !label || !btn) return
+  if (_schedEnabled === null) {
+    dot.style.background = 'var(--text3)'; label.textContent = 'Auto: …'; return
+  }
+  if (_schedEnabled) {
+    dot.style.background = 'var(--green)'
+    label.textContent = 'Auto: ON'
+    btn.style.borderColor = 'rgba(34,197,94,.35)'
+    btn.style.color = 'var(--text)'
+  } else {
+    dot.style.background = '#ef4444'
+    label.textContent = 'Auto: OFF'
+    btn.style.borderColor = 'rgba(239,68,68,.4)'
+    btn.style.color = '#fca5a5'
+  }
+}
+async function toggleScheduler() {
+  if (_schedEnabled === null) return
+  const newVal = !_schedEnabled
+  if (!newVal && !confirm('Pause all scheduled auto-runs?\n\n• 6am ChitraG + Quill daily lineup\n• 6pm ChitraG\n• Sunday weekly wrap\n\nManual buttons will still work.')) return
+  try {
+    const r = await fetch('/api/scheduler', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: newVal }),
+    })
+    const data = await r.json()
+    _schedEnabled = !!data.enabled
+    renderSchedulerToggle()
+  } catch (e) { alert('Toggle failed: ' + e.message) }
+}
+
 function applySourceFilter() {
   const src = document.getElementById('catFilter').value
   const banner = document.getElementById('sourceFilterBanner')
@@ -653,7 +843,7 @@ function runSourceOnly() {
   disableRun(); startRunning()
   const label = CAT_META[src]?.label || src
   addMsg('titto', `Searching ${label} only.`)
-  if (!tittoOpen) toggleTitto()
+  if (tittoSize === 'hidden') toggleTitto()
   fetch('/api/research/trigger', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -813,19 +1003,30 @@ function openModal(item) {
 function closeModal() { document.getElementById('modal').style.display = 'none' }
 
 // ══════════════════ TITTO CHAT ══════════════════
-let tittoOpen = false
-function toggleTitto() {
-  tittoOpen = !tittoOpen
-  document.getElementById('tittoPanel').classList.toggle('hidden-panel', !tittoOpen)
-  if (tittoOpen) { document.getElementById('unreadDot').classList.add('hidden'); document.getElementById('chatIn').focus() }
+let tittoSize = 'hidden'
+function setTittoSize(size) {
+  tittoSize = size
+  const panel = document.getElementById('tittoPanel')
+  panel.classList.remove('titto-hidden', 'titto-small', 'titto-full')
+  panel.classList.add('titto-' + size)
+  ;['tittoBtnHide','tittoBtnSmall','tittoBtnFull'].forEach(id => {
+    const btn = document.getElementById(id)
+    if (btn) btn.style.borderColor = 'var(--border2)'
+  })
+  const activeMap = { hidden: 'tittoBtnHide', small: 'tittoBtnSmall', full: 'tittoBtnFull' }
+  const activeBtn = document.getElementById(activeMap[size])
+  if (activeBtn) activeBtn.style.borderColor = 'var(--accent)'
+  if (size !== 'hidden') { document.getElementById('unreadDot').classList.add('hidden'); document.getElementById('chatIn').focus() }
 }
-function showUnread() { if (!tittoOpen) document.getElementById('unreadDot').classList.remove('hidden') }
+function toggleTitto() { setTittoSize(tittoSize === 'hidden' ? 'small' : 'hidden') }
+function showUnread() { if (tittoSize === 'hidden') document.getElementById('unreadDot').classList.remove('hidden') }
 
-function addMsg(role, text) {
+function addMsg(role, text, msgId = null) {
   const wrap = document.getElementById('chatMsgs')
   const isUser = role === 'user'
   const div = document.createElement('div')
-  div.className = 'fade-up'
+  div.className = 'fade-up' + (isUser ? ' userMsgRow' : '')
+  if (msgId) div.setAttribute('data-msg-id', msgId)
   div.style.cssText = `display:flex;gap:8px;align-items:flex-start;${isUser ? 'flex-direction:row-reverse;' : ''}`
   const avatar = isUser
     ? `<div style="width:24px;height:24px;border-radius:7px;background:var(--surface3);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text3);flex-shrink:0;">S</div>`
@@ -833,31 +1034,130 @@ function addMsg(role, text) {
   const bubble = isUser
     ? `<div style="background:var(--accent);border-radius:14px 14px 4px 14px;padding:9px 13px;font-size:13px;line-height:1.5;max-width:240px;color:white;">${esc(text)}</div>`
     : `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px 14px 14px 4px;padding:9px 13px;font-size:13px;line-height:1.5;max-width:260px;white-space:pre-wrap;">${esc(text)}</div>`
-  div.innerHTML = avatar + bubble
+  const editBtn = (isUser && msgId)
+    ? `<button class="msgEditBtn" onclick="editUserMsg('${msgId}')" title="Edit & resend">✎</button>`
+    : ''
+  if (isUser && msgId) _userMsgs.set(msgId, text)
+  div.innerHTML = avatar + bubble + editBtn
   wrap.appendChild(div)
   wrap.scrollTop = wrap.scrollHeight
+  return div
 }
 
-function showTyping() { document.getElementById('typingRow').style.display = 'block'; document.getElementById('chatMsgs').scrollTop = 9999 }
-function hideTyping() { document.getElementById('typingRow').style.display = 'none' }
+// ── Chat: edit any user message ─────────────────────────────────────────────
+const _userMsgs = new Map()  // msgId -> original text
+
+function editUserMsg(msgId) {
+  const text = _userMsgs.get(msgId)
+  if (!text) return
+  const inp = document.getElementById('chatIn')
+  inp.value = text
+  autoH(inp)
+  inp.focus()
+  inp.setSelectionRange(text.length, text.length)
+}
+
+// ── Chat failure recovery ────────────────────────────────────────────────────
+const _failedMsgs = new Map()  // msgId -> { text, msgEl, pillEl }
+
+function setSendDisabled(disabled) {
+  const btn = document.querySelector('#tittoPanel button[onclick="sendMsg()"]')
+  if (btn) { btn.disabled = disabled; btn.style.opacity = disabled ? '.5' : '1'; btn.style.cursor = disabled ? 'wait' : 'pointer' }
+}
+
+function addErrorPill(msgId, originalText, reason) {
+  const wrap = document.getElementById('chatMsgs')
+  const pill = document.createElement('div')
+  pill.className = 'errPill fade-up'
+  pill.setAttribute('data-err-for', msgId)
+  pill.innerHTML = `
+    <span>⚠</span>
+    <span class="errMsg">Couldn't reach Titto (${reason})</span>
+    <button onclick="editFailed('${msgId}')" title="Edit your message">✎ Edit</button>
+    <button onclick="retryFailed('${msgId}')" title="Try again">↻ Retry</button>`
+  wrap.appendChild(pill)
+  wrap.scrollTop = wrap.scrollHeight
+
+  const msgEl = wrap.querySelector(`[data-msg-id="${msgId}"]`)
+  if (msgEl) {
+    const bubble = msgEl.querySelector('div > div:last-child')
+    if (bubble && !bubble.querySelector('.failedDot')) {
+      bubble.insertAdjacentHTML('beforeend', '<span class="failedDot" title="Failed to send"></span>')
+    }
+  }
+  _failedMsgs.set(msgId, { text: originalText, msgEl, pillEl: pill })
+}
+
+function clearFailure(msgId, removeUserBubble = false) {
+  const rec = _failedMsgs.get(msgId)
+  if (!rec) return
+  rec.pillEl?.remove()
+  if (removeUserBubble) rec.msgEl?.remove()
+  else rec.msgEl?.querySelector('.failedDot')?.remove()
+  _failedMsgs.delete(msgId)
+}
+
+function editFailed(msgId) {
+  const rec = _failedMsgs.get(msgId)
+  if (!rec) return
+  const inp = document.getElementById('chatIn')
+  inp.value = rec.text
+  autoH(inp)
+  inp.focus()
+  clearFailure(msgId, true)
+}
+
+function retryFailed(msgId) {
+  const rec = _failedMsgs.get(msgId)
+  if (!rec) return
+  const text = rec.text
+  clearFailure(msgId, false)  // keep user bubble, remove pill + dot
+  _sendText(text, msgId)       // reuse the same msgId so the same bubble gets re-linked
+}
+
+function showTyping(status) { document.getElementById('typingRow').style.display = 'block'; setTypingStatus(status || ''); document.getElementById('chatMsgs').scrollTop = 9999 }
+function hideTyping() { document.getElementById('typingRow').style.display = 'none'; setTypingStatus('') }
+function setTypingStatus(t) { const el = document.getElementById('typingStatus'); if (el) el.textContent = t || '' }
 
 async function sendMsg() {
   const inp = document.getElementById('chatIn')
   const text = inp.value.trim()
   if (!text) return
-  addMsg('user', text)
+  const msgId = 'm' + Date.now() + Math.random().toString(36).slice(2, 6)
+  addMsg('user', text, msgId)
   inp.value = ''; autoH(inp)
-  showTyping()
-  if (!tittoOpen) toggleTitto()
+  if (tittoSize === 'hidden') toggleTitto()
+  _sendText(text, msgId)
+}
 
+async function _sendText(text, msgId) {
+  showTyping()
+  setSendDisabled(true)
+  let reason = null
   try {
     const res = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:text, sessionId }) })
-    const data = await res.json()
+    let data = null
+    try { data = await res.json() } catch (_) { data = null }
     hideTyping()
-    if (data.reply) addMsg('titto', data.reply)
-    if (data.action === 'research_started') { startRunning(); disableRun() }
-    if (data.action === 'show_results' && data.data) addOrUpdateRun(data.data)
-  } catch(_) { hideTyping(); addMsg('titto','⚠️ Could not reach server.') }
+    if (!res.ok) {
+      reason = res.status >= 500 ? 'server error' : 'bad request'
+    } else if (data?.error && !data?.reply) {
+      reason = 'server error'
+    } else if (!data?.reply) {
+      reason = 'no response'
+    } else {
+      addMsg('titto', data.reply)
+      if (data.action === 'research_started') { startRunning(); disableRun() }
+      if (data.action === 'replies_started') { showTyping('Scanning X for reply targets…') }
+      if (data.action === 'show_results' && data.data) addOrUpdateRun(data.data)
+    }
+  } catch (_) {
+    hideTyping()
+    reason = 'connection issue'
+  } finally {
+    setSendDisabled(false)
+  }
+  if (reason) addErrorPill(msgId, text, reason)
 }
 
 function quickCmd(cmd) { document.getElementById('chatIn').value = cmd; sendMsg() }
@@ -866,7 +1166,7 @@ function autoH(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scr
 
 function askAbout(title) {
   document.getElementById('chatIn').value = `Tell me more about: "${title}"`
-  if (!tittoOpen) toggleTitto()
+  if (tittoSize === 'hidden') toggleTitto()
   sendMsg()
 }
 
@@ -899,7 +1199,7 @@ function writeFromItem(item) {
 async function triggerResearch() {
   disableRun(); startRunning()
   addMsg('titto','Starting research. ChitraG is on it — I\'ll notify you when done.')
-  if (!tittoOpen) toggleTitto()
+  if (tittoSize === 'hidden') toggleTitto()
   try { await fetch('/api/research/trigger', { method:'POST' }) }
   catch(_) { stopRunning(); enableRun(); addMsg('titto','⚠️ Could not trigger research.') }
 }
@@ -1021,7 +1321,7 @@ function switchAgent(name) {
   document.getElementById('panel-chitrag').classList.toggle('hidden', name !== 'chitrag')
   document.getElementById('panel-koel').classList.toggle('hidden', name !== 'koel')
   document.getElementById('panel-quill').classList.toggle('hidden', name !== 'quill')
-  if (name === 'quill') loadQuillLatest()
+  if (name === 'quill') { loadPillars(); loadQuillSessions(); loadQuillLatest() }
 }
 
 // ══════════════════ KOEL ══════════════════
@@ -1290,6 +1590,437 @@ const QUILL_SECTION_META = {
   trending:     { emoji: '🔥', label: 'Trending on X',            color: '#db2777', bg: 'rgba(219,39,119,.08)' },
 }
 
+// ── Quill: Pillars + Plan ────────────────────────────────────────────────────
+
+let _pillars = []
+let _quillSuggestions = []   // [{ pillar, items: [...] }] — current session
+let _currentSessionId = null
+const _qDraftMeta = new Map() // draftUid -> { pillar, title, format, sources }
+const _qDraftSaved = new Map() // draftUid -> last-saved text (for "dirty" detection)
+
+async function loadPillars() {
+  try {
+    const r = await fetch('/api/quill/pillars')
+    const data = await r.json()
+    _pillars = data.pillars || []
+    renderPillars()
+  } catch (_) { _pillars = []; renderPillars() }
+}
+
+function renderPillars() {
+  const wrap = document.getElementById('pillarsList')
+  document.getElementById('pillarsCountLabel').textContent = `${_pillars.length} pillar${_pillars.length === 1 ? '' : 's'}`
+  if (!_pillars.length) {
+    wrap.innerHTML = `<div style="font-size:11px;color:var(--text3);font-style:italic;">No pillars yet. Add some in <code style="background:var(--surface);padding:1px 5px;border-radius:4px;">sub-agents/quill/PILLARS.md</code>.</div>`
+    return
+  }
+  wrap.innerHTML = _pillars.map(p => {
+    const notesAttr = p.notes ? ` title="${esc(p.notes).replace(/"/g, '&quot;')}"` : ''
+    return `<span class="pillarChip"${notesAttr}>${esc(p.label)}</span>`
+  }).join('')
+}
+
+async function planNow() {
+  if (!_pillars.length) { alert('Add at least one pillar before planning.'); return }
+  const forceFresh = !!document.getElementById('planFreshChk')?.checked
+
+  const btn = document.getElementById('planNowBtn')
+  btn.disabled = true; btn.style.opacity = '.5'; btn.textContent = forceFresh ? 'Fetching fresh…' : 'Searching…'
+  hide('quillEmpty')
+  show('quillWorking')
+  document.getElementById('quillSuggestionsArea').innerHTML = ''
+  _quillSuggestions = []
+  _currentSessionId = null
+  _qDraftMeta.clear()
+  _qDraftSaved.clear()
+
+  try {
+    const r = await fetch('/api/quill/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ forceFresh, triggerLabel: '🖱 Plan button' }),
+    })
+    const data = await r.json()
+    hide('quillWorking')
+    if (data.error) { alert('Plan failed: ' + data.error); return }
+    _quillSuggestions = data.suggestions || []
+    _currentSessionId = data.sessionId || null
+    renderQuillSuggestions(_quillSuggestions)
+    // Refresh previous-plans list to bring in the now-demoted prior session
+    loadPreviousPlans()
+  } catch (e) {
+    hide('quillWorking')
+    alert('Plan failed: ' + e.message)
+  } finally {
+    btn.disabled = false; btn.style.opacity = '1'; btn.textContent = '✨ Plan Today\'s Posts'
+  }
+}
+
+function renderQuillSuggestions(groups) {
+  const area = document.getElementById('quillSuggestionsArea')
+  if (!groups.length) { show('quillEmpty'); area.innerHTML = ''; return }
+  hide('quillEmpty')
+  area.innerHTML = groups.map((g, gi) => {
+    const items = (g.items || []).map((it, ii) => {
+      const sid = `s${gi}-${ii}`
+      const sourceBadge = it.source ? `<span class="qSuggSrc">${esc(it.source)}</span>` : ''
+      const urlLink = it.url ? `<a href="${esc(it.url)}" target="_blank" style="color:var(--text3);text-decoration:none;font-size:10px;">↗ source</a>` : ''
+      return `
+        <div class="qSuggCard" data-sid="${sid}">
+          <div class="qSuggMeta">${sourceBadge}${urlLink}</div>
+          <div class="qSuggTitle">${esc(it.title || '')}</div>
+          ${it.snippet ? `<div class="qSuggSnippet">${esc(it.snippet)}</div>` : ''}
+          ${it.angle ? `<div class="qSuggAngle"><strong>Angle:</strong> ${esc(it.angle)}</div>` : ''}
+          <div class="qSuggFormats">
+            <button class="qFmtBtn" onclick="writeFromSuggestion('${sid}','long')">Long</button>
+            <button class="qFmtBtn" onclick="writeFromSuggestion('${sid}','thread')">Thread</button>
+            <button class="qFmtBtn" onclick="writeFromSuggestion('${sid}','medium')">Medium</button>
+            <button class="qFmtBtn" onclick="writeFromSuggestion('${sid}','short')">Short</button>
+            <button class="qFmtBtn qFmtArticle" onclick="writeFromSuggestion('${sid}','article')" title="Long structured article with cited stats">📰 Article</button>
+          </div>
+          <div class="qSuggDraftsInline" id="drafts-${sid}"></div>
+        </div>`
+    }).join('')
+    return `
+      <div class="qPillarGroup">
+        <div class="qPillarHeader">${esc(g.pillar || 'Pillar')}</div>
+        ${items}
+      </div>`
+  }).join('')
+}
+
+function _findSuggestion(sid) {
+  const [g, i] = sid.replace(/^s/, '').split('-').map(Number)
+  return _quillSuggestions[g]?.items?.[i]
+    ? { ..._quillSuggestions[g].items[i], pillar: _quillSuggestions[g].pillar }
+    : null
+}
+
+async function writeFromSuggestion(sid, format) {
+  const suggestion = _findSuggestion(sid)
+  if (!suggestion) return
+  const card = document.querySelector(`.qSuggCard[data-sid="${sid}"]`)
+  const fmtBtns = card?.querySelectorAll('.qFmtBtn') || []
+  fmtBtns.forEach(b => b.disabled = true)
+  const clickedBtn = Array.from(fmtBtns).find(b => b.textContent.toLowerCase().includes(format))
+  const origLabel = clickedBtn?.textContent
+  if (clickedBtn) clickedBtn.textContent = '…writing'
+
+  try {
+    const r = await fetch('/api/quill/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suggestion, format, sessionId: _currentSessionId, sid }),
+    })
+    const data = await r.json()
+    if (data.error) { alert('Draft failed: ' + data.error); return }
+    appendQDraftInline(sid, data)
+  } catch (e) {
+    alert('Draft failed: ' + e.message)
+  } finally {
+    fmtBtns.forEach(b => b.disabled = false)
+    if (clickedBtn && origLabel) clickedBtn.textContent = origLabel
+  }
+}
+
+// Render a draft card inside the current session. Uses server-assigned uid so save/refine persist.
+function appendQDraftInline(sid, data, opts = {}) {
+  const container = document.getElementById(`drafts-${sid}`)
+  if (!container) return
+  const uid = data.uid || ('qd-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6))
+  const text = data.draft != null ? data.draft : (data.text || '')
+  _qDraftMeta.set(uid, { pillar: data.pillar, title: data.title, format: data.format, sources: data.sources || [] })
+  _qDraftSaved.set(uid, text)
+  const sources = (data.sources || []).filter(Boolean).map(s => `<a href="${esc(s)}" target="_blank" style="color:#db2777;text-decoration:underline;">${s.length > 50 ? s.slice(0, 50) + '…' : s}</a>`).join('  ·  ')
+  const card = document.createElement('div')
+  card.className = 'qDraftCard'
+  card.style.marginTop = '4px'
+  card.innerHTML = `
+    <div>
+      <span class="qDraftBadge">${(data.formatLabel || data.format || 'draft').toUpperCase()}</span>
+      ${data.edited ? '<span style="font-size:10px;color:var(--text3);margin-left:6px;">(edited)</span>' : ''}
+    </div>
+    ${sources ? `<div class="qDraftMeta">${sources}</div>` : ''}
+    <textarea class="qDraftText" id="qdraft-${uid}" rows="${data.format === 'article' ? 16 : 8}" readonly oninput="onQDraftInput('${uid}')">${esc(text)}</textarea>
+    <div class="qDraftActions">
+      <button id="qedit-${uid}" onclick="toggleEditQDraft('${uid}')">✎ Edit</button>
+      <button id="qsave-${uid}" onclick="saveQDraft('${uid}')" disabled style="opacity:.4;cursor:not-allowed;">💾 Save</button>
+      <button id="qcopy-${uid}" onclick="copyQDraft('${uid}')">📋 Copy</button>
+      <button onclick="window.open('https://x.com/intent/tweet?text=' + encodeURIComponent(document.getElementById('qdraft-${uid}').value), '_blank')">𝕏 Post on X</button>
+    </div>
+    <div class="qRefineRow">
+      <input id="qrefine-${uid}" type="text" placeholder="make it shorter, change the hook…"
+        onkeydown="if(event.key==='Enter')refineQDraft('${uid}')">
+      <button id="qrefineBtn-${uid}" onclick="refineQDraft('${uid}')">↻ Refine</button>
+    </div>`
+  container.appendChild(card)
+}
+
+function onQDraftInput(uid) {
+  const ta = document.getElementById('qdraft-' + uid)
+  const btn = document.getElementById('qsave-' + uid)
+  if (!ta || !btn) return
+  const saved = _qDraftSaved.get(uid) || ''
+  const dirty = ta.value !== saved
+  btn.disabled = !dirty
+  btn.style.opacity = dirty ? '1' : '.4'
+  btn.style.cursor = dirty ? 'pointer' : 'not-allowed'
+  if (dirty) { btn.style.background = 'rgba(236,72,153,.18)'; btn.style.borderColor = '#db2777'; btn.style.color = '#db2777' }
+  else       { btn.style.background = ''; btn.style.borderColor = ''; btn.style.color = '' }
+}
+
+async function saveQDraft(uid) {
+  if (!_currentSessionId) { alert('No active session — cannot save.'); return }
+  const ta = document.getElementById('qdraft-' + uid)
+  const btn = document.getElementById('qsave-' + uid)
+  if (!ta || !btn || btn.disabled) return
+  const text = ta.value
+  btn.disabled = true; btn.textContent = '…saving'
+  try {
+    const r = await fetch(`/api/quill/sessions/${encodeURIComponent(_currentSessionId)}/draft/${encodeURIComponent(uid)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+    const data = await r.json()
+    if (data.error) { alert('Save failed: ' + data.error); btn.textContent = '💾 Save'; onQDraftInput(uid); return }
+    _qDraftSaved.set(uid, text)
+    btn.textContent = '✓ Saved'
+    setTimeout(() => { btn.textContent = '💾 Save'; onQDraftInput(uid) }, 1200)
+  } catch (e) {
+    alert('Save failed: ' + e.message)
+    btn.textContent = '💾 Save'
+    onQDraftInput(uid)
+  }
+}
+
+async function refineQDraft(uid) {
+  const ta = document.getElementById('qdraft-' + uid)
+  const input = document.getElementById('qrefine-' + uid)
+  const btn = document.getElementById('qrefineBtn-' + uid)
+  if (!ta || !input || !btn) return
+  const instruction = input.value.trim()
+  if (!instruction) { input.focus(); return }
+  const meta = _qDraftMeta.get(uid) || {}
+
+  btn.disabled = true; btn.textContent = '…'
+  input.disabled = true
+
+  try {
+    const r = await fetch('/api/quill/refine', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        draftText: ta.value,
+        instruction,
+        format: meta.format || 'short',
+        sessionId: _currentSessionId,
+        draftUid: uid,
+      }),
+    })
+    const data = await r.json()
+    if (data.error) { alert('Refine failed: ' + data.error); return }
+    const newText = data.draft || ta.value
+    ta.value = newText
+    _qDraftSaved.set(uid, newText)   // server already persisted; sync client view
+    onQDraftInput(uid)                // re-evaluate Save button state (should be clean)
+    input.value = ''
+  } catch (e) {
+    alert('Refine failed: ' + e.message)
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Refine'
+    input.disabled = false
+  }
+}
+
+function toggleEditQDraft(uid) {
+  const ta = document.getElementById('qdraft-' + uid)
+  const btn = document.getElementById('qedit-' + uid)
+  if (!ta || !btn) return
+  const wasEditing = !ta.readOnly
+  if (wasEditing) {
+    ta.readOnly = true
+    ta.style.borderColor = ''
+    ta.style.background = ''
+    btn.textContent = '✎ Edit'
+  } else {
+    ta.readOnly = false
+    ta.style.borderColor = '#db2777'
+    ta.style.background = 'var(--surface2)'
+    btn.textContent = '✓ Done'
+    ta.focus()
+    ta.setSelectionRange(ta.value.length, ta.value.length)
+  }
+}
+
+function copyQDraft(uid) {
+  const ta = document.getElementById('qdraft-' + uid)
+  if (!ta) return
+  navigator.clipboard.writeText(ta.value)
+  const btn = document.getElementById('qcopy-' + uid)
+  if (btn) {
+    const orig = btn.textContent
+    btn.textContent = '✓ Copied'
+    setTimeout(() => { btn.textContent = orig }, 1200)
+  }
+}
+
+// ── Sessions: restore on load + Previous Plans list ──────────────────────────
+
+async function loadQuillSessions() {
+  try {
+    const r = await fetch('/api/quill/sessions')
+    const data = await r.json()
+    const sessions = data.sessions || []
+    if (!sessions.length) {
+      _currentSessionId = null
+      _quillSuggestions = []
+      _qDraftMeta.clear()
+      _qDraftSaved.clear()
+      document.getElementById('quillSuggestionsArea').innerHTML = ''
+      show('quillEmpty')
+      renderPreviousPlansList([])
+      return
+    }
+    const current = sessions[0]
+    const previous = sessions.slice(1)
+    restoreCurrentSession(current)
+    renderPreviousPlansList(previous)
+  } catch (_) {
+    // silent — keep whatever's on screen
+  }
+}
+
+function restoreCurrentSession(session) {
+  _currentSessionId = session.id
+  _quillSuggestions = session.suggestions || []
+  _qDraftMeta.clear()
+  _qDraftSaved.clear()
+  renderQuillSuggestions(_quillSuggestions)
+  // Append saved drafts under their parent suggestions
+  for (const d of (session.drafts || [])) {
+    if (!d.sid) continue
+    appendQDraftInline(d.sid, d)
+  }
+}
+
+function loadPreviousPlans() {
+  // Re-fetch + re-render only the previous list (keep current session view intact)
+  fetch('/api/quill/sessions')
+    .then(r => r.json())
+    .then(data => {
+      const sessions = data.sessions || []
+      // First session is the current one
+      renderPreviousPlansList(sessions.slice(1))
+    })
+    .catch(() => {})
+}
+
+function _formatSessionTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const now = new Date()
+  const sameDay = d.toDateString() === now.toDateString()
+  const opts = sameDay
+    ? { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }
+    : { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }
+  return d.toLocaleString('en-IN', opts) + (sameDay ? ' today' : '')
+}
+
+function renderPreviousPlansList(sessions) {
+  const wrap = document.getElementById('quillPrevPlansArea')
+  if (!wrap) return
+  if (!sessions.length) { wrap.innerHTML = ''; return }
+  wrap.innerHTML = `
+    <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;margin:6px 0 8px;padding-top:14px;border-top:1px solid var(--border);">
+      ── PREVIOUS PLANS ──
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      ${sessions.map((s, idx) => `
+        <div class="qPrevCard" data-prev-idx="${idx}" id="qprev-${idx}">
+          <div class="qPrevHeader" onclick="togglePrevPlan(${idx})">
+            <span class="qPrevArrow" id="qprevArrow-${idx}">▶</span>
+            <span style="color:var(--text2);">${_formatSessionTime(s.createdAt)}</span>
+            <span style="color:var(--text3);">·</span>
+            <span style="color:var(--text2);">${esc(s.triggerLabel || '🖱 Plan button')}</span>
+            <span style="color:var(--text3);">·</span>
+            <span style="color:var(--text3);">${(s.pillars || []).length} pillars · ${(s.suggestions || []).reduce((n, g) => n + (g.items?.length || 0), 0)} suggestions · ${(s.drafts || []).length} draft${(s.drafts || []).length === 1 ? '' : 's'}</span>
+          </div>
+          <div class="qPrevBody" id="qprevBody-${idx}" style="display:none;"></div>
+        </div>`).join('')}
+    </div>`
+  // Store sessions array on window so togglePrevPlan can read it
+  window._quillPrevSessions = sessions
+}
+
+function togglePrevPlan(idx) {
+  const body = document.getElementById(`qprevBody-${idx}`)
+  const arrow = document.getElementById(`qprevArrow-${idx}`)
+  if (!body) return
+  const isOpen = body.style.display !== 'none'
+  if (isOpen) {
+    body.style.display = 'none'
+    if (arrow) arrow.textContent = '▶'
+  } else {
+    if (!body.innerHTML.trim()) {
+      const s = (window._quillPrevSessions || [])[idx]
+      if (s) body.innerHTML = renderPrevSessionContent(s)
+    }
+    body.style.display = ''
+    if (arrow) arrow.textContent = '▼'
+  }
+}
+
+function renderPrevSessionContent(session) {
+  // Read-only view: suggestions grouped by pillar with saved drafts inline. No format/refine/save buttons.
+  const draftsBySid = {}
+  for (const d of (session.drafts || [])) {
+    if (!d.sid) continue
+    if (!draftsBySid[d.sid]) draftsBySid[d.sid] = []
+    draftsBySid[d.sid].push(d)
+  }
+  const groups = (session.suggestions || []).map((g, gi) => {
+    const items = (g.items || []).map((it, ii) => {
+      const sid = `s${gi}-${ii}`
+      const sourceBadge = it.source ? `<span class="qSuggSrc">${esc(it.source)}</span>` : ''
+      const urlLink = it.url ? `<a href="${esc(it.url)}" target="_blank" style="color:var(--text3);text-decoration:none;font-size:10px;">↗ source</a>` : ''
+      const draftCards = (draftsBySid[sid] || []).map(d => {
+        const duid = 'pqd-' + Math.random().toString(36).slice(2, 9)
+        const sources = (d.sources || []).filter(Boolean).map(s => `<a href="${esc(s)}" target="_blank" style="color:#db2777;text-decoration:underline;">${s.length > 50 ? s.slice(0, 50) + '…' : s}</a>`).join('  ·  ')
+        return `
+          <div class="qDraftCard" style="margin-top:4px;opacity:.92;">
+            <div>
+              <span class="qDraftBadge">${(d.formatLabel || d.format || 'draft').toUpperCase()}</span>
+              ${d.edited ? '<span style="font-size:10px;color:var(--text3);margin-left:6px;">(edited)</span>' : ''}
+            </div>
+            ${sources ? `<div class="qDraftMeta">${sources}</div>` : ''}
+            <textarea class="qDraftText" id="${duid}" rows="${d.format === 'article' ? 14 : 6}" readonly>${esc(d.text || '')}</textarea>
+            <div class="qDraftActions">
+              <button onclick="(function(){const ta=document.getElementById('${duid}');navigator.clipboard.writeText(ta.value);}())">📋 Copy</button>
+              <button onclick="window.open('https://x.com/intent/tweet?text=' + encodeURIComponent(document.getElementById('${duid}').value), '_blank')">𝕏 Post on X</button>
+            </div>
+          </div>`
+      }).join('')
+      return `
+        <div class="qSuggCard">
+          <div class="qSuggMeta">${sourceBadge}${urlLink}</div>
+          <div class="qSuggTitle">${esc(it.title || '')}</div>
+          ${it.snippet ? `<div class="qSuggSnippet">${esc(it.snippet)}</div>` : ''}
+          ${it.angle ? `<div class="qSuggAngle"><strong>Angle:</strong> ${esc(it.angle)}</div>` : ''}
+          ${draftCards ? `<div class="qSuggDraftsInline">${draftCards}</div>` : '<div style="font-size:10px;color:var(--text3);font-style:italic;">no draft written for this suggestion</div>'}
+        </div>`
+    }).join('')
+    return `
+      <div class="qPillarGroup" style="margin-bottom:10px;">
+        <div class="qPillarHeader">${esc(g.pillar || 'Pillar')}</div>
+        ${items}
+      </div>`
+  }).join('')
+  return `<div style="padding-top:10px;display:flex;flex-direction:column;gap:10px;">${groups}</div>`
+}
+
+// ── Quill Drafts (scheduled lineup history — unchanged) ──────────────────────
+
 async function triggerQuillDaily() {
   const btn = document.getElementById('quillDailyBtn')
   btn.disabled = true; btn.textContent = 'Writing...'
@@ -1314,18 +2045,22 @@ async function triggerQuillWeekly() {
 }
 
 async function loadQuillLatest() {
+  // Loads scheduled-run history (from runDaily/runWeekly cron) into the History section
+  // below the new pillar/plan UI. Does NOT touch quillEmpty — that's owned by the plan flow.
   try {
     const r = await fetch('/api/quill/history')
     const history = await r.json()
-    if (history.length) renderQuillHistory(history)
-    else { show('quillEmpty'); hide('quillHistory') }
+    // Filter out new plan/suggestions runs — those render in quillSuggestionsArea via planNow()
+    const scheduledHistory = history.filter(h => h.kind !== 'plan' && h.kind !== 'suggestions')
+    if (scheduledHistory.length) renderQuillHistory(scheduledHistory)
+    else hide('quillHistory')
   } catch (_) {}
   const btn = document.getElementById('quillDailyBtn')
   if (btn) { btn.disabled = false; btn.textContent = '✍️ Generate Today' }
 }
 
 function renderQuillHistory(history) {
-  hide('quillEmpty'); hide('quillWorking')
+  hide('quillWorking')
   const container = document.getElementById('quillHistory')
 
   container.innerHTML = history.map((run, ri) => {
@@ -1588,6 +2323,7 @@ async function loadAllRuns() {
 }
 
 init()
+loadSchedulerStatus()
 </script>
 </body>
 </html>

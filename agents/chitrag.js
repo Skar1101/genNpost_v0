@@ -3,6 +3,9 @@ const path = require('path')
 const OpenAI = require('openai')
 const sourcesConfig = require('../tools/sources.config')
 const { buildRankingPrompt } = require('../prompts/rankResults')
+const fetchReplyTargets = require('../tools/fetchReplyTargets')
+const { resolveQueries } = require('../tools/replyDomains.config')
+const { getEnabledDomainIds } = require('../state/replyDomainsStore')
 const { writeLatest, archiveRun } = require('../state/researchStore')
 const { filterNew, markSeen } = require('../state/seenUrlsStore')
 const logger = require('../utils/logger')
@@ -43,7 +46,7 @@ function groupByCategory(items) {
   return groups
 }
 
-async function fetchAllSources(broadcast, filterSources = null) {
+async function fetchAllSources(broadcast, filterSources = null, searchQuery = null, skipSeenFilter = false) {
   const enabledSources = sourcesConfig.filter(s => {
     if (!s.enabled) return false
     if (filterSources && filterSources.length > 0 && !filterSources.includes(s.id)) return false
@@ -61,7 +64,7 @@ async function fetchAllSources(broadcast, filterSources = null) {
     try {
       if (broadcast) broadcast({ type: 'research_progress', data: { step: 'fetching', source: src.name } })
       const fetchFn = require(path.join(__dirname, '..', 'tools', src.fetcher))
-      const results = await fetchFn(src)
+      const results = await fetchFn({ ...src, searchQuery })
       sourceSummary.push({ name: src.name, count: results.length })
       return { source: src, results }
     } catch (err) {
@@ -96,11 +99,19 @@ async function fetchAllSources(broadcast, filterSources = null) {
     if (key && !seen.has(key)) { seen.add(key); deduped.push(item) }
   }
 
-  const newItems = filterNew(deduped)
-  log.info(`Dedup: ${allResults.length} raw → ${deduped.length} unique → ${newItems.length} new (${deduped.length - newItems.length} already seen in past runs)`)
+  let newItems, alreadySeenCount
+  if (skipSeenFilter) {
+    newItems = deduped
+    alreadySeenCount = 0
+    log.info(`Dedup: ${allResults.length} raw → ${deduped.length} unique (targeted run — skipping seen filter)`)
+  } else {
+    newItems = filterNew(deduped)
+    alreadySeenCount = deduped.length - newItems.length
+    log.info(`Dedup: ${allResults.length} raw → ${deduped.length} unique → ${newItems.length} new (${alreadySeenCount} already seen in past runs)`)
+  }
 
   // Balance: cap each source so no single source dominates the LLM input pool
-  const MAX_PER_SOURCE = 6
+  const MAX_PER_SOURCE = skipSeenFilter ? 20 : 6
   const sourceBuckets = {}
   const balanced = []
   for (const item of newItems) {
@@ -179,7 +190,10 @@ async function rankWithLLM(rawItems, instructions, broadcast) {
       const key = (item.url || '').toLowerCase().trim()
       const orig = urlMap[key]
       rankedUrls.add(key)
-      if (!orig) return item
+      if (!orig) {
+        log.warn(`LLM hallucinated item not in source data — discarding: ${item.url || item.title}`)
+        return null
+      }
       return {
         ...item,
         publishedAt: orig.publishedAt || item.publishedAt,
@@ -189,7 +203,7 @@ async function rankWithLLM(rawItems, instructions, broadcast) {
         publisher: orig.publisher || item.publisher,
         source: orig.source || item.source,
       }
-    })
+    }).filter(Boolean)
 
     // Guarantee: inject top items from any source the LLM skipped entirely
     const rankedSources = new Set(ranked.map(r => r.source))
@@ -213,31 +227,38 @@ async function rankWithLLM(rawItems, instructions, broadcast) {
   }
 }
 
-async function run({ triggeredBy = 'user', triggerLabel = null, instructions = null, broadcast = null, forceRefetch = false, filterSources = null } = {}) {
-  log.info(`Run started — triggeredBy: ${triggeredBy}${triggerLabel ? ` [${triggerLabel}]` : ''}${instructions ? ' (with instruction delta)' : ''}${filterSources ? ` (sources: ${filterSources.join(',')})` : ''}`)
+async function run({ triggeredBy = 'user', triggerLabel = null, instructions = null, broadcast = null, forceRefetch = false, filterSources = null, topN = null, searchQuery = null } = {}) {
+  log.info(`Run started — triggeredBy: ${triggeredBy}${triggerLabel ? ` [${triggerLabel}]` : ''}${instructions ? ' (with instruction delta)' : ''}${filterSources ? ` (sources: ${filterSources.join(',')})` : ''}${searchQuery ? ` (query: "${searchQuery}")` : ''}`)
   const runId = new Date().toISOString().slice(0, 16).replace('T', '-').replace(/:/g, '')
 
   let raw, failed
 
-  // Skip cache if filterSources is set — always re-fetch for filtered runs
-  if (!forceRefetch && !filterSources && instructions && isCacheValid()) {
+  // Targeted runs (specific source or query) bypass seen-URL filter so user always gets results
+  const isTargeted = !!(filterSources?.length || searchQuery)
+
+  // Skip cache if filterSources or searchQuery is set — always re-fetch for targeted runs
+  if (!forceRefetch && !isTargeted && instructions && isCacheValid()) {
     log.info('Using cached raw results for re-ranking (cache still valid)')
     raw = _rawCache
     failed = []
   } else {
-    ;({ raw, failed } = await fetchAllSources(broadcast, filterSources))
-    _rawCache = raw
-    _cacheTs = Date.now()
+    ;({ raw, failed } = await fetchAllSources(broadcast, filterSources, searchQuery, isTargeted))
+    if (!isTargeted) { _rawCache = raw; _cacheTs = Date.now() }
   }
 
   if (raw.length === 0) {
-    log.warn('No new items found after dedup — nothing to rank. All content may already have been seen.')
+    log.warn('No items found after fetch.')
     return { runId, triggeredBy, rankedAt: new Date().toISOString(), results: [], byCategory: {}, totalFetched: 0 }
   }
 
-  markSeen(raw.map(r => r.url))
+  // Only mark seen on full scheduled/manual runs — not on targeted searches
+  if (!isTargeted) markSeen(raw.map(r => r.url))
 
-  const ranked = await rankWithLLM(raw, instructions, broadcast)
+  let ranked = await rankWithLLM(raw, instructions, broadcast)
+
+  // Apply topN cap — slice after ranking so we rank everything, then trim
+  if (topN && topN > 0) ranked = ranked.slice(0, Math.min(topN, ranked.length))
+
   const byCategory = groupByCategory(ranked)
 
   const output = {
@@ -247,6 +268,7 @@ async function run({ triggeredBy = 'user', triggerLabel = null, instructions = n
     rankedAt: new Date().toISOString(),
     instructions: instructions || null,
     filterSources: filterSources || null,
+    topN: topN || null,
     sourcesRun: filterSources ? filterSources : sourcesConfig.filter(s => s.enabled).map(s => s.id),
     sourcesFailed: failed,
     totalFetched: raw.length,
@@ -260,4 +282,92 @@ async function run({ triggeredBy = 'user', triggerLabel = null, instructions = n
   return output
 }
 
-module.exports = { run }
+// ── Reply Targets section ──────────────────────────────────────────────────────
+// Deterministic (no LLM): find fresh X posts worth replying to.
+// Qualify only if: age ≤ window, impressions > 10K, I2C (impressions/comments) > 100.
+// Sorted by highest I2C. Falls back by widening the age window 1hr → 2hr → 3hr until
+// it reaches `target`, never relaxing the impression/I2C bars.
+async function findReplyTargets({ target = 30, domains = null, extraKeywords = null, broadcast = null } = {}) {
+  const { MIN_IMPRESSIONS, MIN_I2C } = fetchReplyTargets
+
+  // Domains: explicit list (ad-hoc override) OR the persisted enabled set (core + enabled extras).
+  const domainIds = (domains && domains.length) ? domains : getEnabledDomainIds()
+  const queries = [...resolveQueries(domainIds)]
+  // Ad-hoc free-text topics ("world cup") become their own one-off queries for this run.
+  const keywords = (extraKeywords || []).map(k => k.trim()).filter(Boolean)
+  for (const kw of keywords) queries.push(`(${kw}) lang:en`)
+
+  log.info(`Reply-target search started — target: ${target}, bars: >${MIN_IMPRESSIONS} imp, I2C >${MIN_I2C}, domains: [${domainIds.join(', ')}]${keywords.length ? ` + adhoc: [${keywords.join(', ')}]` : ''}`)
+  if (broadcast) {
+    broadcast({ type: 'research_progress', data: { step: 'fetching', source: 'Reply Targets' } })
+    broadcast({ type: 'reply_progress', data: { message: `Searching ${queries.length} queries across X…` } })
+  }
+
+  // Live per-query progress so the chat shows the search is actually running.
+  const onProgress = (i, total, found) => {
+    if (broadcast) broadcast({ type: 'reply_progress', data: { message: `Scanning X… query ${i}/${total} (${found} candidates so far)` } })
+  }
+  const pool = await fetchReplyTargets(queries, onProgress)
+  if (broadcast) broadcast({ type: 'reply_progress', data: { message: `Filtering ${pool.length} posts — ≤4h, >10K impressions, I2C>100…` } })
+
+  // Progressive window: keep the quality bars fixed, widen the freshness window only if short.
+  // Tries the tightest (freshest) window first; widens to a 4h ceiling, since posts rarely cross
+  // 10K impressions within 1h — qualifying viral posts are typically 2–4h old.
+  const WINDOWS = [60, 120, 180, 240]
+  let qualified = []
+  let windowUsedMin = WINDOWS[WINDOWS.length - 1]
+  for (const windowMin of WINDOWS) {
+    qualified = pool.filter(p =>
+      p.ageMinutes <= windowMin && p.impressions > MIN_IMPRESSIONS && p.i2c > MIN_I2C
+    )
+    windowUsedMin = windowMin
+    if (qualified.length >= target) break
+  }
+
+  qualified.sort((a, b) => b.i2c - a.i2c)
+  const results = qualified.slice(0, target)
+  log.info(`Reply-target search done — pool ${pool.length}, window ${windowUsedMin}min, qualified ${qualified.length}, returning ${results.length}`)
+
+  const runId = 'reply-' + new Date().toISOString().slice(0, 19).replace('T', '-').replace(/:/g, '')
+  const output = {
+    runId,
+    section: 'reply',
+    triggeredBy: 'user',
+    triggerLabel: '💬 Reply Targets',
+    rankedAt: new Date().toISOString(),
+    generatedAt: new Date().toISOString(),
+    windowUsedMin,
+    target,
+    count: results.length,
+    domains: domainIds,
+    adhocKeywords: keywords,
+    sourcesRun: ['twitter'],
+    sourcesFailed: [],
+    totalFetched: pool.length,
+    // Shape each item like a normal ChitraG run result so the existing list renders it.
+    results: results.map((r, i) => ({
+      rank: i + 1,
+      title: r.headline,
+      url: r.url,
+      source: 'twitter',
+      publisher: r.publisher,
+      snippet: `${r.impressions.toLocaleString()} imp · I2C ${r.i2c} · ${r.comments} replies · ${r.ageMinutes}m old`,
+      why: 'Reply target',
+      tag: 'reply',
+      trendingScore: r.i2c,
+      postPotential: 'short',
+      impressions: r.impressions,
+      comments: r.comments,
+      i2c: r.i2c,
+      ageMinutes: r.ageMinutes,
+      publishedAt: r.createdAt,
+    })),
+  }
+
+  // Persist into ChitraG's archive/run list (tagged) — do NOT writeLatest (keeps main research clean).
+  archiveRun(output)
+  if (broadcast) broadcast({ type: 'research_complete', data: output })
+  return output
+}
+
+module.exports = { run, findReplyTargets }

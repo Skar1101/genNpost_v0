@@ -70,8 +70,16 @@ function init(app, broadcast) {
     }
   })
 
+  let _lastPollErrMsg = null
+  let _lastPollErrLog = 0
   bot.on('polling_error', (err) => {
-    console.warn('[Telegram] Polling error:', err.message)
+    const now = Date.now()
+    const isRepeat = err.message === _lastPollErrMsg
+    if (!isRepeat || now - _lastPollErrLog > 60000) {
+      console.warn('[Telegram] Polling error (network?):', err.message)
+      _lastPollErrMsg = err.message
+      _lastPollErrLog = now
+    }
   })
 
   console.log('[Telegram] Bot initialized')

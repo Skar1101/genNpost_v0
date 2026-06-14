@@ -10,6 +10,10 @@ const { readLatest, listArchive, readArchive } = require('../../state/researchSt
 const { readLatest: readToolsLatest } = require('../../state/toolsStore')
 const { readHistory: readKoelHistory } = require('../../state/koelStore')
 const { readLatest: readQuillLatest, readHistory: readQuillHistory } = require('../../state/quillStore')
+const { listPillars, setPillars } = require('../../state/quillPillarsStore')
+const quillSessions = require('../../state/quillSessionsStore')
+const { getStatus: getSchedulerStatus, setEnabled: setSchedulerEnabled } = require('../../state/schedulerStore')
+const replyDomainsStore = require('../../state/replyDomainsStore')
 
 // GET /api/research/latest
 router.get('/research/latest', (req, res) => {
@@ -117,6 +121,108 @@ router.post('/quill/trigger', async (req, res) => {
   }
 })
 
+// ── Scheduler control ─────────────────────────────────────────────────────────
+
+// GET /api/scheduler  →  { enabled: bool, updatedAt? }
+router.get('/scheduler', (req, res) => {
+  res.json(getSchedulerStatus())
+})
+
+// PUT /api/scheduler  body: { enabled: bool }
+router.put('/scheduler', (req, res) => {
+  const enabled = !!req.body?.enabled
+  try {
+    const saved = setSchedulerEnabled(enabled)
+    logger.info(`[API] Scheduler ${enabled ? 'ENABLED' : 'DISABLED'} by user`)
+    res.json(saved)
+  } catch (err) {
+    logger.error('[API] Scheduler toggle failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/quill/pillars
+router.get('/quill/pillars', (req, res) => {
+  res.json({ pillars: listPillars() })
+})
+
+// PUT /api/quill/pillars  body: { pillars: [{ id?, label, notes? }] }
+router.put('/quill/pillars', (req, res) => {
+  const { pillars } = req.body || {}
+  if (!Array.isArray(pillars)) return res.status(400).json({ error: 'pillars must be an array' })
+  try {
+    const saved = setPillars(pillars)
+    res.json({ pillars: saved })
+  } catch (err) {
+    logger.error('[API] Pillars save failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/quill/plan  body: { forceFresh?, triggerLabel? }
+router.post('/quill/plan', async (req, res) => {
+  const { forceFresh = false, triggerLabel } = req.body || {}
+  const { broadcast } = req.app.locals
+  try {
+    const result = await quill.planSuggestions({ broadcast, forceFresh: !!forceFresh, triggerLabel })
+    res.json(result)
+  } catch (err) {
+    logger.error('[API] Quill plan failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/quill/draft  body: { suggestion, format, sessionId?, sid? }
+router.post('/quill/draft', async (req, res) => {
+  const { suggestion, format, sessionId, sid } = req.body || {}
+  if (!suggestion?.title) return res.status(400).json({ error: 'suggestion with title required' })
+  if (!format) return res.status(400).json({ error: 'format required' })
+  const { broadcast } = req.app.locals
+  try {
+    const result = await quill.draftFromSuggestion({ suggestion, format, broadcast, sessionId, sid })
+    res.json(result)
+  } catch (err) {
+    logger.error('[API] Quill draft failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/quill/refine  body: { draftText, instruction, format, sessionId?, draftUid? }
+router.post('/quill/refine', async (req, res) => {
+  const { draftText, instruction, format, sessionId, draftUid } = req.body || {}
+  if (!draftText?.trim()) return res.status(400).json({ error: 'draftText required' })
+  if (!instruction?.trim()) return res.status(400).json({ error: 'instruction required' })
+  const { broadcast } = req.app.locals
+  try {
+    const result = await quill.refineDraft({ draftText, instruction, format, broadcast, sessionId, draftUid })
+    res.json(result)
+  } catch (err) {
+    logger.error('[API] Quill refine failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/quill/sessions  → list all (newest first)
+router.get('/quill/sessions', (req, res) => {
+  res.json({ sessions: quillSessions.listSessions() })
+})
+
+// GET /api/quill/sessions/:id  → single session
+router.get('/quill/sessions/:id', (req, res) => {
+  const s = quillSessions.readSession(req.params.id)
+  if (!s) return res.status(404).json({ error: 'session not found' })
+  res.json(s)
+})
+
+// PUT /api/quill/sessions/:id/draft/:uid  body: { text }  → manual save of edited draft
+router.put('/quill/sessions/:id/draft/:uid', (req, res) => {
+  const { text } = req.body || {}
+  if (typeof text !== 'string') return res.status(400).json({ error: 'text (string) required' })
+  const updated = quillSessions.updateDraft(req.params.id, req.params.uid, { text, edited: true })
+  if (!updated) return res.status(404).json({ error: 'session or draft not found' })
+  res.json(updated)
+})
+
 // POST /api/quill/weekly — manual weekly run
 router.post('/quill/weekly', async (req, res) => {
   const { broadcast, telegramSend } = req.app.locals
@@ -125,6 +231,25 @@ router.post('/quill/weekly', async (req, res) => {
     await quill.runWeekly({ broadcast, telegramSend })
   } catch (err) {
     logger.error('[API] Quill weekly failed', err)
+  }
+})
+
+// ── Reply-target domain settings ──────────────────────────────────
+// GET /api/replies/domains → { domains: [{ id, label, core, enabled }] }
+router.get('/replies/domains', (req, res) => {
+  res.json({ domains: replyDomainsStore.listDomainsWithState() })
+})
+
+// PUT /api/replies/domains  body: { enabled: [domainIds] } — set which OPTIONAL domains are on
+router.put('/replies/domains', (req, res) => {
+  const { enabled } = req.body || {}
+  if (!Array.isArray(enabled)) return res.status(400).json({ error: 'enabled must be an array of domain ids' })
+  try {
+    const savedExtras = replyDomainsStore.setEnabledExtras(enabled)
+    res.json({ enabledExtras: savedExtras, domains: replyDomainsStore.listDomainsWithState() })
+  } catch (err) {
+    logger.error('[API] Reply domains save failed', err)
+    res.status(500).json({ error: err.message })
   }
 })
 

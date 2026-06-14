@@ -27,16 +27,20 @@ async function fetchTwitter(config) {
   }
 
   const maxResults = config.maxResults || 20
+  const searchQuery = config.searchQuery || null
   // Use 7-day window for Top posts — viral content from last week is still highly relevant
   const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
   const results = []
   const seen = new Set()
 
-  for (const query of QUERIES) {
+  // Targeted query: search exactly what user asked; otherwise use default AI/tech queries
+  const queries = searchQuery ? [`${searchQuery} lang:en`] : QUERIES
+
+  for (const query of queries) {
     try {
       logger.info(`Querying X (Top): "${query.slice(0, 60)}…"`)
       const res = await axios.get('https://twitter-api45.p.rapidapi.com/search.php', {
-        params: { query, count: 5, type: 'Top' },
+        params: { query, count: searchQuery ? 15 : 5, type: 'Top' },
         headers: {
           'x-rapidapi-host': 'twitter-api45.p.rapidapi.com',
           'x-rapidapi-key': apiKey,

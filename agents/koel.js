@@ -62,8 +62,8 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
           { role: 'system', content: getSystemPrompt() },
           { role: 'user', content: userPrompt },
         ],
-        temperature: 0.85,   // creative but structured
-        max_tokens: 2000,
+        temperature: 0.85,
+        max_tokens: 4000,
       })
       break
     } catch (err) {

@@ -13,25 +13,29 @@ async function fetchYouTube(config) {
   }
 
   const channels = config.channels || []
+  const searchQuery = config.searchQuery || null
   const results = []
-  // Last 72 hours — gives enough window to catch recent uploads
-  const publishedAfter = new Date(Date.now() - 72 * 3600 * 1000).toISOString()
-  logger.info(`Fetching ${channels.length} channels (publishedAfter: ${publishedAfter.slice(0, 16)})`)
+  // Last 72 hours for default; extend to 30 days for targeted searches
+  const windowMs = searchQuery ? 30 * 24 * 3600 * 1000 : 72 * 3600 * 1000
+  const publishedAfter = new Date(Date.now() - windowMs).toISOString()
+  logger.info(searchQuery
+    ? `Searching YouTube for "${searchQuery}" across ${channels.length} channels`
+    : `Fetching ${channels.length} channels (publishedAfter: ${publishedAfter.slice(0, 16)})`)
 
   for (const channel of channels) {
     try {
+      const params = {
+        key: apiKey,
+        channelId: channel.id,
+        part: 'snippet',
+        order: searchQuery ? 'relevance' : 'date',
+        maxResults: searchQuery ? 5 : 3,
+        type: 'video',
+        publishedAfter,
+      }
+      if (searchQuery) params.q = searchQuery
       const res = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-        params: {
-          key: apiKey,
-          channelId: channel.id,
-          part: 'snippet',
-          order: 'date',
-          maxResults: 3,
-          type: 'video',
-          publishedAfter,
-          // Prefer shorter videos (under 20min) — videoDuration: medium covers 4-20min, short = <4min
-          // We fetch all and note duration via title heuristics
-        },
+        params,
         timeout: 8000,
       })
 

@@ -8,16 +8,26 @@ function first20Words(text) {
 async function fetchReddit(config) {
   const subreddits = config.subreddits || ['artificial', 'MachineLearning', 'technology']
   const maxResults = config.maxResults || 25
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000
+  const searchQuery = config.searchQuery || null
+  // Targeted searches extend to 7 days; default is 24h
+  const cutoff = searchQuery
+    ? Date.now() - 7 * 24 * 60 * 60 * 1000
+    : Date.now() - 24 * 60 * 60 * 1000
   const results = []
   const seen = new Set()
 
   for (const sub of subreddits) {
-    const url = `https://www.reddit.com/r/${sub}/hot.json`
+    // When searchQuery is provided, use Reddit search endpoint instead of hot feed
+    const url = searchQuery
+      ? `https://www.reddit.com/r/${sub}/search.json`
+      : `https://www.reddit.com/r/${sub}/hot.json`
     try {
-      logger.info(`Fetching r/${sub}`)
+      logger.info(searchQuery ? `Searching r/${sub} for "${searchQuery}"` : `Fetching r/${sub}`)
+      const params = searchQuery
+        ? { q: searchQuery, sort: 'top', t: 'week', restrict_sr: 1, limit: 10 }
+        : { limit: 5 }
       const res = await axios.get(url, {
-        params: { limit: 5 },
+        params,
         headers: { 'User-Agent': 'TinySparrow/1.0 research-bot' },
         timeout: 8000,
       })
@@ -27,7 +37,7 @@ async function fetchReddit(config) {
       for (const { data: post } of posts) {
         if (seen.has(post.id) || post.stickied || post.over_18) continue
         const pub = post.created_utc * 1000
-        if (pub < cutoff) { logger.debug(`r/${sub}: skipping "${post.title?.slice(0,40)}" — older than 24h`); continue }
+        if (!searchQuery && pub < cutoff) { logger.debug(`r/${sub}: skipping "${post.title?.slice(0,40)}" — older than 24h`); continue }
         seen.add(post.id)
         added++
         results.push({
@@ -42,7 +52,7 @@ async function fetchReddit(config) {
           fetchedAt: new Date().toISOString(),
         })
       }
-      logger.info(`r/${sub}: ${added} items (${posts.length - added} filtered)`)
+      logger.info(`r/${sub}: ${added} items`)
     } catch (err) {
       logger.fetchError(url, err)
     }

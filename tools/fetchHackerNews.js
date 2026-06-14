@@ -9,16 +9,22 @@ function first20Words(text) {
 
 async function fetchHackerNews(config) {
   const maxResults = config.maxResults || 20
+  const searchQuery = config.searchQuery || null
   const cutoff = Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000)
   const results = []
   const seen = new Set()
 
-  for (const query of QUERIES.slice(0, 4)) {
+  // When user specifies a topic, search that directly; otherwise use default AI/tech queries
+  const queries = searchQuery ? [searchQuery] : QUERIES.slice(0, 4)
+  // For targeted queries, extend time window to 7 days so more results are available
+  const effectiveCutoff = searchQuery ? Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000) : cutoff
+
+  for (const query of queries) {
     const url = 'https://hn.algolia.com/api/v1/search'
     try {
       logger.info(`Querying: "${query}"`)
       const res = await axios.get(url, {
-        params: { query, tags: 'story', hitsPerPage: 8, numericFilters: `points>10,created_at_i>${cutoff}` },
+        params: { query, tags: 'story', hitsPerPage: searchQuery ? 20 : 8, numericFilters: `points>5,created_at_i>${effectiveCutoff}` },
         timeout: 8000,
       })
 

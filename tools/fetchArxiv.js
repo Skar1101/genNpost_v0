@@ -4,11 +4,17 @@ const xml2js = require('xml2js')
 async function fetchArxiv(config) {
   const categories = (config.categories || ['cs.AI', 'cs.LG']).join('+OR+')
   const maxResults = config.maxResults || 10
+  const searchQuery = config.searchQuery || null
+
+  // When user specifies a topic, search title/abstract for it; otherwise browse by category
+  const search_query = searchQuery
+    ? `(ti:${searchQuery} OR abs:${searchQuery}) AND cat:${categories}`
+    : `cat:${categories}`
 
   try {
     const res = await axios.get('https://export.arxiv.org/api/query', {
       params: {
-        search_query: `cat:${categories}`,
+        search_query,
         start: 0,
         max_results: maxResults,
         sortBy: 'submittedDate',
