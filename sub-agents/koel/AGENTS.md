@@ -1,6 +1,6 @@
 # AGENTS.md (Koel — Functional Instructions)
 
-## What Koel Does
+## What Koel Does 
 Koel writes X (Twitter) post drafts in Souvik's voice. She is invoked by:
 1. User directly via the Koel tab in the UI
 2. Titto delegating a write request from the chat
