@@ -942,16 +942,31 @@ function renderRow(item, i) {
   const typeCls = `type-${item.postPotential || 'short'}`
   const time = item.publishedAt ? relTime(item.publishedAt) : ''
 
+  // Reply-target rows: the score column shows the I2C ratio. Qualifying posts are highlighted
+  // in green; posts that were scanned but didn't clear the bar are dimmed for context.
+  const isReply = item.tag === 'reply'
+  const isQ = !!item.qualified
+  const rowStyle = isReply && !isQ ? 'opacity:.5;' : ''
+  const scoreBlock = isReply
+    ? `<div style="width:46px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;">
+         <span style="font-size:12px;font-weight:800;color:${isQ ? 'var(--green)' : 'var(--text3)'};">${score.toLocaleString()}</span>
+         <span style="font-size:8px;font-weight:700;letter-spacing:.3px;color:${isQ ? 'var(--green)' : 'var(--text3)'};">I2C</span>
+       </div>`
+    : `<div style="width:28px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px;">
+         <span style="font-size:12px;font-weight:800;" class="${scoreCls}">${score}</span>
+       </div>`
+  const replyBadge = isReply
+    ? `<span class="badge" style="flex-shrink:0;background:${isQ ? 'var(--green-dim)' : 'var(--surface3)'};color:${isQ ? 'var(--green)' : 'var(--text3)'};border:1px solid ${isQ ? 'rgba(0,184,148,.25)' : 'var(--border)'};">${isQ ? '✅ reply' : 'below bar'}</span>`
+    : `<span class="badge ${typeCls}" style="flex-shrink:0;">${item.postPotential||'?'}</span>`
+
   return `
-  <div class="result-row" onclick="openModal(${JSON.stringify(item).replace(/"/g,'&quot;')})">
+  <div class="result-row" style="${rowStyle}" onclick="openModal(${JSON.stringify(item).replace(/"/g,'&quot;')})">
 
     <!-- Rank -->
     <div style="font-size:11px;font-weight:700;color:var(--text3);width:24px;text-align:right;flex-shrink:0;">${item.rank || i+1}</div>
 
-    <!-- Score bar -->
-    <div style="width:28px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px;">
-      <span style="font-size:12px;font-weight:800;" class="${scoreCls}">${score}</span>
-    </div>
+    <!-- Score bar (I2C for reply rows) -->
+    ${scoreBlock}
 
     <!-- Title + snippet -->
     <div style="flex:1;min-width:0;">
@@ -959,8 +974,8 @@ function renderRow(item, i) {
       <div style="font-size:11px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.publisher||'')}${time ? ' · ' + time : ''}</div>
     </div>
 
-    <!-- Post type badge -->
-    <span class="badge ${typeCls}" style="flex-shrink:0;">${item.postPotential||'?'}</span>
+    <!-- Post type / reply badge -->
+    ${replyBadge}
 
     <!-- Category badge (right side) -->
     <span class="badge ${srcMeta.cls}" style="flex-shrink:0;">${srcMeta.label}</span>

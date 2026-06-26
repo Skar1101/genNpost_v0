@@ -308,7 +308,7 @@ async function findReplyTargets({ target = 30, domains = null, extraKeywords = n
     if (broadcast) broadcast({ type: 'reply_progress', data: { message: `Scanning X… query ${i}/${total} (${found} candidates so far)` } })
   }
   const pool = await fetchReplyTargets(queries, onProgress)
-  if (broadcast) broadcast({ type: 'reply_progress', data: { message: `Filtering ${pool.length} posts — ≤4h, >10K impressions, I2C>100…` } })
+  if (broadcast) broadcast({ type: 'reply_progress', data: { message: `Filtering ${pool.length} posts — ≤4h, >${(MIN_IMPRESSIONS/1000)}K impressions, I2C>${MIN_I2C}…` } })
 
   // Progressive window: keep the quality bars fixed, widen the freshness window only if short.
   // Tries the tightest (freshest) window first; widens to a 4h ceiling, since posts rarely cross
@@ -324,9 +324,44 @@ async function findReplyTargets({ target = 30, domains = null, extraKeywords = n
     if (qualified.length >= target) break
   }
 
-  qualified.sort((a, b) => b.i2c - a.i2c)
-  const results = qualified.slice(0, target)
-  log.info(`Reply-target search done — pool ${pool.length}, window ${windowUsedMin}min, qualified ${qualified.length}, returning ${results.length}`)
+  const qualifiedUrls = new Set(qualified.map(p => p.url))
+
+  // Keep the WHOLE fetched pool in the saved list (nothing discarded). Each post is flagged
+  // `qualified` if it cleared all bars within the chosen window. Order: qualified first (by I2C
+  // desc, the actual reply targets), then the rest (also by I2C desc) for context.
+  const inWindow = p => p.ageMinutes <= windowUsedMin
+  const allSorted = [...pool].sort((a, b) => {
+    const qa = qualifiedUrls.has(a.url) ? 1 : 0
+    const qb = qualifiedUrls.has(b.url) ? 1 : 0
+    if (qa !== qb) return qb - qa
+    return b.i2c - a.i2c
+  })
+
+  const toRow = (r, i) => {
+    const isQ = qualifiedUrls.has(r.url)
+    return {
+      rank: i + 1,
+      title: r.headline,
+      url: r.url,
+      source: 'twitter',
+      publisher: r.publisher,
+      snippet: `${r.impressions.toLocaleString()} imp · I2C ${r.i2c} · ${r.comments} replies · ${r.ageMinutes}m old`,
+      why: isQ ? 'Reply target' : `Below bar (${r.impressions <= MIN_IMPRESSIONS ? '<10K imp' : r.i2c <= MIN_I2C ? 'I2C low' : !inWindow(r) ? 'too old' : 'n/a'})`,
+      tag: 'reply',
+      qualified: isQ,
+      trendingScore: r.i2c,
+      postPotential: 'short',
+      impressions: r.impressions,
+      comments: r.comments,
+      i2c: r.i2c,
+      ageMinutes: r.ageMinutes,
+      publishedAt: r.createdAt,
+    }
+  }
+
+  const allRows = allSorted.map(toRow)
+  const qualifiedRows = allRows.filter(r => r.qualified).slice(0, target)
+  log.info(`Reply-target search done — pool ${pool.length}, window ${windowUsedMin}min, qualified ${qualified.length}, list ${allRows.length}, chat ${qualifiedRows.length}`)
 
   const runId = 'reply-' + new Date().toISOString().slice(0, 19).replace('T', '-').replace(/:/g, '')
   const output = {
@@ -338,30 +373,15 @@ async function findReplyTargets({ target = 30, domains = null, extraKeywords = n
     generatedAt: new Date().toISOString(),
     windowUsedMin,
     target,
-    count: results.length,
+    count: qualifiedRows.length,        // qualifying reply targets
+    totalInList: allRows.length,        // full saved pool
     domains: domainIds,
     adhocKeywords: keywords,
     sourcesRun: ['twitter'],
     sourcesFailed: [],
     totalFetched: pool.length,
-    // Shape each item like a normal ChitraG run result so the existing list renders it.
-    results: results.map((r, i) => ({
-      rank: i + 1,
-      title: r.headline,
-      url: r.url,
-      source: 'twitter',
-      publisher: r.publisher,
-      snippet: `${r.impressions.toLocaleString()} imp · I2C ${r.i2c} · ${r.comments} replies · ${r.ageMinutes}m old`,
-      why: 'Reply target',
-      tag: 'reply',
-      trendingScore: r.i2c,
-      postPotential: 'short',
-      impressions: r.impressions,
-      comments: r.comments,
-      i2c: r.i2c,
-      ageMinutes: r.ageMinutes,
-      publishedAt: r.createdAt,
-    })),
+    results: allRows,                   // full list saved + shown in ChitraG panel
+    qualified: qualifiedRows,           // subset Titto delivers to chat/Telegram
   }
 
   // Persist into ChitraG's archive/run list (tagged) — do NOT writeLatest (keeps main research clean).

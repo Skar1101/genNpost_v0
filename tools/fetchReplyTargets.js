@@ -3,8 +3,8 @@ const logger = require('../utils/logger').source('replies')
 const { resolveQueries, coreIds } = require('./replyDomains.config')
 
 // Quality bars for a post to count as a reply target
-const MIN_IMPRESSIONS = 10000  // post must have >10K views
-const MIN_I2C = 100            // impressions ÷ comments must be >100
+const MIN_IMPRESSIONS = 5000  // post must have >10K views
+const MIN_I2C = 50             // impressions ÷ comments must be >50
 
 // A small `min_faves` floor surfaces posts already gaining traction WITHOUT skewing the pool toward
 // old posts: high floors (e.g. 200) force results 5h+ old, since accruing that many faves takes time.

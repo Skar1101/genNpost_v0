@@ -115,9 +115,10 @@ async function handleReplyTargets(args, broadcast, telegramSend) {
     : ''
   const reply = `On it — scanning X for reply targets (≤4h old, >10K impressions, high I2C)${widenNote}. I'll send the list shortly.`
   chitrag.findReplyTargets({ domains, extraKeywords: keywords, broadcast }).then(async result => {
-    const items = result.results || []
+    // Chat/Telegram get only the qualifying reply targets; the full pool is saved to the ChitraG list.
+    const items = result.qualified || []
     if (!items.length) {
-      const msg = `No posts met the bar this run (≤${result.windowUsedMin}m old · >10K impressions · I2C>100). Try widening: e.g. \`/replies investment, world cup\`, or enable a domain with \`/replies domains add investment\`.`
+      const msg = `No posts met the bar this run (≤${result.windowUsedMin}m old · >10K impressions · I2C>50). All ${result.totalInList || 0} scanned posts are saved in ChitraG (Reply tag) for reference. Try widening: e.g. \`/replies investment, world cup\`, or \`/replies domains add investment\`.`
       if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
       if (telegramSend) await telegramSend(msg)
       return
@@ -125,7 +126,7 @@ async function handleReplyTargets(args, broadcast, telegramSend) {
     const lines = items.map((r, i) =>
       `${i + 1}. ${r.title}\n   ${r.impressions.toLocaleString()} imp · I2C ${r.i2c} · ${r.ageMinutes}m old · ${r.url}`
     ).join('\n\n')
-    const header = `${items.length} reply targets (window ${result.windowUsedMin}m, sorted by I2C):`
+    const header = `${items.length} reply targets (window ${result.windowUsedMin}m, sorted by I2C) · ${result.totalInList} scanned saved to ChitraG:`
     const full = `${header}\n\n${lines}`
     if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: full } })
     if (telegramSend) {
