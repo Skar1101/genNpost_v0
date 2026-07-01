@@ -24,10 +24,12 @@ app.use('/api', apiRouter)
 // Init Telegram
 const telegramResult = telegram.init(app, ws.broadcast)
 const telegramSend = telegramResult ? telegram.getSendFn() : null
+const telegramSendDraft = telegramResult ? telegram.getDraftSender() : null
 app.locals.telegramSend = telegramSend
+app.locals.telegramSendDraft = telegramSendDraft
 
 // Init scheduler
-initScheduler(ws.broadcast, telegramSend)
+initScheduler(ws.broadcast, telegramSend, telegramSendDraft)
 
 // Catch-all → serve index.html
 app.get('*', (req, res) => {

@@ -8,6 +8,8 @@ const { getHistory, appendMessage } = require('../state/conversationStore')
 const { buildIntentPrompt } = require('../prompts/tittoReason')
 const { matchDomain } = require('../tools/replyDomains.config')
 const replyDomainsStore = require('../state/replyDomainsStore')
+const memory = require('../state/memory')
+const { ensureProfile } = require('../state/profileSeed')
 
 let _openai = null
 function getOpenAI() {
@@ -21,13 +23,61 @@ const SIMPLE_COMMANDS = {
   '/latest': handleLatest,
   '/status': handleStatus,
   '/research': handleTriggerResearch,
+  '/profile': handleProfile,
+  '/queue': handleQueue,
   '/start': handleStart,
   '/help': handleStart,
 }
 
+// /profile — show the creator profile + what's still missing for the learning loop
+function handleProfile() {
+  const acct = memory.accounts.getActiveAccount()
+  const p = ensureProfile(acct)
+  const id = p.identity || {}
+  const base = p.baseline || {}
+  const missing = []
+  if (!id.handle) missing.push('X handle')
+  if (!id.audience) missing.push('target audience')
+  if (!id.goal) missing.push('goal + deadline')
+  if (base.followers == null) missing.push('current followers')
+  if (base.avgImpressions == null) missing.push('avg impressions')
+  if (!(p.watchlist && p.watchlist.length)) missing.push('watchlist handles')
+  if (!(p.bestTweets && p.bestTweets.length)) missing.push('2–3 best tweets')
+
+  const lines = [
+    `*Profile* (account: ${acct})`,
+    `Name: ${id.name || '—'}`,
+    `Handle: ${id.handle ? '@' + id.handle : '—'}`,
+    `Niche: ${id.niche || '—'}`,
+    `Audience: ${id.audience || '—'}`,
+    `Goal: ${id.goal || '—'}${id.deadline ? ' by ' + id.deadline : ''}`,
+    `Voice: ${(p.voice && p.voice.description) || '—'}`,
+    `Pillars: ${(p.pillars || []).length} · Watchlist: ${(p.watchlist || []).length} · Best tweets: ${(p.bestTweets || []).length}`,
+  ]
+  let reply = lines.join('\n')
+  reply += missing.length
+    ? `\n\nStill needed (edit in the dashboard or PUT /api/profile): ${missing.join(', ')}.`
+    : '\n\nProfile complete ✅'
+  return { reply, action: null }
+}
+
+// /queue — lifecycle summary + recently approved drafts ready to post
+function handleQueue() {
+  const acct = memory.accounts.getActiveAccount()
+  const q = memory.readQueue(acct)
+  const byState = {}
+  q.forEach(d => { byState[d.state] = (byState[d.state] || 0) + 1 })
+  const summary = Object.entries(byState).map(([s, n]) => `${s}: ${n}`).join(' · ') || 'empty'
+  const approved = memory.listQueue(acct, 'queued')
+  const lines = approved.slice(-10).map((d, i) =>
+    `${i + 1}. (${d.format}) ${(d.editedText || d.text).replace(/\s+/g, ' ').slice(0, 80)}`
+  )
+  return { reply: `*Queue* — ${summary}\n\nApproved & ready:\n${lines.join('\n') || '(none yet)'}`, action: null }
+}
+
 function handleStart() {
   return {
-    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust ChitraG's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C)\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/latest — show today's research results\n/status — system status\n\nOr just talk to me normally.`,
+    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust ChitraG's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C)\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/batch — generate today's batch now (15 drafts)\n/profile — your creator profile + what's still needed\n/queue — drafts you've approved & what's pending\n/latest — show today's research results\n/status — system status\n\nOr just talk to me normally.`,
     action: null,
   }
 }
@@ -147,6 +197,35 @@ async function handleReplyTargets(args, broadcast, telegramSend) {
   return { reply, action: 'replies_started' }
 }
 
+// ── /batch — on-demand daily batch (3 batches × 5 drafts) ────────────────────
+async function handleBatch(broadcast, telegramSend, telegramSendDraft) {
+  const reply = `On it — generating today's batch (3 batches × 5 = 15 drafts). They'll arrive with the approve/reject/edit buttons shortly.`
+  ;(async () => {
+    try {
+      let research = readLatest()
+      if (!research?.results?.length) {
+        if (telegramSend) await telegramSend('No fresh research yet — running ChitraG first…')
+        research = await chitrag.run({ triggeredBy: 'user', triggerLabel: '💬 /batch', broadcast })
+      }
+      if (!research?.results?.length) {
+        const msg = 'Could not get research to build a batch. Try /research, then /batch.'
+        if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
+        if (telegramSend) await telegramSend(msg)
+        return
+      }
+      const out = await quill.runDaily({ research, broadcast, telegramSend, telegramSendDraft, triggerLabel: '💬 /batch' })
+      const n = out?.totalDrafts ?? 0
+      const done = `✅ Batch run done — ${n} draft${n === 1 ? '' : 's'}. Open the Quill page to review; also sent to Telegram.`
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: done } })
+    } catch (err) {
+      console.error('[Titto] /batch failed:', err.message)
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: 'Batch hit an error. Check the logs.' } })
+      if (telegramSend) telegramSend('Batch hit an error. Check the logs.')
+    }
+  })()
+  return { reply, action: 'batch_started' }
+}
+
 // ── /quill command dispatcher ────────────────────────────────────────────────
 const QUILL_HELP = `Quill commands:
 /quill plan              — Find trending suggestions per pillar (opens Quill panel)
@@ -202,8 +281,7 @@ async function handleQuillCommand(args, broadcast) {
 const SOURCE_NAME_MAP = {
   reddit: ['reddit'], github: ['github'], twitter: ['twitter'], x: ['twitter'],
   hackernews: ['hackernews'], hn: ['hackernews'], youtube: ['youtube'], yt: ['youtube'],
-  arxiv: ['ai_research'], research: ['ai_research'], ai: ['ai_research'],
-  news: ['news'],
+  arxiv: ['arxiv'], research: ['arxiv'], ai: ['arxiv'], papers: ['arxiv'],
 }
 
 function handleStatus() {
@@ -230,7 +308,14 @@ function formatResearchSummary(data) {
   return `Research done. ${data.results.length} results ranked.\n\nTop pick: "${top.title}" [Score: ${top.trendingScore}] — ${top.postPotential} · ${top.source}\n\nCheck the ChitraG panel for the full list.`
 }
 
-async function handleMessage({ text, sessionId = 'default', broadcast = null, telegramSend = null }) {
+// Push freshly generated drafts to Telegram with one-tap Approve/Reject/Edit buttons.
+function pushDraftsToTelegram(telegramSendDraft, result, header) {
+  if (!telegramSendDraft || !result?.draftRecords?.length) return
+  const drafts = result.draftRecords.map(d => ({ id: d.id, text: d.text, format: result.format }))
+  telegramSendDraft(drafts, header ? { header } : {}).catch(() => {})
+}
+
+async function handleMessage({ text, sessionId = 'default', broadcast = null, telegramSend = null, telegramSendDraft = null }) {
   const input = text.trim()
 
   // Simple command routing — no LLM
@@ -260,6 +345,14 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
     } else {
       result = await handleReplyTargets(args, broadcast, telegramSend)
     }
+    appendMessage(sessionId, 'user', input)
+    appendMessage(sessionId, 'assistant', result.reply)
+    return result
+  }
+
+  // /batch — generate today's batch on demand (3×5 drafts). No LLM intent parsing.
+  if (/^\/batch\b/i.test(input)) {
+    const result = await handleBatch(broadcast, telegramSend, telegramSendDraft)
     appendMessage(sessionId, 'user', input)
     appendMessage(sessionId, 'assistant', result.reply)
     return result
@@ -361,8 +454,9 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
   if (parsed.intent === 'write_post' && parsed.koelRequest) {
     const req = parsed.koelRequest
     const confirmReply = parsed.reply + `\n\nAsking Koel to write a ${req.format} post now…`
-    koel.write({ ...req, broadcast }).then(result => {
+    koel.write({ ...req, broadcast, origin: 'koel', triggerLabel: '💬 Titto' }).then(result => {
       if (broadcast) broadcast({ type: 'koel_complete', data: result })
+      pushDraftsToTelegram(telegramSendDraft, result, `📝 ${result.drafts.length} draft(s) — tap to approve, reject, or edit:`)
     }).catch(err => {
       console.error('[Titto] Koel write failed:', err.message)
       if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: 'Koel hit an error writing that post. Try again.' } })
@@ -426,8 +520,11 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
       count: writingMode === 'combined' ? 1 : count,
       extraInstructions: writingInstruction,
       broadcast,
+      origin: 'koel',
+      triggerLabel: '💬 Titto',
     }).then(result => {
       if (broadcast) broadcast({ type: 'koel_complete', data: result })
+      pushDraftsToTelegram(telegramSendDraft, result, `📝 ${result.drafts.length} draft(s) from ${runLabel} — tap to approve/reject/edit:`)
     }).catch(err => {
       console.error('[Titto] Koel write_from_list failed:', err.message)
       if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: 'Koel hit an error. Try again.' } })
@@ -445,12 +542,11 @@ async function deliverResearch(results, telegramFn = null, broadcast = null) {
     broadcast({ type: 'chat_reply', data: { role: 'titto', content: summary } })
   }
   if (telegramFn) {
-    await telegramFn(summary)
-    // Send top 5 as individual messages
-    const top5 = (results.results || []).slice(0, 5)
-    for (const r of top5) {
-      await telegramFn(`*${r.rank}. [${r.trendingScore}] ${r.title}*\n${r.summary}\n_${r.postPotential?.toUpperCase()} · ${r.source}_\n${r.url}`)
-    }
+    // Compact: ONE short briefing (top 3 one-liners), not a wall of messages. Depth lives in the dashboard.
+    const items = (results.results || []).slice(0, 3)
+    const lines = items.map((r, i) => `${i + 1}. [${r.trendingScore}] ${String(r.title || '').slice(0, 70)} (${r.source})`).join('\n')
+    const briefing = `☀️ Briefing — ${results.results?.length || 0} ranked.\n${lines}\n→ Full list in the dashboard.`
+    await telegramFn(briefing)
   }
 }
 

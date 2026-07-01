@@ -28,7 +28,7 @@ SOURCE DIVERSITY REQUIRED:
 - Do NOT pick only from one category (e.g. only twitter)
 - Aim for at least 3-4 different source categories in your final 20
 - If a category has strong items, include 3-5 from it; no single category should exceed 6 items
-- Include 2-3 wellness/productivity/self-help items if available (cat:wellness or productivity X posts)
+- Include 2-3 wellness/productivity/self-help items if available (from reddit/twitter/youtube)
 
 CONTENT MIX TARGET:
 - ~12 items: AI, tech, startups, research, dev tools, GitHub
@@ -64,7 +64,7 @@ RETURN JSON ARRAY ONLY — no markdown, no explanation:
     "rank": 1,
     "title": "exact title from the item — do not rephrase",
     "snippet": "copy the Snippet text exactly from the item above — do not generate new text",
-    "source": "exact source category from [cat:] tag (hackernews|twitter|reddit|github|youtube|news|ai_research|wellness)",
+    "source": "exact source category from [cat:] tag (hackernews|twitter|reddit|github|youtube|arxiv)",
     "publisher": "exact publisher name from the item",
     "url": "exact url from the item — copy exactly, do not modify",
     "trendingScore": 85,

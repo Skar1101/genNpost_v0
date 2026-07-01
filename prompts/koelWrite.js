@@ -77,6 +77,55 @@ ${k.viralLongform}
 - Write as Souvik in first person always`
 }
 
+// ── Build the live context block (read-before-write) ─────────────────────────
+// Turns memory.loadContext() into a prompt section: profile/voice + approved patterns to lean
+// toward + rejected angles to NEVER repeat. Injected fresh on every call (not cached).
+function oneLine(t) { return String(t || '').replace(/\s+/g, ' ').trim().slice(0, 160) }
+// Best tweets can be plain strings or { text, url } objects — get the calibratable text.
+function bestTweetText(t) {
+  if (!t) return ''
+  if (typeof t === 'string') return t.trim()
+  return String(t.text || t.url || '').trim()
+}
+
+function buildContextBlock(ctx) {
+  if (!ctx) return ''
+  const out = []
+  const p = ctx.profile
+  if (p) {
+    const id = p.identity || {}
+    const v = p.voice || {}
+    out.push('=== CREATOR PROFILE (write AS this person, in this exact voice) ===')
+    if (id.name) out.push(`Name: ${id.name}`)
+    if (id.handle) out.push(`Handle: @${id.handle}`)
+    if (id.niche) out.push(`Niche: ${id.niche}`)
+    if (id.audience) out.push(`Audience: ${id.audience}`)
+    if (v.description) out.push(`Voice: ${v.description}`)
+    if (v.doRules && v.doRules.length) out.push('DO: ' + v.doRules.join(' · '))
+    if (v.dontRules && v.dontRules.length) out.push("DON'T (hard rules, never violate): " + v.dontRules.join(' · '))
+    if (p.restrictions && p.restrictions.length) out.push('Avoid: ' + p.restrictions.join(' · '))
+  }
+  // Best tweets are the gold-standard voice reference — show them first and fuller than learned examples.
+  const best = (p && p.bestTweets ? p.bestTweets : []).map(bestTweetText).filter(Boolean)
+  if (best.length) {
+    out.push('\n=== YOUR BEST TWEETS (the gold standard — match THIS voice, rhythm, and quality bar) ===')
+    best.slice(0, 5).forEach(t => out.push('- ' + t.replace(/\s+/g, ' ').trim().slice(0, 320)))
+  }
+  if (ctx.voiceExamples && ctx.voiceExamples.length) {
+    out.push('\n=== VOICE EXAMPLES (mirror the rhythm & phrasing, not the topic) ===')
+    ctx.voiceExamples.slice(-8).forEach(e => out.push('- ' + oneLine(e.text)))
+  }
+  if (ctx.approved && ctx.approved.length) {
+    out.push('\n=== RECENTLY APPROVED (what resonates — lean toward these patterns) ===')
+    ctx.approved.slice(-6).forEach(e => out.push('- ' + oneLine(e.text)))
+  }
+  if (ctx.rejected && ctx.rejected.length) {
+    out.push('\n=== REJECTED ANGLES — DO NOT REPEAT THESE (avoid the angle and its reason) ===')
+    ctx.rejected.slice(-10).forEach(e => out.push(`- ${oneLine(e.text)}${e.reason ? '  (reason: ' + e.reason + ')' : ''}`))
+  }
+  return out.join('\n')
+}
+
 // ── Build the user prompt ─────────────────────────────────────────────────────
 function buildKoelUserPrompt({ format, input, inputType, count = 3, extraInstructions = '' }) {
   const meta = FORMAT_META[format] || FORMAT_META.short
@@ -126,4 +175,4 @@ ${input}
 Write now. No preamble.`
 }
 
-module.exports = { buildKoelSystemPrompt, buildKoelUserPrompt, FORMAT_META, reloadKnowledge }
+module.exports = { buildKoelSystemPrompt, buildKoelUserPrompt, buildContextBlock, FORMAT_META, reloadKnowledge }

@@ -7,6 +7,8 @@ const fetchReplyTargets = require('../tools/fetchReplyTargets')
 const { resolveQueries } = require('../tools/replyDomains.config')
 const { getEnabledDomainIds } = require('../state/replyDomainsStore')
 const { writeLatest, archiveRun } = require('../state/researchStore')
+const replyTargetsStore = require('../state/replyTargetsStore')
+const activityStore = require('../state/activityStore')
 const { filterNew, markSeen } = require('../state/seenUrlsStore')
 const logger = require('../utils/logger')
 const log = logger.source('chitrag')
@@ -278,6 +280,11 @@ async function run({ triggeredBy = 'user', triggerLabel = null, instructions = n
 
   writeLatest(output)
   archiveRun(output)
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'chitrag', action: 'research', triggerLabel: triggerLabel || '🖱 Manual',
+    summary: `${ranked.length} ranked` + (filterSources ? ` · ${filterSources.join(', ')}` : ''),
+    ref: { kind: 'research', id: runId },
+  })
   log.info(`Run complete — ${ranked.length} items ranked across ${Object.keys(byCategory).length} categories`)
   return output
 }
@@ -384,9 +391,15 @@ async function findReplyTargets({ target = 30, domains = null, extraKeywords = n
     qualified: qualifiedRows,           // subset Titto delivers to chat/Telegram
   }
 
-  // Persist into ChitraG's archive/run list (tagged) — do NOT writeLatest (keeps main research clean).
-  archiveRun(output)
-  if (broadcast) broadcast({ type: 'research_complete', data: output })
+  // Store in the SEPARATE reply-targets store (its own tab) — never the research archive, so it can't
+  // overlap or evict ChitraG research runs. Broadcast a dedicated event for the Replies tab.
+  replyTargetsStore.writeLatest(output)
+  if (broadcast) broadcast({ type: 'reply_targets_complete', data: output })
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'chitrag-replies', action: 'reply_targets', triggerLabel: '💬 Reply Targets',
+    summary: `${qualifiedRows.length} targets · ${allRows.length} scanned · ${windowUsedMin}m window`,
+    ref: { kind: 'replies' },
+  })
   return output
 }
 

@@ -3,6 +3,7 @@ const axios = require('axios')
 const fetchTools = require('../tools/fetchTools')
 const { filterNew, markSeen } = require('../state/seenToolsStore')
 const { writeLatest, readLatest } = require('../state/toolsStore')
+const activityStore = require('../state/activityStore')
 const logger = require('../utils/logger')
 const log = logger.source('tools-agent')
 
@@ -46,7 +47,7 @@ function buildTwitterSearchUrl(toolName) {
 }
 
 // ── Main run ─────────────────────────────────────────────────────────────────
-async function run({ broadcast = null } = {}) {
+async function run({ broadcast = null, triggerLabel = '🖱 Manual' } = {}) {
   log.info('Tools run started')
   if (broadcast) broadcast({ type: 'tools_progress', data: { step: 'fetching' } })
 
@@ -86,6 +87,11 @@ async function run({ broadcast = null } = {}) {
   writeLatest(output)
   log.info(`Tools run complete — ${enriched.length} tools saved`)
   if (broadcast) broadcast({ type: 'tools_complete', data: output })
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'tools', action: 'tools', triggerLabel,
+    summary: `${enriched.length} tools`,
+    ref: { kind: 'tools' },
+  })
   return output
 }
 

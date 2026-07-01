@@ -14,6 +14,10 @@ const { listPillars, setPillars } = require('../../state/quillPillarsStore')
 const quillSessions = require('../../state/quillSessionsStore')
 const { getStatus: getSchedulerStatus, setEnabled: setSchedulerEnabled } = require('../../state/schedulerStore')
 const replyDomainsStore = require('../../state/replyDomainsStore')
+const { readLatest: readRepliesLatest } = require('../../state/replyTargetsStore')
+const activityStore = require('../../state/activityStore')
+const memory = require('../../state/memory')
+const { ensureProfile } = require('../../state/profileSeed')
 
 // GET /api/research/latest
 router.get('/research/latest', (req, res) => {
@@ -63,9 +67,9 @@ router.post('/research/trigger', async (req, res) => {
 router.post('/chat', async (req, res) => {
   const { message, sessionId = 'web-default' } = req.body
   if (!message) return res.status(400).json({ error: 'message required' })
-  const { broadcast } = req.app.locals
+  const { broadcast, telegramSend, telegramSendDraft } = req.app.locals
   try {
-    const result = await titto.handleMessage({ text: message, sessionId, source: 'web', broadcast })
+    const result = await titto.handleMessage({ text: message, sessionId, source: 'web', broadcast, telegramSend, telegramSendDraft })
     res.json({ reply: result.reply, action: result.action, data: result.data || null })
   } catch (err) {
     logger.error('[API] Chat error', err)
@@ -87,7 +91,7 @@ router.post('/tools/trigger', async (req, res) => {
   const { broadcast } = req.app.locals
   res.json({ message: 'Tools fetch triggered. Results will arrive via WebSocket.' })
   try {
-    await toolsAgent.run({ broadcast })
+    await toolsAgent.run({ broadcast, triggerLabel: '🖱 API' })
   } catch (err) {
     logger.error('[API] Tools trigger failed', err)
     if (broadcast) broadcast({ type: 'error', data: { message: 'Tools run failed: ' + err.message } })
@@ -110,15 +114,23 @@ router.get('/quill/history', (req, res) => {
 
 // POST /api/quill/trigger — manual daily run
 router.post('/quill/trigger', async (req, res) => {
-  const { broadcast, telegramSend } = req.app.locals
+  const { broadcast, telegramSend, telegramSendDraft } = req.app.locals
   const research = readLatest()
   if (!research) return res.status(400).json({ error: 'No research data. Run /api/research/trigger first.' })
   res.json({ message: 'Quill triggered. Drafts will arrive via Telegram + WebSocket.' })
   try {
-    await quill.runDaily({ research, broadcast, telegramSend })
+    await quill.runDaily({ research, broadcast, telegramSend, telegramSendDraft, triggerLabel: '🖱 API' })
   } catch (err) {
     logger.error('[API] Quill trigger failed', err)
   }
+})
+
+// ── Activity feed (Titto control tower) ───────────────────────────────────────
+
+// GET /api/activity?limit=100  → newest-first log of every agent run
+router.get('/activity', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 100, 200)
+  res.json({ activity: activityStore.list(limit) })
 })
 
 // ── Scheduler control ─────────────────────────────────────────────────────────
@@ -240,6 +252,26 @@ router.get('/replies/domains', (req, res) => {
   res.json({ domains: replyDomainsStore.listDomainsWithState() })
 })
 
+// GET /api/replies/latest → last reply-target run (its own store, separate from research)
+router.get('/replies/latest', (req, res) => {
+  const data = readRepliesLatest()
+  if (!data) return res.json({ results: [], message: 'No reply-target run yet. Use /replies or the Find button.' })
+  res.json(data)
+})
+
+// POST /api/replies/trigger  body: { domains?, keywords? } — run the I2C reply-target search
+router.post('/replies/trigger', async (req, res) => {
+  const { broadcast } = req.app.locals
+  const { domains = null, keywords = null } = req.body || {}
+  res.json({ message: 'Reply-target search triggered. Results arrive via WebSocket.' })
+  try {
+    await chitrag.findReplyTargets({ domains, extraKeywords: keywords, broadcast })
+  } catch (err) {
+    logger.error('[API] Reply-target trigger failed', err)
+    if (broadcast) broadcast({ type: 'error', data: { message: 'Reply-target search failed: ' + err.message } })
+  }
+})
+
 // PUT /api/replies/domains  body: { enabled: [domainIds] } — set which OPTIONAL domains are on
 router.put('/replies/domains', (req, res) => {
   const { enabled } = req.body || {}
@@ -251,6 +283,63 @@ router.put('/replies/domains', (req, res) => {
     logger.error('[API] Reply domains save failed', err)
     res.status(500).json({ error: err.message })
   }
+})
+
+// ── Content-engine: profile / memory / draft queue (account-keyed) ─────────────
+
+// GET /api/profile → seeded-if-missing creator profile for the active account
+router.get('/profile', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  res.json({ account, profile: ensureProfile(account) })
+})
+
+// PUT /api/profile  body: { profile } — save the full profile object (dashboard editor / onboarding)
+router.put('/profile', (req, res) => {
+  const { profile } = req.body || {}
+  if (!profile || typeof profile !== 'object') return res.status(400).json({ error: 'profile object required' })
+  const account = memory.accounts.getActiveAccount()
+  try {
+    const saved = memory.saveProfile(account, profile)
+    res.json({ account, profile: saved })
+  } catch (err) {
+    logger.error('[API] Profile save failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/queue?state=  → the draft-lifecycle queue (optionally filtered by state)
+router.get('/queue', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  res.json({ account, drafts: memory.listQueue(account, req.query.state || null) })
+})
+
+// POST /api/draft/:id/transition  body: { state, reason?, editedText?, performance? }
+// Drives the lifecycle; mirrors the meaningful transitions into memory (approve/reject/edit/measure).
+router.post('/draft/:id/transition', (req, res) => {
+  const { state, reason, editedText, performance } = req.body || {}
+  if (!memory.STATES.includes(state)) return res.status(400).json({ error: `state must be one of ${memory.STATES.join(', ')}` })
+  const account = memory.accounts.getActiveAccount()
+  const updated = memory.transition(account, req.params.id, state, { reason, editedText, performance })
+  if (!updated) return res.status(404).json({ error: 'draft not found' })
+  res.json({ account, draft: updated })
+})
+
+// GET /api/memory → summary of what the loop has learned (for the dashboard)
+router.get('/memory', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  res.json({
+    account,
+    counts: {
+      approved: memory.approvedDrafts.read(account).length,
+      rejected: memory.rejectedDrafts.read(account).length,
+      voiceExamples: memory.voiceExamples.read(account).length,
+      performance: memory.performanceLog.read(account).length,
+      trends: memory.trendLog.read(account).length,
+      queue: memory.readQueue(account).length,
+    },
+    recentApproved: memory.approvedDrafts.read(account).slice(-5),
+    recentRejected: memory.rejectedDrafts.read(account).slice(-5),
+  })
 })
 
 // ── Koel endpoints ────────────────────────────────────────────────

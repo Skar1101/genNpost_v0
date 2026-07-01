@@ -36,7 +36,7 @@ function archiveRun(data) {
 function listArchive() {
   ensureDirs()
   return fs.readdirSync(ARCHIVE_DIR)
-    .filter(f => f.endsWith('.json'))
+    .filter(f => f.endsWith('.json') && !f.startsWith('reply-'))  // reply targets live in their own store
     .sort()
     .reverse()
     .slice(0, 30)

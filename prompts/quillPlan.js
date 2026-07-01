@@ -37,7 +37,7 @@ Return ONLY valid JSON — no markdown, no preamble:
       "items": [
         {
           "title": "use the trending item's title (or your evergreen topic title)",
-          "source": "reddit|github|hackernews|twitter|youtube|ai_research|news|''",
+          "source": "reddit|github|hackernews|twitter|youtube|arxiv|''",
           "url": "the trending item's url, or empty string for evergreen",
           "snippet": "1-line context (or '(no trending hook — evergreen angle)')",
           "angle": "ONE-sentence angle: hook + Souvik POV"

@@ -3,6 +3,7 @@ const OpenAI = require('openai')
 const koel = require('./koel')
 const chitrag = require('./chitrag')
 const { appendRun } = require('../state/quillStore')
+const activityStore = require('../state/activityStore')
 const { listArchive, readArchive, readLatest } = require('../state/researchStore')
 const { listPillars } = require('../state/quillPillarsStore')
 const sessionsStore = require('../state/quillSessionsStore')
@@ -68,39 +69,25 @@ async function assignTopics(researchResults) {
 Today's top ranked content:
 ${topList}
 
-Assign topics for today's X posts. Return ONLY valid JSON — balanced across all 3 sections:
+Assign topics for today's X posts. Return ONLY valid JSON — exactly 5 items in EACH of the 3 sections:
 
 {
-  "motivational": [
-    "Short freetext prompt for a crisp motivational/self-help/philosophy post — tie to Souvik's real story OR a universal mindset/stoic/philosophy lesson",
-    "Prompt 2",
-    "Prompt 3"
-  ],
-  "domain": [
-    "Best AI/tech story from the list — exact title or close paraphrase",
-    "Best startup/business story",
-    "Best dev tools or research story",
-    "Best wellness/productivity story if available"
-  ],
-  "trending": [
-    "Most viral/discussed topic from the list — prioritise Twitter/HN/Reddit sources",
-    "2nd trending",
-    "3rd trending",
-    "4th trending"
-  ]
+  "motivational": ["prompt 1", "prompt 2", "prompt 3", "prompt 4", "prompt 5"],
+  "domain": ["story 1", "story 2", "story 3", "story 4", "story 5"],
+  "trending": ["topic 1", "topic 2", "topic 3", "topic 4", "topic 5"]
 }
 
 Rules:
-- motivational: exactly 3 prompts, original freetext (NOT copied from list), philosophy/self-help/resilience angle
-- domain: 3-4 items from the list, span DIFFERENT domains (AI, startup, dev, wellness) — no overlap with trending
-- trending: 3-4 most time-sensitive/viral items, different from domain
+- motivational: exactly 5 prompts, original freetext (NOT copied from list), philosophy/self-help/resilience angle
+- domain: exactly 5 items from the list, span DIFFERENT domains (AI, startup, dev, wellness) — no overlap with trending
+- trending: exactly 5 most time-sensitive/viral items, different from domain
 - Balance: domain and trending should NOT all be AI — include startup, tech, wellness, dev`
 
   const response = await getOpenAI().chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.3,
-    max_tokens: 600,
+    max_tokens: 900,
   })
 
   const raw = response.choices[0].message.content.trim()
@@ -110,7 +97,7 @@ Rules:
 
 // ── Daily run ─────────────────────────────────────────────────────────────────
 
-async function runDaily({ research, broadcast, telegramSend } = {}) {
+async function runDaily({ research, broadcast, telegramSend, telegramSendDraft = null, triggerLabel = '🖱 Manual' } = {}) {
   const results = research?.results || []
   if (!results.length) {
     log.warn('runDaily: no research results')
@@ -131,11 +118,13 @@ async function runDaily({ research, broadcast, telegramSend } = {}) {
     assignments = {
       motivational: [
         'What a kidney transplant taught me about urgency and not wasting time',
-        'Most people give up right before it gets good — here is how to tell the difference',
-        'Stoicism says: control what you can, release what you cannot — here is what that means in practice',
+        'Most people give up right before it gets good — how to tell the difference',
+        'Stoicism: control what you can, release what you cannot — in practice',
+        'High performance is unglamorous: the quiet accumulation of small daily acts',
+        'Constraint as a forcing function — why finite energy makes you ship',
       ],
-      domain: results.slice(0, 4).map(r => r.title),
-      trending: results.slice(4, 8).map(r => r.title),
+      domain: results.slice(0, 5).map(r => r.title),
+      trending: results.slice(5, 10).map(r => r.title),
     }
   }
 
@@ -153,66 +142,43 @@ async function runDaily({ research, broadcast, telegramSend } = {}) {
     .slice(0, 5)
     .map(r => ({ title: r.title, url: r.url }))
 
-  await tgSend(telegramSend, `🪶 *Quill — ${istLabel(runAt)}*\nWriting your daily drafts\\.\\.\\.`)
-
   const allDrafts = []
 
-  // ── A: Motivational (short crisp X posts) ────────────────────────────────
-  if (broadcast) broadcast({ type: 'quill_progress', data: { step: 'writing_motivational' } })
-  for (let i = 0; i < assignments.motivational.length; i++) {
-    const prompt = assignments.motivational[i]
-    try {
-      const result = await koel.write({ format: 'short', input: prompt, inputType: 'freetext', count: 1,
-        extraInstructions: 'Write as a short crisp X post (max 260 chars). Personal, punchy, no hashtags.' })
-      const draft = result.drafts[0]
-      const generatedAt = new Date().toISOString()
-      await tgSend(telegramSend, `✍️ *Motivational ${i + 1}*\n\n${draft}`)
-      allDrafts.push({ section: 'motivational', label: `Motivational ${i + 1}`, topic: prompt.slice(0, 100), text: draft, generatedAt })
-    } catch (err) { log.error(`Motivational ${i + 1} failed`, err) }
+  // Generate a section's drafts, then deliver them as ONE Telegram batch (short header + the drafts
+  // with their buttons). Keeps Telegram to: 1 header + N draft messages per batch — no chatter.
+  async function runBatchSection({ topics, section, header, emoji, formatFor }) {
+    if (broadcast) broadcast({ type: 'quill_progress', data: { step: `writing_${section}` } })
+    const batch = []
+    for (let i = 0; i < topics.length; i++) {
+      const topic = topics[i]
+      if (!topic) continue
+      const fmt = formatFor ? formatFor(i) : 'short'
+      try {
+        const result = await koel.write({
+          format: fmt, input: topic, inputType: section === 'motivational' ? 'freetext' : 'topic', count: 1,
+          origin: 'quill', meta: { section },
+          extraInstructions: section === 'motivational' ? 'Write as a short crisp X post (max 260 chars). Personal, punchy, no hashtags.' : '',
+        })
+        const draft = result.drafts[0]
+        const rec = result.draftRecords && result.draftRecords[0]
+        if (rec) batch.push({ id: rec.id, text: draft, format: fmt })
+        allDrafts.push({ section, label: `${header} ${i + 1}`, format: fmt, topic: String(topic).slice(0, 100), text: draft, generatedAt: new Date().toISOString() })
+      } catch (err) { log.error(`${header} ${i + 1} failed`, err) }
+    }
+    if (telegramSendDraft && batch.length) {
+      await telegramSendDraft(batch, { header: `${emoji} ${header} — ${batch.length} drafts` })
+    } else {
+      for (const d of batch) await tgSend(telegramSend, d.text)
+    }
+    return batch.length
   }
 
-  // ── B: Domain posts (balanced across domains) ────────────────────────────
-  if (broadcast) broadcast({ type: 'quill_progress', data: { step: 'writing_domain' } })
-  for (let i = 0; i < assignments.domain.length; i++) {
-    const topic = assignments.domain[i]
-    if (!topic) continue
-    // Alternate short/longform — but only send preview to Telegram for longform
-    const fmt = i % 2 === 0 ? 'short' : 'longform'
-    try {
-      const result = await koel.write({ format: fmt, input: topic, inputType: 'topic', count: 1 })
-      const draft = result.drafts[0]
-      const generatedAt = new Date().toISOString()
-      const tgText = `🌐 *Domain ${i + 1}* · ${topic.slice(0, 50)}\n\n${telegramPreview(draft)}`
-      await sendChunked(telegramSend, tgText)
-      allDrafts.push({ section: 'domain', label: `Domain ${i + 1}`, format: fmt, topic: topic.slice(0, 100), text: draft, generatedAt })
-    } catch (err) { log.error(`Domain ${i + 1} failed`, err) }
-  }
+  // 3 batches × 5 drafts: motivational, domain, trending
+  await runBatchSection({ topics: assignments.motivational, section: 'motivational', header: 'Motivational', emoji: '✍️' })
+  await runBatchSection({ topics: assignments.domain, section: 'domain', header: 'Domain', emoji: '🌐', formatFor: i => (i % 2 === 0 ? 'short' : 'longform') })
+  await runBatchSection({ topics: assignments.trending, section: 'trending', header: 'Trending', emoji: '🔥' })
 
-  // ── C: Trending short posts ───────────────────────────────────────────────
-  if (broadcast) broadcast({ type: 'quill_progress', data: { step: 'writing_trending' } })
-  for (let i = 0; i < assignments.trending.length; i++) {
-    const topic = assignments.trending[i]
-    if (!topic) continue
-    try {
-      const result = await koel.write({ format: 'short', input: topic, inputType: 'topic', count: 1 })
-      const draft = result.drafts[0]
-      const generatedAt = new Date().toISOString()
-      await tgSend(telegramSend, `🔥 *Trending ${i + 1}* · ${topic.slice(0, 50)}\n\n${draft}`)
-      allDrafts.push({ section: 'trending', label: `Trending ${i + 1}`, topic: topic.slice(0, 100), text: draft, generatedAt })
-    } catch (err) { log.error(`Trending ${i + 1} failed`, err) }
-  }
-
-  // ── D: Top ranked sources (links only) ───────────────────────────────────
-  if (topSources.length) {
-    const lines = topSources.map((s, i) => `${i + 1}\\. [${s.title.slice(0, 55)}](${s.url})`).join('\n')
-    await sendChunked(telegramSend, `📰 *Top Sources Today*\n_Click to read, then ask Titto to write a post_\n\n${lines}`)
-  }
-
-  // ── E: Viral X post links ────────────────────────────────────────────────
-  if (viralXLinks.length) {
-    const lines = viralXLinks.map((x, i) => `${i + 1}\\. [${x.title.slice(0, 55)}](${x.url})`).join('\n')
-    await sendChunked(telegramSend, `𝕏 *Viral in your domain*\n\n${lines}`)
-  }
+  // Top sources + viral X links are kept in the run output (web dashboard) but NOT spammed to Telegram.
 
   const output = {
     generatedAt: runAt,
@@ -226,6 +192,11 @@ async function runDaily({ research, broadcast, telegramSend } = {}) {
 
   appendRun(output)
   if (broadcast) broadcast({ type: 'quill_complete', data: output })
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'quill', action: 'daily_batch', triggerLabel,
+    summary: `${allDrafts.length} drafts (3 batches)`,
+    ref: { kind: 'quill' },
+  })
   log.info(`runDaily complete — ${allDrafts.length} drafts`)
   await tgSend(telegramSend, `✅ Done — ${allDrafts.length} drafts. Full posts in Quill tab.`)
   return output
@@ -233,7 +204,7 @@ async function runDaily({ research, broadcast, telegramSend } = {}) {
 
 // ── Weekly run ────────────────────────────────────────────────────────────────
 
-async function runWeekly({ broadcast, telegramSend } = {}) {
+async function runWeekly({ broadcast, telegramSend, triggerLabel = '🖱 Manual' } = {}) {
   log.info('runWeekly starting')
   const runAt = new Date().toISOString()
 
@@ -287,7 +258,7 @@ Return ONLY JSON:
     try {
       const result = await koel.write({
         format: 'thread', input: `GitHub trending this week:\n${ghText}`,
-        inputType: 'freetext', count: 1,
+        inputType: 'freetext', count: 1, origin: 'quill',
         extraInstructions: 'Summarise most interesting GitHub repos that trended. Why each matters.',
       })
       await sendChunked(telegramSend, `🐙 *GitHub Weekly Wrap*\n\n${result.drafts[0]}`)
@@ -295,6 +266,11 @@ Return ONLY JSON:
   }
 
   if (broadcast) broadcast({ type: 'quill_weekly_complete', data: { ideas, generatedAt: runAt } })
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'quill', action: 'weekly', triggerLabel,
+    summary: `${ideas.length} long-form ideas`,
+    ref: { kind: 'quill' },
+  })
   log.info('runWeekly complete')
 }
 
@@ -393,6 +369,11 @@ async function planSuggestions({ broadcast = null, forceFresh = false, triggerLa
 
   appendRun(output)
   if (broadcast) broadcast({ type: 'quill_suggestions_complete', data: output })
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'quill', action: 'plan', triggerLabel: triggerLabel || '🖱 Plan button',
+    summary: `${output.totalSuggestions} suggestions · ${suggestions.length} pillars`,
+    ref: { kind: 'quill' },
+  })
   log.info(`planSuggestions complete — session=${sessionId}, ${suggestions.length} pillar groups, ${output.totalSuggestions} items`)
   return output
 }

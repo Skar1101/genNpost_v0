@@ -32,8 +32,9 @@ module.exports = [
     category: 'news',
     fetcher: './fetchReddit',
     maxResults: 25,
-    requiresKey: false,
-    subreddits: ['artificial', 'MachineLearning', 'LocalLLaMA', 'startups', 'technology', 'singularity', 'ChatGPT', 'OpenAI', 'productivity', 'selfimprovement', 'Meditation', 'GetMotivated'],
+    requiresKey: false,           // works via public .json fallback; auto-uses OAuth if creds set
+    // Pruned to high-signal subs (was 12). OAuth (REDDIT_CLIENT_ID/SECRET) recommended for reliability.
+    subreddits: ['artificial', 'MachineLearning', 'LocalLLaMA', 'OpenAI', 'startups', 'SaaS'],
   },
   {
     id: 'github',
@@ -80,36 +81,18 @@ module.exports = [
     ],
   },
   {
-    id: 'news',
-    name: 'Tech News & AI Blogs',
-    enabled: true,
-    tier: 1,
-    category: 'news',
-    fetcher: './fetchNews',
-    maxResults: 40,
-    requiresKey: false,
-  },
-  {
-    id: 'ai_research',
-    name: 'AI Research Papers',
+    id: 'arxiv',
+    name: 'arXiv Research Papers',
     enabled: true,
     tier: 2,
     category: 'ai_research',
-    fetcher: './fetchAIResearch',
-    maxResults: 30,
+    fetcher: './fetchArxiv',
+    maxResults: 15,
     requiresKey: false,
-    runOncePerDay: true,   // enforced inside the fetcher itself
+    categories: ['cs.AI', 'cs.LG', 'cs.CL'],
   },
-  {
-    id: 'wellness',
-    name: 'Self-Help & Productivity',
-    enabled: true,
-    tier: 2,
-    category: 'wellness',
-    fetcher: './fetchWellness',
-    maxResults: 20,
-    requiresKey: false,
-  },
+  // Retired 2026-06: fetchNews / fetchAIResearch / fetchWellness — RSS aggregators that failed
+  // most runs (dead feeds, 403/404, malformed XML). HN covers tech news; arXiv API covers research.
   // ─── Add new sources below ────────────────────────────────────────────────
   // {
   //   id: 'producthunt',

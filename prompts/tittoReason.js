@@ -40,7 +40,7 @@ TITTO'S CAPABILITIES (use these to answer "question" intents naturally — speak
 ───────────────────────────────────────────
 SOURCE EXTRACTION (critical — read carefully):
 
-SOURCE IDs: reddit, github, hackernews, twitter, youtube, ai_research, news
+SOURCE IDs: reddit, github, hackernews, twitter, youtube, arxiv
 
 Extract filterSources when ANY of these appear in the message — even as adjectives:
 - "github" / "github repos" / "github stars" / "trending github" → ["github"]
@@ -48,7 +48,7 @@ Extract filterSources when ANY of these appear in the message — even as adject
 - "hackernews" / "hacker news" / "HN" → ["hackernews"]
 - "twitter" / "X posts" / "on twitter" → ["twitter"]
 - "youtube" / "youtube videos" → ["youtube"]
-- "arxiv" / "research papers" / "AI research" → ["ai_research"]
+- "arxiv" / "research papers" / "AI research" → ["arxiv"]
 - Multiple sources mentioned → include all of them
 - No specific source mentioned → null (full search)
 

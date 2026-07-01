@@ -228,6 +228,11 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
       Quill
     </div>
 
+    <div class="agent-tab px-4 py-2.5 text-sm font-medium flex items-center gap-2.5" onclick="switchAgent('titto')" id="tab-titto">
+      <div style="width:24px;height:24px;border-radius:8px;background:rgba(124,111,247,.14);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#7c6ff7">T</div>
+      Titto
+    </div>
+
     <!-- Bottom: Titto hint -->
     <div class="mt-auto px-4 pt-4 border-t" style="border-color:var(--border)">
       <div class="text-xs" style="color:var(--text3)">Talk to Titto</div>
@@ -269,9 +274,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
             <option value="github">GitHub</option>
             <option value="hackernews">Hacker News</option>
             <option value="reddit">Reddit</option>
-            <option value="news">News</option>
-            <option value="ai_research">AI Research</option>
-            <option value="wellness">Wellness</option>
+            <option value="arxiv">arXiv</option>
           </select>
 
           <!-- Post type filter -->
@@ -290,6 +293,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
           </select>
 
           <!-- View buttons -->
+          <button onclick="switchView('replies')" id="btnReplies" class="text-xs px-3 py-1.5 rounded-lg" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">💬 Replies</button>
           <button onclick="switchView('tools')" id="btnTools" class="text-xs px-3 py-1.5 rounded-lg" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">🛠 Tools</button>
           <button onclick="switchView('logs')" id="btnLogs" class="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
             <span id="errDot" style="width:6px;height:6px;border-radius:50%;background:#55556a;display:inline-block"></span>Logs
@@ -360,6 +364,25 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
           <div id="toolsEmpty" class="text-sm" style="color:var(--text3)">Click "Find Tools" to discover today's top 3 AI tools.</div>
         </div>
 
+        <!-- ── REPLY TARGETS (I2C) VIEW ── -->
+        <div id="repliesView" class="hidden fade-up">
+          <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div>
+              <div class="text-sm font-semibold" style="color:var(--text)">💬 Reply Targets (I2C)</div>
+              <div class="text-xs mt-0.5" style="color:var(--text3)" id="repliesLastRun">Not run yet</div>
+            </div>
+            <button onclick="triggerReplies()" id="repliesRunBtn"
+              class="text-xs px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5"
+              style="background:var(--accent);color:white">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              Find Reply Targets
+            </button>
+          </div>
+          <div id="repliesRunning" class="hidden text-sm pulse mb-4" style="color:var(--accent)">Scanning X for reply targets…</div>
+          <div id="repliesList"></div>
+          <div id="repliesEmpty" class="text-sm" style="color:var(--text3)">Fresh, high-impression, low-competition posts to reply to (I2C). Click "Find Reply Targets" or message Titto <b>/replies</b>.</div>
+        </div>
+
         <!-- ── LOGS VIEW ── -->
         <div id="logsView" class="hidden fade-up">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
@@ -372,8 +395,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
               <button onclick="loadLog('scrape/github')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">GitHub</button>
               <button onclick="loadLog('scrape/twitter')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">Twitter</button>
               <button onclick="loadLog('scrape/youtube')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">YouTube</button>
-              <button onclick="loadLog('scrape/news')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">News</button>
-              <button onclick="loadLog('scrape/ai_research')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">AI Research</button>
+              <button onclick="loadLog('scrape/arxiv')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">arXiv</button>
               <button onclick="loadLog('scrape/chitrag')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">ChitraG</button>
             </div>
             <button onclick="loadLog(currentLogTab)" style="margin-left:auto;font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text3);cursor:pointer;">↻ Refresh</button>
@@ -575,6 +597,33 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 
     </div>
 
+    <!-- ══════════════════ TITTO PANEL (activity / control tower) ══════════════════ -->
+    <div id="panel-titto" class="hidden flex-1 flex flex-col overflow-hidden">
+
+      <!-- Titto toolbar -->
+      <div style="background:var(--surface); border-bottom:1px solid var(--border); padding:10px 20px;" class="flex items-center gap-3 shrink-0 flex-wrap">
+        <div class="flex items-center gap-2">
+          <div style="width:28px;height:28px;border-radius:8px;background:rgba(124,111,247,.14);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#7c6ff7">T</div>
+          <span class="font-semibold text-sm" style="color:#7c6ff7">Titto</span>
+          <span class="text-xs" style="color:var(--text3)">Activity — every run, who triggered it, what came out</span>
+        </div>
+        <div class="flex gap-2 ml-auto flex-wrap">
+          <span class="text-xs" id="activityLastRun" style="color:var(--text3)"></span>
+          <button onclick="loadActivity()" class="text-xs px-3 py-1.5 rounded-lg font-medium"
+            style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">↻ Refresh</button>
+        </div>
+      </div>
+
+      <!-- Activity feed -->
+      <div class="flex-1 overflow-y-auto p-5">
+        <div id="activityEmpty" style="display:none;text-align:center;color:var(--text3);padding:40px 0;font-size:13px;">
+          No activity yet. Trigger a run (research, batch, replies, a write, or tools) and it'll show up here.
+        </div>
+        <div id="activityList" style="display:flex;flex-direction:column;gap:8px;"></div>
+      </div>
+
+    </div>
+
   </main>
 </div>
 
@@ -674,6 +723,7 @@ const CAT_META = {
   ai_research: { label:'AI Research',  icon:'⬢', cls:'badge-ai_research' },
   hackernews:  { label:'Hacker News',  icon:'▲', cls:'badge-hackernews'  },
   reddit:      { label:'Reddit',       icon:'●', cls:'badge-reddit'      },
+  arxiv:       { label:'arXiv',        icon:'⬢', cls:'badge-ai_research' },
   wellness:    { label:'Wellness',     icon:'❋', cls:'badge-wellness'    },
 }
 
@@ -693,7 +743,13 @@ function onWSEvent(ev) {
   if (ev.type === 'research_complete') { stopRunning(); addOrUpdateRun(ev.data); enableRun() }
   if (ev.type === 'research_progress')  { document.getElementById('pgStep').textContent = `${ev.data.step === 'fetching' ? 'Fetching' : 'Ranking with AI'} — ${ev.data.source}` }
   if (ev.type === 'reply_progress')      { showTyping(ev.data.message) }
+  if (ev.type === 'reply_targets_complete') {
+    const b = document.getElementById('repliesRunBtn'); if (b) b.disabled = false
+    const r = document.getElementById('repliesRunning'); if (r) r.classList.add('hidden')
+    renderReplies(ev.data)
+  }
   if (ev.type === 'chat_reply')          { hideTyping(); addMsg('titto', ev.data.content); showUnread() }
+  if (ev.type === 'activity')            { _activity.unshift(ev.data); _activity = _activity.slice(0, 100); if (!document.getElementById('panel-titto').classList.contains('hidden')) renderActivity() }
   if (ev.type === 'error')               { stopRunning(); enableRun(); hideTyping(); addMsg('titto','⚠️ ' + ev.data.message) }
   if (ev.type === 'koel_complete')       { hide('koelWriting'); renderDrafts(ev.data); switchAgent('koel') }
   if (ev.type === 'koel_progress')       { /* writing state already shown */ }
@@ -1238,10 +1294,11 @@ function showPg(on) {
 
 // ══════════════════ HISTORY ══════════════════
 function switchView(v) {
-  hide('resultsView'); hide('emptyState'); hide('logsView'); hide('toolsView')
+  hide('resultsView'); hide('emptyState'); hide('logsView'); hide('toolsView'); hide('repliesView')
   document.getElementById('btnToday').classList.add('hidden')
   document.getElementById('btnLogs').classList.remove('hidden')
   document.getElementById('btnTools').classList.remove('hidden')
+  document.getElementById('btnReplies').classList.remove('hidden')
 
   if (v === 'logs') {
     show('logsView')
@@ -1253,8 +1310,47 @@ function switchView(v) {
     document.getElementById('btnTools').classList.add('hidden')
     document.getElementById('btnToday').classList.remove('hidden')
     loadToolsLatest()
+  } else if (v === 'replies') {
+    show('repliesView')
+    document.getElementById('btnReplies').classList.add('hidden')
+    document.getElementById('btnToday').classList.remove('hidden')
+    loadRepliesLatest()
   } else {
     if (allRuns.length) show('resultsView'); else show('emptyState')
+  }
+}
+
+// ══════════════════ REPLY TARGETS (I2C) ══════════════════
+function renderReplies(data) {
+  const items = (data && data.results) || []
+  const empty = document.getElementById('repliesEmpty')
+  const list = document.getElementById('repliesList')
+  const last = document.getElementById('repliesLastRun')
+  const when = data && (data.generatedAt || data.rankedAt)
+  if (when) {
+    const q = data.count != null ? data.count : items.filter(x => x.qualified).length
+    last.textContent = `Last run: ${new Date(when).toLocaleString()} · ${q} qualified / ${items.length} scanned · window ${data.windowUsedMin || '?'}m`
+  }
+  if (!items.length) { empty.style.display = 'block'; list.innerHTML = ''; return }
+  empty.style.display = 'none'
+  list.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;">${items.map((it, i) => renderRow(it, i)).join('')}</div>`
+}
+
+async function loadRepliesLatest() {
+  try { const r = await fetch('/api/replies/latest'); renderReplies(await r.json()) } catch (_) {}
+}
+
+async function triggerReplies() {
+  const btn = document.getElementById('repliesRunBtn')
+  btn.disabled = true
+  document.getElementById('repliesRunning').classList.remove('hidden')
+  document.getElementById('repliesEmpty').style.display = 'none'
+  try {
+    await fetch('/api/replies/trigger', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    // results arrive via the reply_targets_complete WebSocket event
+  } catch (_) {
+    document.getElementById('repliesRunning').classList.add('hidden')
+    btn.disabled = false
   }
 }
 
@@ -1336,7 +1432,86 @@ function switchAgent(name) {
   document.getElementById('panel-chitrag').classList.toggle('hidden', name !== 'chitrag')
   document.getElementById('panel-koel').classList.toggle('hidden', name !== 'koel')
   document.getElementById('panel-quill').classList.toggle('hidden', name !== 'quill')
+  document.getElementById('panel-titto').classList.toggle('hidden', name !== 'titto')
   if (name === 'quill') { loadPillars(); loadQuillSessions(); loadQuillLatest() }
+  if (name === 'titto') { loadActivity() }
+}
+
+// ══════════════════ TITTO ACTIVITY (control tower) ══════════════════
+const ACTIVITY_AGENTS = {
+  'chitrag':         { label: 'ChitraG', color: 'var(--green)', bg: 'var(--green-dim)' },
+  'chitrag-replies': { label: 'Replies', color: 'var(--green)', bg: 'var(--green-dim)' },
+  'quill':           { label: 'Quill',   color: '#db2777',      bg: 'rgba(236,72,153,.12)' },
+  'koel':            { label: 'Koel',    color: '#d97706',      bg: 'rgba(245,158,11,.12)' },
+  'tools':           { label: 'Tools',   color: '#1d8ff3',      bg: 'rgba(29,143,243,.12)' },
+}
+
+function activityBadgeStyle(label) {
+  if (label.startsWith('⏰')) return { bg: 'rgba(0,184,148,.10)', color: 'var(--green)' }
+  if (label.startsWith('💬')) return { bg: 'rgba(108,92,231,.10)', color: 'var(--accent)' }
+  if (label.startsWith('📱')) return { bg: 'rgba(29,143,243,.10)', color: '#1d8ff3' }
+  return { bg: 'rgba(245,158,11,.10)', color: '#d97706' }
+}
+
+function timeAgo(iso) {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+  if (s < 60) return 'just now'
+  if (s < 3600) return Math.floor(s / 60) + 'm ago'
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago'
+  return Math.floor(s / 86400) + 'd ago'
+}
+
+function activityRow(a) {
+  const ag = ACTIVITY_AGENTS[a.agent] || { label: a.agent, color: 'var(--text2)', bg: 'var(--surface2)' }
+  const badge = activityBadgeStyle(a.triggerLabel || '')
+  const isErr = a.status === 'error'
+  const dot = isErr ? 'var(--red, #ef4444)' : 'var(--green)'
+  const canOpen = a.ref && a.ref.kind
+  const openBtn = canOpen
+    ? `<button onclick='openActivityRef(${JSON.stringify(a.ref)})' class="text-xs px-2.5 py-1 rounded-lg" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;white-space:nowrap;">Open →</button>`
+    : ''
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 14px;display:flex;align-items:center;gap:12px;">
+    <span style="width:8px;height:8px;border-radius:50%;background:${dot};flex-shrink:0;"></span>
+    <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:${ag.bg};color:${ag.color};white-space:nowrap;">${esc(ag.label)}</span>
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.summary || a.action)}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:1px;">${esc(a.action)}</div>
+    </div>
+    <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:${badge.bg};color:${badge.color};white-space:nowrap;">${esc(a.triggerLabel || '🖱 Manual')}</span>
+    <span style="font-size:11px;color:var(--text3);white-space:nowrap;min-width:60px;text-align:right;">${timeAgo(a.ts)}</span>
+    ${openBtn}
+  </div>`
+}
+
+let _activity = []
+
+function renderActivity() {
+  const list = document.getElementById('activityList')
+  const empty = document.getElementById('activityEmpty')
+  if (!list) return
+  if (!_activity.length) { empty.style.display = 'block'; list.innerHTML = ''; return }
+  empty.style.display = 'none'
+  list.innerHTML = _activity.map(activityRow).join('')
+  const last = document.getElementById('activityLastRun')
+  if (last && _activity[0]) last.textContent = `Last: ${timeAgo(_activity[0].ts)} · ${_activity.length} shown`
+}
+
+async function loadActivity() {
+  try {
+    const r = await fetch('/api/activity?limit=100')
+    const data = await r.json()
+    _activity = data.activity || []
+    renderActivity()
+  } catch (_) {}
+}
+
+function openActivityRef(ref) {
+  if (!ref || !ref.kind) return
+  if (ref.kind === 'research') { switchAgent('chitrag'); switchView('today') }
+  else if (ref.kind === 'replies') { switchAgent('chitrag'); switchView('replies') }
+  else if (ref.kind === 'tools') { switchAgent('chitrag'); switchView('tools') }
+  else if (ref.kind === 'quill') { switchAgent('quill') }
+  else if (ref.kind === 'koel') { switchAgent('koel') }
 }
 
 // ══════════════════ KOEL ══════════════════
@@ -1420,8 +1595,14 @@ function renderDrafts(data) {
   document.getElementById('draftsList').innerHTML = drafts.map((text, i) => `
     <div class="draft-card" id="draft-card-${i}">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-xs font-semibold" style="color:#d97706">Draft ${i + 1} · ${fmtLabel}</span>
+        <span class="text-xs font-semibold" style="color:#d97706">Draft ${i + 1} · ${fmtLabel} <span id="draftStatus-${i}" class="ml-1" style="font-weight:700"></span></span>
         <div class="flex gap-2">
+          <button onclick="approveDraft(${i})" id="apprBtn-${i}" class="text-xs px-2.5 py-1 rounded-lg" style="background:var(--green-dim);border:1px solid rgba(0,184,148,.25);color:var(--green);cursor:pointer;" title="Approve (saves edits if you changed the text)">
+            ✅ Approve
+          </button>
+          <button onclick="rejectDraft(${i})" id="rejBtn-${i}" class="text-xs px-2.5 py-1 rounded-lg" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);color:#dc2626;cursor:pointer;" title="Reject with a reason — Koel learns from it">
+            ❌ Reject
+          </button>
           <button onclick="copyDraft(${i})" id="copyBtn-${i}" class="text-xs px-2.5 py-1 rounded-lg" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">
             📋 Copy
           </button>
@@ -1457,6 +1638,45 @@ function toggleEditInstruction(i) {
   if (!box.classList.contains('hidden')) {
     document.getElementById(`edit-instr-${i}`)?.focus()
   }
+}
+
+// ── Draft lifecycle (approve / reject / save-edit) — feeds the learning loop ──
+function draftIdAt(i) { return (window._koelLastData?.draftRecords?.[i] || {}).id || null }
+
+async function transitionDraft(id, state, body = {}) {
+  try {
+    const res = await fetch(`/api/draft/${id}/transition`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state, ...body }),
+    })
+    return res.ok
+  } catch (_) { return false }
+}
+
+function setDraftStatus(i, txt, good) {
+  const el = document.getElementById(`draftStatus-${i}`)
+  if (el) { el.textContent = txt; el.style.color = good ? 'var(--green)' : '#dc2626' }
+  const a = document.getElementById(`apprBtn-${i}`), r = document.getElementById(`rejBtn-${i}`)
+  if (a) a.disabled = true
+  if (r) r.disabled = true
+}
+
+async function approveDraft(i) {
+  const id = draftIdAt(i)
+  if (!id) { setDraftStatus(i, 'no id — regenerate', false); return }
+  const orig = window._koelLastData.draftRecords[i].text
+  const cur = document.getElementById(`draft-text-${i}`)?.value ?? orig
+  const edited = cur.trim() !== orig.trim()
+  const ok = await transitionDraft(id, edited ? 'edited' : 'queued', edited ? { editedText: cur } : {})
+  setDraftStatus(i, ok ? (edited ? '✓ saved (edited)' : '✓ approved') : 'error', ok)
+}
+
+async function rejectDraft(i) {
+  const id = draftIdAt(i)
+  if (!id) { setDraftStatus(i, 'no id — regenerate', false); return }
+  const reason = (prompt('Why reject? (e.g. weak hook, off-voice, wrong topic, seen before)') || '').trim()
+  const ok = await transitionDraft(id, 'rejected', { reason })
+  setDraftStatus(i, ok ? '✗ rejected' : 'error', false)
 }
 
 async function applyEditInstruction(i) {
