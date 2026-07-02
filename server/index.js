@@ -12,7 +12,12 @@ const server = http.createServer(app)
 
 // Middleware
 app.use(express.json())
-app.use(express.static(path.join(__dirname, '..', 'public')))
+// Never cache HTML so the dashboard always loads the latest build (static assets can still cache).
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-store, must-revalidate')
+  },
+}))
 
 // Init WebSocket
 ws.init(server)
@@ -31,8 +36,9 @@ app.locals.telegramSendDraft = telegramSendDraft
 // Init scheduler
 initScheduler(ws.broadcast, telegramSend, telegramSendDraft)
 
-// Catch-all → serve index.html
+// Catch-all → serve index.html (no-store so a new build is always picked up)
 app.get('*', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, must-revalidate')
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'))
 })
 

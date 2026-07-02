@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>TinySparrow</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 :root {
   --bg: #ffffff;
@@ -24,7 +25,9 @@
   --text3: #9aa3b0;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { zoom: 1.4; }
+/* Base font bump replaces the old `html{zoom:1.4}` hack (which broke vh/height/layout math).
+   rem-based text scales with this; layout uses normal CSS so vh/flex behave correctly. */
+html { font-size: 19px; }
 body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; height: 100dvh; overflow: hidden; }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -228,6 +231,11 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
       Quill
     </div>
 
+    <div class="agent-tab px-4 py-2.5 text-sm font-medium flex items-center gap-2.5" onclick="openWriter()" id="tab-article" title="Open the Article Writer">
+      <div style="width:24px;height:24px;border-radius:8px;background:rgba(16,185,129,.14);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#059669">✍</div>
+      Writer
+    </div>
+
     <div class="agent-tab px-4 py-2.5 text-sm font-medium flex items-center gap-2.5" onclick="switchAgent('titto')" id="tab-titto">
       <div style="width:24px;height:24px;border-radius:8px;background:rgba(124,111,247,.14);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#7c6ff7">T</div>
       Titto
@@ -241,7 +249,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
   </nav>
 
   <!-- ── MAIN CONTENT ── -->
-  <main class="flex-1 flex flex-col overflow-hidden">
+  <main class="flex-1 flex flex-col overflow-hidden relative">
 
     <!-- ChitraG panel -->
     <div id="panel-chitrag" class="flex-1 flex flex-col overflow-hidden">
@@ -521,6 +529,11 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
           <span class="text-xs" style="color:var(--text3)">Daily Content Agent</span>
         </div>
         <div class="flex gap-2 ml-auto flex-wrap">
+          <button onclick="openWriter()" id="quillWriteArticleBtn"
+            class="text-xs px-3 py-1.5 rounded-lg font-semibold"
+            style="background:#059669;color:white;border:none;cursor:pointer;">
+            📰 Write Article
+          </button>
           <button onclick="triggerQuillDaily()" id="quillDailyBtn"
             class="text-xs px-3 py-1.5 rounded-lg font-semibold"
             style="background:#db2777;color:white;border:none;cursor:pointer;">
@@ -624,6 +637,122 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 
     </div>
 
+    <!-- ══════════════════ ARTICLE WRITER PANEL ══════════════════ -->
+    <style>
+      /* Article Writer: adaptive container that fills the screen area and scrolls INSIDE itself; the whole
+         panel scrolls as a fallback; toolbar sticks to the top; controls scroll on the right. Pure CSS. */
+      #panel-article { position:absolute; inset:0; display:flex; flex-direction:column; overflow-y:auto; background:var(--surface2); }
+      #panel-article.hidden { display:none; }
+      #panel-article .aw-toolbar { flex:0 0 auto; position:sticky; top:0; z-index:5; }
+      #panel-article .aw-content { flex:1 1 auto; min-height:0; display:flex; overflow:hidden; }
+      #panel-article .aw-body { flex:1 1 auto; min-height:0; overflow:hidden; padding:20px; display:flex; justify-content:center; }
+      #panel-article #articleBox { width:100%; max-width:780px; height:72vh; overflow-y:auto; border:1px solid var(--border); border-radius:12px; background:var(--bg); box-shadow:0 1px 4px rgba(0,0,0,.06); padding:30px 36px; }
+      #panel-article .aw-side { flex:0 0 280px; min-height:0; overflow-y:auto; border-left:1px solid var(--border); background:var(--surface); }
+      .art-prose { color:var(--text); font-size:16px; line-height:1.75; }
+      .art-prose h1 { font-size:26px; font-weight:800; margin:0 0 14px; line-height:1.25; }
+      .art-prose h2 { font-size:20px; font-weight:700; margin:24px 0 10px; }
+      .art-prose h3 { font-size:17px; font-weight:700; margin:20px 0 8px; }
+      .art-prose p { margin:0 0 16px; }
+      .art-prose a { color:#0ea5e9; text-decoration:underline; }
+      .art-prose strong { font-weight:700; }
+      .art-prose ul,.art-prose ol { margin:0 0 16px 22px; }
+      .art-prose li { margin:4px 0; }
+      .art-prose blockquote { border-left:3px solid var(--border); padding-left:14px; color:var(--text2); margin:0 0 16px; }
+    </style>
+
+    <!-- ══════════════════ ARTICLE WRITER PAGE ══════════════════ -->
+    <div id="panel-article" class="hidden flex-1">
+
+        <!-- Header + toolbar (spans full width, top) -->
+        <div class="aw-toolbar flex items-center gap-3 shrink-0 flex-wrap" style="background:var(--surface); border-bottom:1px solid var(--border); padding:10px 16px;">
+          <div class="flex items-center gap-2 shrink-0">
+            <div style="width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,.14);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#059669">✍</div>
+            <span class="font-semibold text-sm" style="color:#059669">Article Writer</span>
+            <span style="font-size:10px;font-weight:700;color:#fff;background:#059669;border-radius:6px;padding:1px 6px;">v18</span>
+          </div>
+          <input id="articleTopic" placeholder="Article topic or angle — e.g. why solo founders should ship ugly v1s"
+            onkeydown="if(event.key==='Enter')generateArticle()"
+            style="flex:1;min-width:200px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:8px 12px;font-size:13px;color:var(--text);outline:none;">
+          <button onclick="generateArticle()" id="articleGenBtn" class="text-xs px-4 py-2 rounded-lg font-semibold shrink-0"
+            style="background:#059669;color:white;border:none;cursor:pointer;">✍️ Write Article</button>
+          <select id="articlePastList" onchange="openArticle(this.value)" title="Past articles"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:7px 10px;font-size:12px;color:var(--text2);max-width:170px;">
+            <option value="">Past articles…</option>
+          </select>
+        </div>
+
+        <!-- Content row: article (left, scroll) + controls (right, scroll) -->
+        <div class="aw-content">
+
+        <!-- Left: always-visible article container that scrolls inside itself -->
+        <div class="aw-body">
+          <div id="articleBox">
+            <div id="articleEmpty" style="text-align:center;color:var(--text3);padding:40px 10px;font-size:14px;">
+              <div style="font-size:34px;margin-bottom:10px;">✍️</div>
+              Give a topic above and I'll write a professional, cited article in your voice — streamed live.<br>
+              Then hit <b>Edit</b> to refine it conversationally, switch models, and export to <code>.md</code>.
+            </div>
+
+            <div id="articleWorkspace" style="display:none;">
+              <div id="articleColumn">
+                <div id="articleStats" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text3);border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:16px;"></div>
+                <div id="articleBody" class="art-prose"></div>
+                <div id="articleSources" style="margin-top:24px;"></div>
+
+                <!-- refine chat (hidden until Edit) -->
+                <div id="articleRefine" style="display:none;margin-top:24px;border-top:1px solid var(--border);padding-top:16px;">
+                  <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;margin-bottom:8px;">REWRITE WITH THE WRITER</div>
+                  <div id="articleRefineLog" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;"></div>
+                  <div style="display:flex;gap:8px;">
+                    <input id="articleRefineInput" placeholder="e.g. tighten the intro, add a concrete example, make it less formal"
+                      onkeydown="if(event.key==='Enter')refineArticle()"
+                      style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:8px 12px;font-size:13px;color:var(--text);outline:none;">
+                    <button onclick="refineArticle()" id="articleRefineBtn" class="text-xs px-4 py-2 rounded-lg font-semibold"
+                      style="background:#059669;color:white;border:none;cursor:pointer;">Rewrite</button>
+                  </div>
+                </div>
+
+                <!-- images placeholder (Phase B5) -->
+                <div style="margin-top:24px;border:1px dashed var(--border);border-radius:12px;padding:14px;text-align:center;color:var(--text3);font-size:12px;">
+                  🖼 Image generation — coming next
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right-side control panel -->
+        <div class="aw-side" style="padding:16px;display:flex;flex-direction:column;gap:18px;">
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.06em;margin-bottom:6px;">MODEL</div>
+            <select id="articleModel" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:8px 10px;font-size:12px;color:var(--text);"></select>
+            <div id="articleModelNote" style="font-size:11px;color:var(--text3);margin-top:5px;"></div>
+          </div>
+
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.06em;margin-bottom:6px;">ACTIONS</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <button onclick="toggleArticleRefine()" id="articleEditBtn" class="text-xs px-3 py-2 rounded-lg font-medium" style="display:none;background:var(--bg);border:1px solid var(--border);color:var(--text2);cursor:pointer;text-align:left;">✏️ Edit / rewrite</button>
+              <button onclick="copyArticle()" id="articleCopyBtn" class="text-xs px-3 py-2 rounded-lg font-medium" style="display:none;background:var(--bg);border:1px solid var(--border);color:var(--text2);cursor:pointer;text-align:left;">📋 Copy</button>
+              <button onclick="exportArticle()" id="articleExportBtn" class="text-xs px-3 py-2 rounded-lg font-medium" style="display:none;background:var(--bg);border:1px solid var(--border);color:var(--text2);cursor:pointer;text-align:left;">⬇ Export .md</button>
+            </div>
+          </div>
+
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.06em;margin-bottom:6px;">VERSIONS</div>
+            <select id="articleVersion" onchange="showArticleVersion(this.value)" title="Versions"
+              style="display:none;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:8px 10px;font-size:12px;color:var(--text2);margin-bottom:6px;"></select>
+            <button onclick="revertArticleVersion()" id="articleRevertBtn" class="text-xs px-3 py-2 rounded-lg" style="display:none;width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text2);cursor:pointer;text-align:left;">↩ Make current</button>
+            <div style="font-size:11px;color:var(--text3);" id="articleVersionsEmpty">No versions yet.</div>
+          </div>
+
+          <div style="margin-top:auto;font-size:11px;color:var(--text3);" id="articleCost"></div>
+        </div>
+
+        </div><!-- /aw-content -->
+
+          </div>
+
   </main>
 </div>
 
@@ -711,6 +840,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 </div>
 
 <script>
+console.log('%cTinySparrow build: writer-page-v18-nozoom', 'color:#059669;font-weight:bold')
 // ══════════════════ GLOBALS ══════════════════
 let ws, allRuns = [], visibleRunCount = 2
 const sessionId = 'web-' + Math.random().toString(36).slice(2,9)
@@ -750,6 +880,11 @@ function onWSEvent(ev) {
   }
   if (ev.type === 'chat_reply')          { hideTyping(); addMsg('titto', ev.data.content); showUnread() }
   if (ev.type === 'activity')            { _activity.unshift(ev.data); _activity = _activity.slice(0, 100); if (!document.getElementById('panel-titto').classList.contains('hidden')) renderActivity() }
+  if (ev.type === 'article_start')       { onArticleStart(ev.data) }
+  if (ev.type === 'article_token')       { onArticleToken(ev.data) }
+  if (ev.type === 'article_done')        { onArticleDone(ev.data) }
+  if (ev.type === 'article_error')       { onArticleError(ev.data) }
+  if (ev.type === 'open_article')        { openWriter(ev.data.topic || '') }
   if (ev.type === 'error')               { stopRunning(); enableRun(); hideTyping(); addMsg('titto','⚠️ ' + ev.data.message) }
   if (ev.type === 'koel_complete')       { hide('koelWriting'); renderDrafts(ev.data); switchAgent('koel') }
   if (ev.type === 'koel_progress')       { /* writing state already shown */ }
@@ -1433,8 +1568,231 @@ function switchAgent(name) {
   document.getElementById('panel-koel').classList.toggle('hidden', name !== 'koel')
   document.getElementById('panel-quill').classList.toggle('hidden', name !== 'quill')
   document.getElementById('panel-titto').classList.toggle('hidden', name !== 'titto')
+  document.getElementById('panel-article').classList.toggle('hidden', name !== 'article')
   if (name === 'quill') { loadPillars(); loadQuillSessions(); loadQuillLatest() }
   if (name === 'titto') { loadActivity() }
+  if (name === 'article') { initArticleWriter() }
+}
+
+// Article Writer is a normal page (like the other agents). openWriter navigates to it and,
+// if a topic is given, kicks off generation.
+function openWriter(topic) {
+  switchAgent('article')
+  if (topic) {
+    const t = document.getElementById('articleTopic')
+    if (t) t.value = topic
+    generateArticle()
+  }
+}
+
+// ══════════════════ ARTICLE WRITER ══════════════════
+let _art = { id: null, versions: [], sources: [], streaming: false, buf: '', modelsLoaded: false }
+
+async function initArticleWriter() {
+  if (!_art.modelsLoaded) { await loadArticleModels(); _art.modelsLoaded = true }
+  loadArticleList()
+}
+
+async function loadArticleModels() {
+  try {
+    const r = await fetch('/api/models'); const data = await r.json()
+    const sel = document.getElementById('articleModel')
+    sel.innerHTML = data.models.map(m => `<option value="${m.id}"${m.id === data.default ? ' selected' : ''}>${esc(m.label)}</option>`).join('')
+    const note = document.getElementById('articleModelNote')
+    note.textContent = data.openrouter ? 'via OpenRouter' : 'OpenAI fallback (set OPENROUTER_API_KEY for more models)'
+  } catch (_) {}
+}
+
+async function loadArticleList() {
+  try {
+    const r = await fetch('/api/article'); const data = await r.json()
+    const sel = document.getElementById('articlePastList')
+    sel.innerHTML = '<option value="">Past articles…</option>' +
+      (data.articles || []).map(a => `<option value="${a.id}">${esc((a.title || a.topic || 'Untitled').slice(0, 50))}${a.versionCount > 1 ? ` (v${a.versionCount})` : ''}</option>`).join('')
+  } catch (_) {}
+}
+
+function setArticleWidth(px) { document.getElementById('articleColumn').style.maxWidth = px + 'px' }
+
+function articleWords(text) { return (text || '').trim().split(/\s+/).filter(Boolean).length }
+
+function modelLabel(id) {
+  if (!id) return ''
+  const opt = document.querySelector(`#articleModel option[value="${id}"]`)
+  return opt ? opt.textContent : id
+}
+
+function renderArticleStats(text, sources) {
+  const words = articleWords(text)
+  const mins = Math.max(1, Math.round(words / 200))
+  const cites = (sources || []).length
+  const u = _art.usage
+  const mdl = _art.model ? `<span>🤖 ${esc(modelLabel(_art.model))}</span>` : ''
+  const tok = u ? `<span>🎫 ${((u.prompt_tokens||0)+(u.completion_tokens||0)).toLocaleString()} tokens (${(u.prompt_tokens||0).toLocaleString()} in / ${(u.completion_tokens||0).toLocaleString()} out)</span>` : ''
+  const cost = (_art.cost != null) ? `<span>💲 $${_art.cost.toFixed(4)}</span>` : ''
+  document.getElementById('articleStats').innerHTML =
+    `<span>📝 ${words} words</span><span>⏱ ${mins} min read</span><span>🔗 ${cites} citation${cites === 1 ? '' : 's'}</span>${mdl}${tok}${cost}`
+}
+
+function renderArticleBody(text, { streaming = false } = {}) {
+  const el = document.getElementById('articleBody')
+  if (streaming) { el.style.whiteSpace = 'pre-wrap'; el.textContent = text }
+  else { el.style.whiteSpace = 'normal'; el.innerHTML = window.marked ? marked.parse(text || '') : esc(text).replace(/\n/g, '<br>') }
+}
+
+function renderArticleSources(sources) {
+  const el = document.getElementById('articleSources')
+  if (!sources || !sources.length) { el.innerHTML = ''; return }
+  el.innerHTML = `<div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;margin-bottom:8px;">REFERENCES (${sources.length})</div>` +
+    sources.map(s => `<div style="font-size:12px;margin:3px 0;"><a href="${esc(s.url)}" target="_blank" style="color:#0ea5e9;">${esc((s.title || s.url).slice(0, 90))}</a></div>`).join('')
+}
+
+function showArticleControls(show) {
+  ['articleEditBtn', 'articleCopyBtn', 'articleExportBtn'].forEach(id => { document.getElementById(id).style.display = show ? '' : 'none' })
+}
+
+function generateArticle() {
+  const topic = document.getElementById('articleTopic').value.trim()
+  if (!topic) return
+  if (_art.streaming) return
+  const model = document.getElementById('articleModel').value
+  document.getElementById('articleEmpty').style.display = 'none'
+  document.getElementById('articleWorkspace').style.display = 'block'
+  const btn = document.getElementById('articleGenBtn'); btn.disabled = true; btn.textContent = '✍️ Writing…'
+  fetch('/api/article/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic, model }) })
+    .then(r => r.json()).then(d => { if (d.error) { alert(d.error); resetArticleGenBtn() } })
+    .catch(() => resetArticleGenBtn())
+}
+function resetArticleGenBtn() { const b = document.getElementById('articleGenBtn'); b.disabled = false; b.textContent = '✍️ Write Article' }
+
+function refineArticle() {
+  const input = document.getElementById('articleRefineInput')
+  const instruction = input.value.trim()
+  if (!instruction || !_art.id || _art.streaming) return
+  const model = document.getElementById('articleModel').value
+  input.value = ''
+  const log = document.getElementById('articleRefineLog')
+  log.innerHTML += `<div style="font-size:12px;color:var(--text2);background:var(--surface2);border-radius:8px;padding:6px 10px;align-self:flex-end;max-width:85%;">✏️ ${esc(instruction)}</div>`
+  const btn = document.getElementById('articleRefineBtn'); btn.disabled = true; btn.textContent = 'Rewriting…'
+  fetch('/api/article/refine', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: _art.id, instruction, model }) })
+    .then(r => r.json()).then(d => { if (d.error) { alert(d.error); resetRefineBtn() } })
+    .catch(() => resetRefineBtn())
+}
+function resetRefineBtn() { const b = document.getElementById('articleRefineBtn'); b.disabled = false; b.textContent = 'Rewrite' }
+
+function toggleArticleRefine() {
+  const el = document.getElementById('articleRefine')
+  el.style.display = el.style.display === 'none' ? 'block' : 'none'
+  if (el.style.display === 'block') {
+    // preventScroll so the page/toolbar don't jump; scroll the article box internally instead.
+    document.getElementById('articleRefineInput').focus({ preventScroll: true })
+    const box = document.getElementById('articleBox')
+    if (box) box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' })
+  }
+}
+
+function renderArticleVersions() {
+  const sel = document.getElementById('articleVersion')
+  const revert = document.getElementById('articleRevertBtn'); if (revert) revert.style.display = 'none'
+  const emptyMsg = document.getElementById('articleVersionsEmpty')
+  if (!_art.versions.length || _art.versions.length < 2) {
+    sel.style.display = 'none'
+    if (emptyMsg) emptyMsg.style.display = _art.versions.length ? 'none' : 'block'
+    return
+  }
+  if (emptyMsg) emptyMsg.style.display = 'none'
+  sel.style.display = ''
+  const latest = _art.versions.length
+  sel.innerHTML = _art.versions.map((v, i) => `<option value="${i}"${i === latest - 1 ? ' selected' : ''}>v${v.v}${v.instruction ? ' · ' + esc(v.instruction.slice(0, 24)) : ' · original'}</option>`).join('')
+}
+
+function showArticleVersion(idx) {
+  const v = _art.versions[idx]; if (!v) return
+  renderArticleBody(v.text)
+  renderArticleStats(v.text, _art.sources)
+  const isLatest = Number(idx) === _art.versions.length - 1
+  const btn = document.getElementById('articleRevertBtn')
+  if (btn) { btn.style.display = isLatest ? 'none' : ''; btn.dataset.v = v.v }
+}
+
+function revertArticleVersion() {
+  const btn = document.getElementById('articleRevertBtn')
+  const v = btn && btn.dataset.v
+  if (!_art.id || !v) return
+  fetch('/api/article/' + _art.id + '/revert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: Number(v) }) })
+    .then(r => r.json()).then(rec => { if (!rec.error) openArticle(_art.id) })
+}
+
+async function openArticle(id) {
+  if (!id) return
+  try {
+    const r = await fetch('/api/article/' + id); const rec = await r.json()
+    if (rec.error) return
+    _art.id = rec.id; _art.versions = rec.versions || []; _art.sources = rec.sources || []
+    const lastV = _art.versions[_art.versions.length - 1] || {}
+    _art.usage = lastV.usage || null; _art.cost = (lastV.cost != null) ? lastV.cost : null
+    _art.model = lastV.model || rec.model || null
+    document.getElementById('articleEmpty').style.display = 'none'
+    document.getElementById('articleWorkspace').style.display = 'block'
+    const text = _art.versions.length ? _art.versions[_art.versions.length - 1].text : ''
+    renderArticleBody(text); renderArticleStats(text, _art.sources); renderArticleSources(_art.sources)
+    renderArticleVersions(); showArticleControls(true)
+    const last = _art.versions[_art.versions.length - 1]
+    document.getElementById('articleCost').textContent = last && last.cost != null ? `$${last.cost.toFixed(4)}` : ''
+    document.getElementById('articleRefineLog').innerHTML = ''
+  } catch (_) {}
+}
+
+function copyArticle() {
+  const text = _art.versions.length ? _art.versions[_art.versions.length - 1].text : document.getElementById('articleBody').textContent
+  navigator.clipboard.writeText(text).then(() => {
+    const b = document.getElementById('articleCopyBtn'); const t = b.textContent; b.textContent = '✓ Copied'; setTimeout(() => b.textContent = t, 1500)
+  })
+}
+
+function exportArticle() { if (_art.id) window.location = '/api/article/' + _art.id + '/export' }
+
+// ── Article streaming (WS) ──────────────────────────────────────────────────
+function onArticleStart(d) {
+  _art.id = d.id; _art.streaming = true; _art.buf = ''
+  document.getElementById('articleEmpty').style.display = 'none'
+  document.getElementById('articleWorkspace').style.display = 'block'
+  renderArticleBody('', { streaming: true })
+  document.getElementById('articleSources').innerHTML = ''
+  document.getElementById('articleStats').innerHTML = '<span style="color:#059669;">✍️ writing…</span>'
+}
+function onArticleToken(d) {
+  if (d.id !== _art.id) return
+  _art.buf += d.delta || ''
+  renderArticleBody(_art.buf, { streaming: true })
+  const body = document.getElementById('articleBody')
+  body.scrollIntoView({ block: 'end' })
+}
+function onArticleDone(d) {
+  if (d.id !== _art.id) return
+  _art.streaming = false
+  _art.sources = d.sources || []
+  _art.usage = d.usage || null
+  _art.cost = (d.cost != null) ? d.cost : null
+  _art.model = d.model || _art.model || null
+  renderArticleBody(d.text || _art.buf)
+  renderArticleStats(d.text || _art.buf, _art.sources)
+  renderArticleSources(_art.sources)
+  document.getElementById('articleCost').textContent =
+    (d.cost != null ? `$${d.cost.toFixed(4)}` : '') + (d.usage ? ` · ${(d.usage.prompt_tokens || 0) + (d.usage.completion_tokens || 0)} tok` : '')
+  showArticleControls(true)
+  resetArticleGenBtn(); resetRefineBtn()
+  // refresh the full record (versions) + past list
+  if (_art.id) fetch('/api/article/' + _art.id).then(r => r.json()).then(rec => {
+    if (!rec.error) { _art.versions = rec.versions || []; renderArticleVersions() }
+  })
+  loadArticleList()
+}
+function onArticleError(d) {
+  if (d.id && d.id !== _art.id) return
+  _art.streaming = false
+  document.getElementById('articleStats').innerHTML = `<span style="color:#ef4444;">⚠️ ${esc(d.message || 'error')}</span>`
+  resetArticleGenBtn(); resetRefineBtn()
 }
 
 // ══════════════════ TITTO ACTIVITY (control tower) ══════════════════
@@ -1444,6 +1802,7 @@ const ACTIVITY_AGENTS = {
   'quill':           { label: 'Quill',   color: '#db2777',      bg: 'rgba(236,72,153,.12)' },
   'koel':            { label: 'Koel',    color: '#d97706',      bg: 'rgba(245,158,11,.12)' },
   'tools':           { label: 'Tools',   color: '#1d8ff3',      bg: 'rgba(29,143,243,.12)' },
+  'article':         { label: 'Article', color: '#059669',      bg: 'rgba(16,185,129,.14)' },
 }
 
 function activityBadgeStyle(label) {
@@ -1512,6 +1871,7 @@ function openActivityRef(ref) {
   else if (ref.kind === 'tools') { switchAgent('chitrag'); switchView('tools') }
   else if (ref.kind === 'quill') { switchAgent('quill') }
   else if (ref.kind === 'koel') { switchAgent('koel') }
+  else if (ref.kind === 'article') { openWriter(); if (ref.id) openArticle(ref.id) }
 }
 
 // ══════════════════ KOEL ══════════════════
@@ -1911,7 +2271,7 @@ function renderQuillSuggestions(groups) {
             <button class="qFmtBtn" onclick="writeFromSuggestion('${sid}','thread')">Thread</button>
             <button class="qFmtBtn" onclick="writeFromSuggestion('${sid}','medium')">Medium</button>
             <button class="qFmtBtn" onclick="writeFromSuggestion('${sid}','short')">Short</button>
-            <button class="qFmtBtn qFmtArticle" onclick="writeFromSuggestion('${sid}','article')" title="Long structured article with cited stats">📰 Article</button>
+            <button class="qFmtBtn qFmtArticle" onclick="writeFromSuggestion('${sid}','article')" title="Open the Article Writer — streams a full cited article you can refine & export">📰 Article →</button>
           </div>
           <div class="qSuggDraftsInline" id="drafts-${sid}"></div>
         </div>`
@@ -1934,6 +2294,16 @@ function _findSuggestion(sid) {
 async function writeFromSuggestion(sid, format) {
   const suggestion = _findSuggestion(sid)
   if (!suggestion) return
+
+  // Articles are handled by the dedicated Article Writer tool (streaming, model choice, versions, export).
+  if (format === 'article') {
+    const title = (suggestion.title || '').trim()
+    const angle = (suggestion.angle || '').trim()
+    const topic = angle && angle.toLowerCase() !== title.toLowerCase() ? `${title} — ${angle}` : title
+    openWriter(topic)
+    return
+  }
+
   const card = document.querySelector(`.qSuggCard[data-sid="${sid}"]`)
   const fmtBtns = card?.querySelectorAll('.qFmtBtn') || []
   fmtBtns.forEach(b => b.disabled = true)
@@ -2132,9 +2502,9 @@ function restoreCurrentSession(session) {
   _qDraftMeta.clear()
   _qDraftSaved.clear()
   renderQuillSuggestions(_quillSuggestions)
-  // Append saved drafts under their parent suggestions
+  // Append saved drafts under their parent suggestions (articles live in the Writer now — skip them)
   for (const d of (session.drafts || [])) {
-    if (!d.sid) continue
+    if (!d.sid || d.format === 'article') continue
     appendQDraftInline(d.sid, d)
   }
 }
@@ -2210,7 +2580,7 @@ function renderPrevSessionContent(session) {
   // Read-only view: suggestions grouped by pillar with saved drafts inline. No format/refine/save buttons.
   const draftsBySid = {}
   for (const d of (session.drafts || [])) {
-    if (!d.sid) continue
+    if (!d.sid || d.format === 'article') continue   // articles live in the Writer now
     if (!draftsBySid[d.sid]) draftsBySid[d.sid] = []
     draftsBySid[d.sid].push(d)
   }

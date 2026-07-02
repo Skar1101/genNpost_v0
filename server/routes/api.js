@@ -16,6 +16,9 @@ const { getStatus: getSchedulerStatus, setEnabled: setSchedulerEnabled } = requi
 const replyDomainsStore = require('../../state/replyDomainsStore')
 const { readLatest: readRepliesLatest } = require('../../state/replyTargetsStore')
 const activityStore = require('../../state/activityStore')
+const articleWriter = require('../../agents/articleWriter')
+const articlesStore = require('../../state/articlesStore')
+const modelsConfig = require('../../config/models')
 const memory = require('../../state/memory')
 const { ensureProfile } = require('../../state/profileSeed')
 
@@ -122,6 +125,124 @@ router.post('/quill/trigger', async (req, res) => {
     await quill.runDaily({ research, broadcast, telegramSend, telegramSendDraft, triggerLabel: '🖱 API' })
   } catch (err) {
     logger.error('[API] Quill trigger failed', err)
+  }
+})
+
+// ── Article Writer ────────────────────────────────────────────────────────────
+
+// GET /api/models  → selectable writing models + pricing (+ whether OpenRouter is active)
+router.get('/models', (req, res) => {
+  const llm = require('../../utils/llm')
+  res.json({ models: modelsConfig.MODELS, default: modelsConfig.DEFAULT_MODEL_ID, openrouter: llm.usingOpenRouter() })
+})
+
+// GET /api/article  → list (newest first, lightweight)
+router.get('/article', (req, res) => {
+  res.json({ articles: articlesStore.list(50) })
+})
+
+// GET /api/article/:id  → full record with all versions
+router.get('/article/:id', (req, res) => {
+  const r = articlesStore.get(req.params.id)
+  if (!r) return res.status(404).json({ error: 'article not found' })
+  res.json(r)
+})
+
+// POST /api/article/:id/revert  { version }  → re-append an earlier version's text as the new latest
+router.post('/article/:id/revert', (req, res) => {
+  const record = articlesStore.get(req.params.id)
+  if (!record) return res.status(404).json({ error: 'article not found' })
+  const v = parseInt(req.body?.version)
+  const src = (record.versions || []).find(x => x.v === v)
+  if (!src) return res.status(400).json({ error: 'version not found' })
+  const updated = articlesStore.addVersion(req.params.id, { text: src.text, instruction: `revert to v${v}`, model: src.model })
+  res.json(updated)
+})
+
+// GET /api/article/:id/export  → download the latest version as a frontmattered .md
+router.get('/article/:id/export', (req, res) => {
+  const out = articlesStore.exportMarkdown(req.params.id)
+  if (!out) return res.status(404).json({ error: 'article not found' })
+  res.setHeader('Content-Type', 'text/markdown; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="${out.filename}"`)
+  res.send(out.markdown)
+})
+
+// POST /api/article/generate  { topic, model }  → creates a record, streams tokens over WS, finalizes.
+// Returns { id } immediately; the draft arrives via `article_*` WS events.
+router.post('/article/generate', async (req, res) => {
+  const { topic, model } = req.body || {}
+  if (!topic?.trim()) return res.status(400).json({ error: 'topic required' })
+  const { broadcast } = req.app.locals
+  const modelId = modelsConfig.byId(model) ? model : modelsConfig.DEFAULT_MODEL_ID
+
+  // Pre-create a placeholder so the client has an id to bind the stream to.
+  const record = articlesStore.create({ topic, title: topic, text: '', model: modelId })
+  res.json({ id: record.id, model: modelId })
+
+  if (broadcast) broadcast({ type: 'article_start', data: { id: record.id, title: topic, mode: 'generate' } })
+  try {
+    const result = await articleWriter.generate({
+      topic, model: modelId,
+      onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id: record.id, delta } }) : null,
+    })
+    articlesStore.updateLatestVersion(record.id, {
+      text: result.text, usage: result.usage, cost: result.cost, sources: result.sources,
+      model: result.modelId, title: result.title,
+    })
+    if (broadcast) broadcast({ type: 'article_done', data: {
+      id: record.id, version: 1, title: result.title, text: result.text,
+      sources: result.sources, usage: result.usage, cost: result.cost, model: result.modelId,
+    } })
+    const words = result.text.split(/\s+/).filter(Boolean).length
+    activityStore.recordAndBroadcast(broadcast, {
+      agent: 'article', action: 'write', triggerLabel: '🖱 Article',
+      summary: `${words} words · ${result.sources.length} sources${result.cost != null ? ' · $' + result.cost.toFixed(4) : ''}`,
+      ref: { kind: 'article', id: record.id },
+    })
+  } catch (err) {
+    logger.error('[API] Article generate failed', err)
+    if (broadcast) broadcast({ type: 'article_error', data: { id: record.id, message: err.message } })
+  }
+})
+
+// POST /api/article/refine  { id, instruction, model }  → streams a new version over WS.
+router.post('/article/refine', async (req, res) => {
+  const { id, instruction, model } = req.body || {}
+  const record = articlesStore.get(id)
+  if (!record) return res.status(404).json({ error: 'article not found' })
+  if (!instruction?.trim()) return res.status(400).json({ error: 'instruction required' })
+  const { broadcast } = req.app.locals
+  const modelId = modelsConfig.byId(model) ? model : (record.model || modelsConfig.DEFAULT_MODEL_ID)
+  const currentText = articlesStore.latestText(record)
+
+  // Append a placeholder version so streamed tokens have a target.
+  const withPlaceholder = articlesStore.addVersion(id, { text: '', instruction, model: modelId })
+  const newVersion = withPlaceholder.versions.length
+  res.json({ id, version: newVersion, model: modelId })
+
+  if (broadcast) broadcast({ type: 'article_start', data: { id, version: newVersion, mode: 'refine' } })
+  try {
+    const result = await articleWriter.refine({
+      currentText, instruction, model: modelId, sources: record.sources,
+      onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id, delta } }) : null,
+    })
+    articlesStore.updateLatestVersion(id, {
+      text: result.text, usage: result.usage, cost: result.cost, sources: result.sources, model: result.modelId,
+    })
+    if (broadcast) broadcast({ type: 'article_done', data: {
+      id, version: newVersion, text: result.text, sources: result.sources,
+      usage: result.usage, cost: result.cost, model: result.modelId,
+    } })
+    const words = result.text.split(/\s+/).filter(Boolean).length
+    activityStore.recordAndBroadcast(broadcast, {
+      agent: 'article', action: 'refine', triggerLabel: '🖱 Article',
+      summary: `v${newVersion} · ${words} words${result.cost != null ? ' · $' + result.cost.toFixed(4) : ''}`,
+      ref: { kind: 'article', id },
+    })
+  } catch (err) {
+    logger.error('[API] Article refine failed', err)
+    if (broadcast) broadcast({ type: 'article_error', data: { id, message: err.message } })
   }
 })
 

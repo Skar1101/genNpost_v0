@@ -9,6 +9,8 @@ const { getEnabledDomainIds } = require('../state/replyDomainsStore')
 const { writeLatest, archiveRun } = require('../state/researchStore')
 const replyTargetsStore = require('../state/replyTargetsStore')
 const activityStore = require('../state/activityStore')
+const guard = require('../utils/llmGuard')
+const G = require('../config/guardrails')
 const { filterNew, markSeen } = require('../state/seenUrlsStore')
 const logger = require('../utils/logger')
 const log = logger.source('chitrag')
@@ -150,12 +152,10 @@ async function rankWithLLM(rawItems, instructions, broadcast) {
   let response
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      response = await getOpenAI().chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-        max_tokens: 4000,
-      })
+      response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
+        { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 4000 },
+        { maxRetries: 0, timeout: G.TIMEOUT_MS },   // this loop handles retries; guard bounds rate/concurrency
+      ))
       break
     } catch (err) {
       const retryable = err.status === 500 || err.status === 503 || err.status === 429

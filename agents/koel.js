@@ -3,6 +3,8 @@ const OpenAI = require('openai')
 const { buildKoelSystemPrompt, buildKoelUserPrompt, buildContextBlock, reloadKnowledge } = require('../prompts/koelWrite')
 const { appendEntry } = require('../state/koelStore')
 const activityStore = require('../state/activityStore')
+const guard = require('../utils/llmGuard')
+const G = require('../config/guardrails')
 const memory = require('../state/memory')
 const { ensureProfile } = require('../state/profileSeed')
 const logger = require('../utils/logger')
@@ -67,12 +69,10 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
   let response
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      response = await getOpenAI().chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages,
-        temperature: 0.85,
-        max_tokens: 4000,
-      })
+      response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
+        { model: 'gpt-4o-mini', messages, temperature: 0.85, max_tokens: 4000 },
+        { maxRetries: 0, timeout: G.TIMEOUT_MS },   // this loop handles retries; guard bounds rate/concurrency
+      ))
       break
     } catch (err) {
       const retryable = err.status === 500 || err.status === 503 || err.status === 429

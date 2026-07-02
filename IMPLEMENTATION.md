@@ -74,6 +74,41 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 - [x] **`USE.md`** operator guide created (step-by-step usage).
 - [x] **Regression verified** — 29 modules load, 39 routes, 8 Titto commands, 16 GET endpoints all 200.
 
+## Article Writer — dedicated professional writing workspace ✅ (B1–B4)
+- [x] **Model layer** — `config/models.js` (registry + per-1M pricing) + `utils/llm.js` (OpenAI-compatible;
+  routes via **OpenRouter** when `OPENROUTER_API_KEY` set, else falls back to OpenAI; supports streaming).
+- [x] **`agents/articleWriter.js`** — dedicated pipeline: research pull (ChitraG) + article prompt/template
+  + **voice via `buildContextBlock`**, on a **purpose-built article knowledge base** (identity + writing
+  principles + long-form template; **excludes** tweet-copy/100K-tweet/engagement knowledge). `generate` +
+  conversational `refine`; returns text + usage + **cost** + sources.
+- [x] **`state/articlesStore.js`** — one JSON record/article with **version history**; `.md` export with
+  YAML frontmatter (`state/data/articles/files/`); `assets/<id>/` reserved for future images.
+- [x] **API** — `GET /api/models`, `POST /api/article/generate|refine`, `GET /api/article[/:id]`,
+  `POST /api/article/:id/revert`, `GET /api/article/:id/export`. **Streaming** over WS
+  (`article_start|token|done|error`). Logged to the Titto activity feed (`agent:'article'`).
+- [x] **UI — new "✍️ Writer" tab** (`public/index.html`): **adjustable width**, **line-by-line streaming**
+  (marked.js render), references, **stats bar** (words/read-time/citations), **live cost/token readout**,
+  **model dropdown**, **Edit→chat-to-rewrite**, **version selector + Make-current (revert)**, Copy, Export .md.
+- [x] **`/article <topic>`** Titto command → opens the Writer tab and streams the draft (web).
+- [x] Hard stop intact — articles are drafts Souvik exports/posts himself; no X write path.
+- [ ] **B5 (later)** — image generation (style/aspect/context) into `assets/<id>/`, embedded in the `.md`.
+- [ ] **Needs from Souvik:** add `OPENROUTER_API_KEY` to `.env` to unlock DeepSeek/Claude/GPT (falls back to
+  OpenAI/gpt-4o-mini until then). Restart server + hard-refresh.
+
+## LLM cost/safety guardrails ✅
+- [x] **`config/guardrails.js`** — env-tunable: `LLM_MAX_RPM` (20), `LLM_MAX_CONCURRENT` (3),
+  `LLM_TIMEOUT_MS` (120s), `LLM_MAX_RETRIES` (2), `LLM_MAX_OUTPUT_TOKENS` (4000), `LLM_MAX_WAIT_MS` (30s).
+- [x] **`utils/llmGuard.js`** — one shared gate for **every** LLM call: sliding-60s RPM window +
+  concurrency semaphore; queues, then fails fast with a clear error past `MAX_WAIT_MS`. Holds the slot for
+  the full call (incl. streaming).
+- [x] **`utils/llm.js`** (Article Writer) — clamps output tokens to the cap; guard-wrapped; `AbortController`
+  hard-aborts at `TIMEOUT_MS` even mid-stream; SDK `maxRetries` capped.
+- [x] **Legacy agents routed through the same gate** — `agents/{koel,chitrag}.js` (guard + `maxRetries:0`
+  so their own retry loops don't stack), `agents/quill.js` (assignTopics / weekly / plan). One process-wide
+  budget shared across Article Writer + Koel + ChitraG + Quill.
+- [x] Verified: concurrency cap holds (peak ≤ limit), RPM overflow fails fast, token clamp 9000→cap, server
+  boots clean. Provider split unchanged (legacy = direct OpenAI gpt-4o-mini; Article Writer = OpenRouter).
+
 ## Phase 4 — Weekly performance loop + tweet analysis ⬜
 - [ ] Weekly Telegram reminder → paste top/bottom tweets + stats
 - [ ] Tweet-analysis: extract hook/format/voice patterns → write `performance-log` + update voice/profile

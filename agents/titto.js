@@ -77,7 +77,7 @@ function handleQueue() {
 
 function handleStart() {
   return {
-    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust ChitraG's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C)\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/batch — generate today's batch now (15 drafts)\n/profile — your creator profile + what's still needed\n/queue — drafts you've approved & what's pending\n/latest — show today's research results\n/status — system status\n\nOr just talk to me normally.`,
+    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust ChitraG's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C)\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/batch — generate today's batch now (15 drafts)\n/article <topic> — draft a professional article in the Writer tab (streams live)\n/profile — your creator profile + what's still needed\n/queue — drafts you've approved & what's pending\n/latest — show today's research results\n/status — system status\n\nOr just talk to me normally.`,
     action: null,
   }
 }
@@ -269,6 +269,12 @@ async function handleQuillCommand(args, broadcast) {
   const topic = fmtMatch ? fmtMatch[2].trim() : trimmed
   if (!topic) return { reply: 'Give me a topic. Try /quill help', action: null }
 
+  // Articles go to the dedicated Article Writer tool (streaming, model choice, versions, export).
+  if (format === 'article') {
+    if (broadcast) broadcast({ type: 'open_article', data: { topic } })
+    return { reply: `Opening the Article Writer for "${topic.slice(0, 60)}" — it streams there; edit + export when done.`, action: 'open_article', data: { topic } }
+  }
+
   try {
     const result = await quill.quickWrite({ topic, format, broadcast })
     return { reply: result.draft, action: 'quill_draft' }
@@ -348,6 +354,21 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
     appendMessage(sessionId, 'user', input)
     appendMessage(sessionId, 'assistant', result.reply)
     return result
+  }
+
+  // /article <topic> — open the Article Writer (web) and draft it there (streams live). No LLM.
+  if (/^\/article\b/i.test(input)) {
+    const topic = input.replace(/^\/article\b\s*/i, '').trim()
+    appendMessage(sessionId, 'user', input)
+    if (!topic) {
+      const reply = 'Give me a topic: `/article <topic>` — or open the Writer tab and type there.'
+      appendMessage(sessionId, 'assistant', reply)
+      return { reply, action: null }
+    }
+    if (broadcast) broadcast({ type: 'open_article', data: { topic } })
+    const reply = `On it — drafting "${topic.slice(0, 60)}" in the Writer tab. It streams there; edit + export when done.`
+    appendMessage(sessionId, 'assistant', reply)
+    return { reply, action: 'open_article', data: { topic } }
   }
 
   // /batch — generate today's batch on demand (3×5 drafts). No LLM intent parsing.

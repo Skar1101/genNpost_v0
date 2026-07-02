@@ -4,6 +4,8 @@ const koel = require('./koel')
 const chitrag = require('./chitrag')
 const { appendRun } = require('../state/quillStore')
 const activityStore = require('../state/activityStore')
+const guard = require('../utils/llmGuard')
+const G = require('../config/guardrails')
 const { listArchive, readArchive, readLatest } = require('../state/researchStore')
 const { listPillars } = require('../state/quillPillarsStore')
 const sessionsStore = require('../state/quillSessionsStore')
@@ -83,12 +85,10 @@ Rules:
 - trending: exactly 5 most time-sensitive/viral items, different from domain
 - Balance: domain and trending should NOT all be AI — include startup, tech, wellness, dev`
 
-  const response = await getOpenAI().chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.3,
-    max_tokens: 900,
-  })
+  const response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
+    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 900 },
+    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
+  ))
 
   const raw = response.choices[0].message.content.trim()
   const match = raw.match(/\{[\s\S]*\}/)
@@ -238,11 +238,10 @@ Suggest 4 long-form article angles that would go viral on X. Actionable or story
 Return ONLY JSON:
 [{ "title": "...", "angle": "One line pitch", "whyViral": "Why this gets shares" }]`
 
-    const r = await getOpenAI().chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.4, max_tokens: 600,
-    })
+    const r = await guard.runGuarded(() => getOpenAI().chat.completions.create(
+      { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 600 },
+      { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
+    ))
     const raw = r.choices[0].message.content.trim()
     const match = raw.match(/\[[\s\S]*\]/)
     ideas = JSON.parse(match ? match[0] : raw)
@@ -338,12 +337,10 @@ async function planSuggestions({ broadcast = null, forceFresh = false, triggerLa
   if (broadcast) broadcast({ type: 'quill_progress', data: { step: 'matching_pillars' } })
   const prompt = buildPlanPrompt({ pillars, trendingItems })
 
-  const res = await getOpenAI().chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.4,
-    max_tokens: 1500,
-  })
+  const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
+    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 1500 },
+    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
+  ))
   const raw = res.choices[0].message.content.trim()
   const m = raw.match(/\{[\s\S]*\}/)
   let suggestions
