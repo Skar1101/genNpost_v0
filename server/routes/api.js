@@ -70,9 +70,9 @@ router.post('/research/trigger', async (req, res) => {
 router.post('/chat', async (req, res) => {
   const { message, sessionId = 'web-default' } = req.body
   if (!message) return res.status(400).json({ error: 'message required' })
-  const { broadcast, telegramSend, telegramSendDraft } = req.app.locals
+  const { broadcast, telegramSend, telegramSendDraft, telegramSendReplyTargets } = req.app.locals
   try {
-    const result = await titto.handleMessage({ text: message, sessionId, source: 'web', broadcast, telegramSend, telegramSendDraft })
+    const result = await titto.handleMessage({ text: message, sessionId, source: 'web', broadcast, telegramSend, telegramSendDraft, telegramSendReplyTargets })
     res.json({ reply: result.reply, action: result.action, data: result.data || null })
   } catch (err) {
     logger.error('[API] Chat error', err)
@@ -390,6 +390,30 @@ router.post('/replies/trigger', async (req, res) => {
   } catch (err) {
     logger.error('[API] Reply-target trigger failed', err)
     if (broadcast) broadcast({ type: 'error', data: { message: 'Reply-target search failed: ' + err.message } })
+  }
+})
+
+// POST /api/replies/draft  body: { url } — draft a reply for one saved reply target (on demand)
+router.post('/replies/draft', async (req, res) => {
+  const { url, index } = req.body || {}
+  const data = readRepliesLatest()
+  if (!data?.results?.length) return res.status(400).json({ error: 'No reply targets loaded. Run /replies first.' })
+  let target = null
+  if (url) target = data.results.find(r => r.url === url)
+  else if (index != null) target = (data.qualified || data.results)[index]
+  if (!target) return res.status(404).json({ error: 'Reply target not found — re-run /replies.' })
+  const { broadcast } = req.app.locals
+  try {
+    const result = await koel.draftReply({
+      sourceText: target.fullText || target.title,
+      author: target.author || target.publisher,
+      broadcast, triggerLabel: '🖱 Reply (web)',
+    })
+    const rec = (result.draftRecords && result.draftRecords[0]) || {}
+    res.json({ id: rec.id || null, text: rec.text || result.drafts[0] || '', sourceUrl: target.url, author: target.author || target.publisher, headline: target.title })
+  } catch (err) {
+    logger.error('[API] Reply draft failed', err)
+    res.status(500).json({ error: err.message })
   }
 })
 

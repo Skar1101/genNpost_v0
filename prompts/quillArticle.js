@@ -1,3 +1,5 @@
+const { BANNED_PHRASES } = require('./styleRules')
+
 // Article-mode prompt builder. Composes:
 //   - Template (from ARTICLE_TEMPLATE.md, user-editable voice + structure)
 //   - Related research items (from ChitraG search on the topic — primary citation sources)
@@ -52,15 +54,7 @@ ${related}
 ═════════════════════════════════════════════════════════════════════════════════
 
 ══ ANTI-SLOP BAN LIST — NEVER USE THESE TICS ═══════════════════════════════════
-- "In today's fast-paced world" / "increasingly" / "rapidly evolving" / "ever-changing landscape" / "in this era of"
-- "Let's dive in" / "let's unpack" / "let's explore" / "buckle up"
-- "In conclusion" / "to wrap up" / "at the end of the day" / "in summary" / "to summarize"
-- Buzzword stacks: "synergy", "paradigm shift", "10x", "game-changer", "leverage", "unlock", "supercharge"
-- Empty subheadings: "The Bottom Line", "Key Takeaways", "Final Thoughts", "Wrapping Up"
-- Vague claims: "many founders", "most experts agree", "studies show", "research suggests" — replace with a SPECIFIC cited example
-- Filler transitions: "moreover", "furthermore", "additionally", "consequently"
-- AI-confession phrases: "navigating this complex landscape", "in this complex world", "on this journey"
-- Generic openers: "Have you ever wondered…", "Picture this…", "Imagine if…"
+${BANNED_PHRASES}
 - Em-dash chains (— more than 2 per paragraph)
 - Three-part templated structures ("First… Second… Finally…") unless genuinely needed
 - Empty hooks that promise but don't deliver in the next sentence

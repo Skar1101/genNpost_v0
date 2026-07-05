@@ -95,6 +95,19 @@ Rules:
   return JSON.parse(match ? match[0] : raw)
 }
 
+// Match a batch topic string back to the research item it came from, so drafts can carry
+// research provenance (url/source/rank) for the future ChitraG feedback loop. Title-based since
+// assignTopics returns bare strings. Returns null for original (motivational) topics.
+function matchResearchItem(topic, results) {
+  if (!topic || !results?.length) return null
+  const norm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+  const t = norm(topic)
+  if (!t) return null
+  return results.find(r => norm(r.title) === t)
+      || results.find(r => { const rt = norm(r.title); return rt && (rt.includes(t) || t.includes(rt)) })
+      || null
+}
+
 // ── Daily run ─────────────────────────────────────────────────────────────────
 
 async function runDaily({ research, broadcast, telegramSend, telegramSendDraft = null, triggerLabel = '🖱 Manual' } = {}) {
@@ -153,10 +166,15 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
       const topic = topics[i]
       if (!topic) continue
       const fmt = formatFor ? formatFor(i) : 'short'
+      // Research provenance (domain/trending come from research items; motivational is original).
+      const item = section === 'motivational' ? null : matchResearchItem(topic, results)
+      const provenance = item
+        ? { researchUrl: item.url, researchSource: item.source, researchRank: item.rank, researchRunId: research?.runId }
+        : {}
       try {
         const result = await koel.write({
           format: fmt, input: topic, inputType: section === 'motivational' ? 'freetext' : 'topic', count: 1,
-          origin: 'quill', meta: { section },
+          origin: 'quill', meta: { section, ...provenance },
           extraInstructions: section === 'motivational' ? 'Write as a short crisp X post (max 260 chars). Personal, punchy, no hashtags.' : '',
         })
         const draft = result.drafts[0]

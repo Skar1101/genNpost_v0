@@ -1,6 +1,8 @@
 require('dotenv').config()
 const OpenAI = require('openai')
 const { buildKoelSystemPrompt, buildKoelUserPrompt, buildContextBlock, reloadKnowledge } = require('../prompts/koelWrite')
+const { buildReplyPrompt } = require('../prompts/koelReply')
+const { sanitize } = require('../prompts/styleRules')
 const { appendEntry } = require('../state/koelStore')
 const activityStore = require('../state/activityStore')
 const guard = require('../utils/llmGuard')
@@ -90,7 +92,14 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
   log.info(`Koel done — tokens: ${usage?.prompt_tokens} in / ${usage?.completion_tokens} out`)
 
   const raw = response.choices[0].message.content.trim()
-  const drafts = parseDrafts(raw)
+  // Deterministic house-style pass (strips em/en dashes, collapses blank-line runs).
+  const drafts = parseDrafts(raw).map(sanitize)
+
+  // Light thread guard: flag (don't fail) if a thread drifted well past the 5–8 tweet target.
+  if (format === 'thread') {
+    const tweetCount = (drafts[0] || '').split(/\bTweet\s*\d+\s*\//i).length - 1
+    if (tweetCount > 10) log.warn(`Thread came back with ${tweetCount} tweets (>10) — over target, delivering anyway`)
+  }
 
   // Register each draft into the lifecycle queue (state: generated) so it can be approved/
   // rejected/edited from the web UI or Telegram. meta carries enough to regenerate later.
@@ -122,7 +131,8 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
   appendEntry(result)
   // Log direct writes only — Quill's per-draft batch calls (origin 'quill') are covered by the
   // single daily_batch/weekly entry, so they're skipped here to avoid flooding the activity feed.
-  if (origin !== 'quill') {
+  // 'quill' (batch) and 'reply' record their own single activity entry in their caller — skip here.
+  if (origin !== 'quill' && origin !== 'reply') {
     activityStore.recordAndBroadcast(broadcast, {
       agent: 'koel', action: 'write', triggerLabel,
       summary: `${drafts.length} ${format} draft${drafts.length === 1 ? '' : 's'}`,
@@ -132,4 +142,25 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
   return result
 }
 
-module.exports = { write, reload }
+// Draft a single reply to a given post (draft-only). Reuses write() so voice/profile/guardrails apply;
+// records one 'reply' activity entry. Returns the same shape as write() (drafts + draftRecords).
+async function draftReply({ sourceText, author = '', extra = '', account = null, broadcast = null, register = true, triggerLabel = '🖱 Reply' } = {}) {
+  if (!sourceText?.trim()) throw new Error('draftReply needs the source post text')
+  const extraInstructions = buildReplyPrompt({ sourceText, author, extra })
+  const result = await write({
+    format: 'short',
+    input: `(Reply brief + the post are in the instructions above. Write Souvik's reply.)`,
+    inputType: 'freetext', count: 1, extraInstructions,
+    origin: 'reply', account, broadcast: null, register,   // null → no koel_complete panel-jump; reply UI handles delivery
+    meta: { kind: 'reply', sourceAuthor: author },
+    triggerLabel,
+  })
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'reply', action: 'reply', triggerLabel,
+    summary: `reply drafted${author ? ' → ' + author : ''}`,
+    ref: { kind: 'koel' },
+  })
+  return result
+}
+
+module.exports = { write, reload, draftReply }

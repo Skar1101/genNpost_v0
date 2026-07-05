@@ -1,9 +1,12 @@
 const TelegramBot = require('node-telegram-bot-api')
 const titto = require('../../agents/titto')
 const memory = require('../../state/memory')
+const koel = require('../../agents/koel')
+const replyTargetsStore = require('../../state/replyTargetsStore')
 
 let bot = null
 let _sendDrafts = null
+let _sendReplyTargets = null
 
 const REASONS = { hook: 'weak hook', voice: 'off-voice', topic: 'wrong topic', seen: 'seen before', other: 'other' }
 
@@ -62,15 +65,41 @@ function init(app, broadcast) {
   }
   _sendDrafts = sendDrafts
 
+  // Send reply targets, each with a "💬 Draft reply" button (rd|<idx> = index into the saved qualified list).
+  // targets: [{ idx, title, impressions, i2c, ageMinutes, url }]
+  const sendReplyTargets = async (targets, opts = {}) => {
+    if (!chatId || !bot || !Array.isArray(targets)) return
+    if (opts.header) { try { await bot.sendMessage(chatId, opts.header) } catch (_) {} }
+    for (const t of targets) {
+      const body = `${t.title}\n${(t.impressions || 0).toLocaleString()} imp · I2C ${t.i2c} · ${t.ageMinutes}m old\n${t.url}`
+      try {
+        await bot.sendMessage(chatId, body, { reply_markup: { inline_keyboard: [[{ text: '💬 Draft reply', callback_data: `rd|${t.idx}` }]] } })
+      } catch (e) { console.warn('[Telegram] sendReplyTarget failed:', e.message) }
+    }
+  }
+  _sendReplyTargets = sendReplyTargets
+
   // Edit-reply flow state: when the user taps ✏️ Edit, the next plain message is the new text.
   const pendingEdit = {}
 
   if (webhookUrl && webhookUrl.trim()) {
     bot = new TelegramBot(token)
-    bot.setWebHook(`${webhookUrl}/telegram/webhook`)
+    // Register the webhook with a secret token; Telegram echoes it back in the
+    // X-Telegram-Bot-Api-Secret-Token header so we can reject forged POSTs.
+    const webhookSecret = (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim()
+    const hookOpts = webhookSecret ? { secret_token: webhookSecret } : {}
+    if (!webhookSecret) console.warn('[Telegram] WARNING: TELEGRAM_WEBHOOK_SECRET not set — webhook is unauthenticated')
+    bot.setWebHook(`${webhookUrl}/telegram/webhook`, hookOpts)
       .then(() => console.log('[Telegram] Webhook mode — registered:', webhookUrl))
       .catch(err => console.warn('[Telegram] Webhook registration failed:', err.message))
-    app.post('/telegram/webhook', (req, res) => { bot.processUpdate(req.body); res.sendStatus(200) })
+    app.post('/telegram/webhook', (req, res) => {
+      // Verify the secret Telegram sends back before trusting the payload.
+      if (webhookSecret && req.headers['x-telegram-bot-api-secret-token'] !== webhookSecret) {
+        return res.sendStatus(403)
+      }
+      bot.processUpdate(req.body)
+      res.sendStatus(200)
+    })
   } else {
     bot = new TelegramBot(token, { polling: true })
     console.log('[Telegram] Polling mode started')
@@ -107,6 +136,7 @@ function init(app, broadcast) {
         broadcast,
         telegramSend: sendToUser,
         telegramSendDraft: sendDrafts,
+        telegramSendReplyTargets: sendReplyTargets,
       })
       if (result.reply) await sendToUser(result.reply)
     } catch (err) {
@@ -122,6 +152,30 @@ function init(app, broadcast) {
       const chat = String(q.message?.chat?.id)
       if (chatId && chat !== String(chatId)) return ack()
       const parts = (q.data || '').split('|')
+
+      // 💬 Draft reply for a saved reply target (rd|<idx>)
+      if (parts[0] === 'rd') {
+        const idx = parseInt(parts[1])
+        const data = replyTargetsStore.readLatest()
+        const target = data?.qualified?.[idx]
+        if (!target) return ack('That reply list expired — run /replies again')
+        ack('Drafting your reply…')
+        try {
+          const result = await koel.draftReply({
+            sourceText: target.fullText || target.title,
+            author: target.author || target.publisher,
+            triggerLabel: '📱 Reply (Telegram)',
+          })
+          const rec = (result.draftRecords && result.draftRecords[0]) || {}
+          await sendDrafts([{ id: rec.id, text: rec.text || result.drafts[0], format: 'reply' }],
+            { header: `💬 Reply to ${target.author || target.publisher || 'post'} — ${target.url}` })
+        } catch (e) {
+          console.warn('[Telegram] reply draft failed:', e.message)
+          await sendToUser('Reply draft failed. Check the logs.')
+        }
+        return
+      }
+
       if (parts[0] !== 'd') return ack()
       const [, action, id, code] = parts
       const acct = memory.accounts.getActiveAccount()
@@ -193,4 +247,9 @@ function getDraftSender() {
   return _sendDrafts
 }
 
-module.exports = { init, getSendFn, getDraftSender }
+// Returns the reply-target sender (each with a "Draft reply" button), or null if not configured.
+function getReplyTargetSender() {
+  return _sendReplyTargets
+}
+
+module.exports = { init, getSendFn, getDraftSender, getReplyTargetSender }

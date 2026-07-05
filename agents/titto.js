@@ -3,10 +3,12 @@ const OpenAI = require('openai')
 const chitrag = require('./chitrag')
 const koel = require('./koel')
 const quill = require('./quill')
+const analyst = require('./analyst')
 const { readLatest, findLatestRunBySource } = require('../state/researchStore')
 const { getHistory, appendMessage } = require('../state/conversationStore')
 const { buildIntentPrompt } = require('../prompts/tittoReason')
 const { matchDomain } = require('../tools/replyDomains.config')
+const fetchTweet = require('../tools/fetchTweet')
 const replyDomainsStore = require('../state/replyDomainsStore')
 const memory = require('../state/memory')
 const { ensureProfile } = require('../state/profileSeed')
@@ -25,8 +27,34 @@ const SIMPLE_COMMANDS = {
   '/research': handleTriggerResearch,
   '/profile': handleProfile,
   '/queue': handleQueue,
+  '/learned': handleLearned,
   '/start': handleStart,
   '/help': handleStart,
+}
+
+// /learned — show the learned "what's working" summary (Phase 4 performance loop)
+function handleLearned() {
+  const acct = memory.accounts.getActiveAccount()
+  return { reply: analyst.formatLearnedSummary(acct), action: null }
+}
+
+// /perf <pasted tweets + stats> — ingest this week's performance, refresh insights, report back.
+async function handlePerf(rawInput, broadcast) {
+  const acct = memory.accounts.getActiveAccount()
+  const pasted = rawInput.replace(/^\/perf\b\s*/i, '').trim()
+  if (!pasted) {
+    return { reply: 'Paste your tweets + stats after the command:\n`/perf <tweet text + impressions/likes/replies, one block per tweet>`', action: null }
+  }
+  try {
+    const ing = await analyst.ingestPerformance({ account: acct, pastedText: pasted, broadcast })
+    if (!ing.count) return { reply: "Couldn't parse any tweets from that. Include the tweet text and a few numbers (impressions, likes, replies).", action: null }
+    await analyst.analyze({ account: acct, broadcast })
+    const reply = `📊 Logged ${ing.count} tweet${ing.count === 1 ? '' : 's'} (${ing.measured} matched to drafts). Insights refreshed.\n\n${analyst.formatLearnedSummary(acct)}`
+    return { reply, action: 'insights_updated' }
+  } catch (err) {
+    console.error('[Titto] /perf failed:', err.message)
+    return { reply: 'Hit an error ingesting that. Check the logs and try again.', action: null }
+  }
 }
 
 // /profile — show the creator profile + what's still missing for the learning loop
@@ -77,7 +105,7 @@ function handleQueue() {
 
 function handleStart() {
   return {
-    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust ChitraG's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C)\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/batch — generate today's batch now (15 drafts)\n/article <topic> — draft a professional article in the Writer tab (streams live)\n/profile — your creator profile + what's still needed\n/queue — drafts you've approved & what's pending\n/latest — show today's research results\n/status — system status\n\nOr just talk to me normally.`,
+    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust ChitraG's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C); tap 💬 Draft reply on any\n/reply <x.com link or pasted tweet> — draft a reply to any post in your voice\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/batch — generate today's batch now (15 drafts)\n/article <topic> — draft a professional article in the Writer tab (streams live)\n/profile — your creator profile + what's still needed\n/queue — drafts you've approved & what's pending\n/perf <pasted tweets + stats> — log this week's post performance so I learn what's working\n/learned — what's landing (hooks, formats, topics) + research bias\n/latest — show today's research results\n/status — system status\n\nOr just talk to me normally.`,
     action: null,
   }
 }
@@ -156,7 +184,7 @@ function handleReplyDomains(sub) {
   return { reply: `Disabled "${id}".\n\n${show()}`, action: null }
 }
 
-async function handleReplyTargets(args, broadcast, telegramSend) {
+async function handleReplyTargets(args, broadcast, telegramSend, telegramSendReplyTargets = null) {
   const { adhocDomains, keywords } = parseReplyArgs(args)
   // Ad-hoc domains widen this run on top of the persisted enabled set.
   const domains = [...new Set([...replyDomainsStore.getEnabledDomainIds(), ...adhocDomains])]
@@ -179,8 +207,13 @@ async function handleReplyTargets(args, broadcast, telegramSend) {
     const header = `${items.length} reply targets (window ${result.windowUsedMin}m, sorted by I2C) · ${result.totalInList} scanned saved to ChitraG:`
     const full = `${header}\n\n${lines}`
     if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: full } })
-    if (telegramSend) {
-      // Telegram caps messages at 4096 — chunk on post boundaries
+    // Telegram: send the top targets as individual messages, each with a "💬 Draft reply" button.
+    if (telegramSendReplyTargets) {
+      const top = items.slice(0, 8).map((r, i) => ({ idx: i, title: r.title, impressions: r.impressions, i2c: r.i2c, ageMinutes: r.ageMinutes, url: r.url }))
+      const hdr = `${items.length} reply targets (window ${result.windowUsedMin}m) — tap 💬 Draft reply on any${items.length > 8 ? ' (top 8 shown; full list in dashboard)' : ''}:`
+      await telegramSendReplyTargets(top, { header: hdr })
+    } else if (telegramSend) {
+      // Fallback: plain chunked list (no button sender available)
       let chunk = header
       for (const r of items) {
         const block = `\n\n${r.title}\n${r.impressions.toLocaleString()} imp · I2C ${r.i2c} · ${r.ageMinutes}m old\n${r.url}`
@@ -195,6 +228,42 @@ async function handleReplyTargets(args, broadcast, telegramSend) {
     if (telegramSend) telegramSend('Reply-target search hit an error. Check the logs.')
   })
   return { reply, action: 'replies_started' }
+}
+
+// /reply <x.com URL | pasted tweet text> — draft a reply to ANY post on demand (web + Telegram). Draft-only.
+async function handleReplyDraft(rawInput, broadcast, telegramSend, telegramSendDraft) {
+  const raw = rawInput.replace(/^\/reply\b\s*/i, '').trim()
+  if (!raw) {
+    return { reply: 'Usage: `/reply <paste a tweet, or an x.com link>` — I\'ll draft a reply in your voice.', action: null }
+  }
+  const looksLikeUrl = /^https?:\/\/(x\.com|twitter\.com)\//i.test(raw) || /^\d{6,25}$/.test(raw)
+  ;(async () => {
+    let sourceText = raw, author = ''
+    if (looksLikeUrl) {
+      const t = await fetchTweet(raw)
+      if (t?.text) { sourceText = t.text; author = t.author }
+      else {
+        const msg = "Couldn't fetch that post (X limits single-tweet lookups). Paste the tweet's text after /reply and I'll draft a reply."
+        if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
+        if (telegramSend) await telegramSend(msg)
+        return
+      }
+    }
+    try {
+      const result = await koel.draftReply({ sourceText, author, triggerLabel: '💬 /reply' })
+      const rec = (result.draftRecords && result.draftRecords[0]) || {}
+      const text = rec.text || result.drafts[0] || ''
+      if (broadcast) broadcast({ type: 'koel_complete', data: result })   // web: shows draft card + buttons in Koel panel
+      if (telegramSendDraft) telegramSendDraft([{ id: rec.id, text, format: 'reply' }], { header: `💬 Reply draft${author ? ' → ' + author : ''} — tap to approve/reject/edit/copy:` })
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: `Reply draft:\n\n${text}` } })
+    } catch (err) {
+      console.error('[Titto] /reply failed:', err.message)
+      const msg = 'Reply draft hit an error. Try again.'
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
+      if (telegramSend) telegramSend(msg)
+    }
+  })()
+  return { reply: 'On it — drafting a reply…', action: 'reply_started' }
 }
 
 // ── /batch — on-demand daily batch (3 batches × 5 drafts) ────────────────────
@@ -321,8 +390,62 @@ function pushDraftsToTelegram(telegramSendDraft, result, header) {
   telegramSendDraft(drafts, header ? { header } : {}).catch(() => {})
 }
 
-async function handleMessage({ text, sessionId = 'default', broadcast = null, telegramSend = null, telegramSendDraft = null }) {
+// ── Interview-first drafting ──────────────────────────────────────────────────
+// When a direct write request is a thin/bare topic with no angle, ask 1–2 questions first
+// instead of drafting blind. Pending state is keyed by sessionId (works for web + Telegram).
+const pendingWrite = {}
+
+// "Thin" = a bare topic/headline with no angle supplied. Rich input (an angle in extraInstructions,
+// a longer brief, or a URL to write about) drafts straight away — today's behavior.
+function isThinWrite(req = {}) {
+  const input = String(req.input || '').trim()
+  const words = input.split(/\s+/).filter(Boolean).length
+  const hasAngle = String(req.extraInstructions || '').trim().length > 12
+  if (req.inputType === 'url') return false            // a URL is enough to write from
+  if (hasAngle) return false                            // user already gave an angle/tone
+  return words <= 6 || input.length < 40               // bare topic like "AI agents"
+}
+
+// The user replied "just write it" / "any" / "skip" → draft with an auto-angle, no more questions.
+function isSkipAnswer(answer = '') {
+  return !answer.trim() || /^(just write( it)?|any(thing)?|whatever|go|skip|none|no|surprise me|write it|you decide|up to you)\.?$/i.test(answer.trim())
+}
+
+// Fire the actual Koel write for an interactive single post, delivering to web + Telegram.
+function launchWrite({ format, input, inputType, count = 3, extraInstructions = '', broadcast, telegramSendDraft }) {
+  koel.write({ format, input, inputType, count, extraInstructions, broadcast, origin: 'koel', triggerLabel: '💬 Titto' })
+    .then(result => {
+      if (broadcast) broadcast({ type: 'koel_complete', data: result })
+      pushDraftsToTelegram(telegramSendDraft, result, `📝 ${result.drafts.length} draft(s) — tap to approve, reject, or edit:`)
+    })
+    .catch(err => {
+      console.error('[Titto] Koel write failed:', err.message)
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: 'Koel hit an error writing that post. Try again.' } })
+    })
+}
+
+async function handleMessage({ text, sessionId = 'default', broadcast = null, telegramSend = null, telegramSendDraft = null, telegramSendReplyTargets = null }) {
   const input = text.trim()
+
+  // Interview-first: if we asked a clarifying question and are waiting on this session, this message
+  // is the answer. A slash-command instead cancels the pending write and routes normally.
+  if (pendingWrite[sessionId]) {
+    if (input.startsWith('/')) {
+      delete pendingWrite[sessionId]
+    } else {
+      const pend = pendingWrite[sessionId]
+      delete pendingWrite[sessionId]
+      const skip = isSkipAnswer(input)
+      const extraInstructions = skip ? '' : `Angle / details Souvik wants in this post: ${input}`
+      const reply = skip
+        ? `Writing your ${pend.format} post now…`
+        : `Got it. Writing your ${pend.format} post with that angle…`
+      appendMessage(sessionId, 'user', input)
+      appendMessage(sessionId, 'assistant', reply)
+      launchWrite({ format: pend.format, input: pend.input, inputType: pend.inputType, count: pend.count, extraInstructions, broadcast, telegramSendDraft })
+      return { reply, action: 'koel_writing' }
+    }
+  }
 
   // Simple command routing — no LLM
   const commandFn = SIMPLE_COMMANDS[input.toLowerCase()]
@@ -341,6 +464,14 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
     return handleTriggerResearch(null, broadcast, telegramSend, filterSources)
   }
 
+  // /reply <url|text> — draft a reply to any post on demand. (Must come before /replies below.)
+  if (/^\/reply(?:\s|$)/i.test(input)) {
+    const result = await handleReplyDraft(input, broadcast, telegramSend, telegramSendDraft)
+    appendMessage(sessionId, 'user', input)
+    appendMessage(sessionId, 'assistant', result.reply)
+    return result
+  }
+
   // Reply targets — /replies [extra domains] · /replies domains ... · natural phrasing. No LLM.
   const replyMatch = input.match(/^\/replies(?:\s+([\s\S]+))?$/i)
   if (replyMatch || /reply targets|posts? to reply|tweets? to reply/i.test(input)) {
@@ -349,7 +480,7 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
     if (/^domains\b/i.test(args)) {
       result = handleReplyDomains(args.replace(/^domains\b\s*/i, ''))
     } else {
-      result = await handleReplyTargets(args, broadcast, telegramSend)
+      result = await handleReplyTargets(args, broadcast, telegramSend, telegramSendReplyTargets)
     }
     appendMessage(sessionId, 'user', input)
     appendMessage(sessionId, 'assistant', result.reply)
@@ -375,6 +506,14 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
   if (/^\/batch\b/i.test(input)) {
     const result = await handleBatch(broadcast, telegramSend, telegramSendDraft)
     appendMessage(sessionId, 'user', input)
+    appendMessage(sessionId, 'assistant', result.reply)
+    return result
+  }
+
+  // /perf <pasted tweets + stats> — ingest performance + refresh insights. Multi-line, no LLM parse.
+  if (/^\/perf\b/i.test(input)) {
+    const result = await handlePerf(input, broadcast)
+    appendMessage(sessionId, 'user', '/perf …')
     appendMessage(sessionId, 'assistant', result.reply)
     return result
   }
@@ -474,14 +613,19 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
   // ── write_post (specific topic Souvik named) ─────────────────────
   if (parsed.intent === 'write_post' && parsed.koelRequest) {
     const req = parsed.koelRequest
-    const confirmReply = parsed.reply + `\n\nAsking Koel to write a ${req.format} post now…`
-    koel.write({ ...req, broadcast, origin: 'koel', triggerLabel: '💬 Titto' }).then(result => {
-      if (broadcast) broadcast({ type: 'koel_complete', data: result })
-      pushDraftsToTelegram(telegramSendDraft, result, `📝 ${result.drafts.length} draft(s) — tap to approve, reject, or edit:`)
-    }).catch(err => {
-      console.error('[Titto] Koel write failed:', err.message)
-      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: 'Koel hit an error writing that post. Try again.' } })
-    })
+    const fmt = req.format || 'short'
+
+    // Interview-first: bare topic with no angle → ask 1–2 questions before drafting.
+    if (isThinWrite(req)) {
+      pendingWrite[sessionId] = { format: fmt, input: req.input, inputType: req.inputType || 'topic', count: req.count || 3, askedAt: Date.now() }
+      const q = `Quick — before I draft "${String(req.input).slice(0, 60)}":\n1. What's your angle or POV on it?\n2. Any specific example, number, or story to anchor it?\n\n(Or just say "just write it" and I'll run with my own angle.)`
+      appendMessage(sessionId, 'user', input)
+      appendMessage(sessionId, 'assistant', q)
+      return { reply: q, action: 'interview' }
+    }
+
+    const confirmReply = parsed.reply + `\n\nAsking Koel to write a ${fmt} post now…`
+    launchWrite({ format: fmt, input: req.input, inputType: req.inputType, count: req.count || 3, extraInstructions: req.extraInstructions || '', broadcast, telegramSendDraft })
     return { reply: confirmReply, action: 'koel_writing' }
   }
 
@@ -543,6 +687,15 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
       broadcast,
       origin: 'koel',
       triggerLabel: '💬 Titto',
+      // Run-level research provenance for the future ChitraG feedback loop. write_from_list can blend
+      // several items per draft (combined/multi_version), so we record the run + the items involved
+      // rather than a single source per draft.
+      meta: {
+        researchRunId: run.runId,
+        researchUrls: items.map(r => r.url).filter(Boolean),
+        researchSources: [...new Set(items.map(r => r.source).filter(Boolean))],
+        writingMode,
+      },
     }).then(result => {
       if (broadcast) broadcast({ type: 'koel_complete', data: result })
       pushDraftsToTelegram(telegramSendDraft, result, `📝 ${result.drafts.length} draft(s) from ${runLabel} — tap to approve/reject/edit:`)
@@ -571,4 +724,4 @@ async function deliverResearch(results, telegramFn = null, broadcast = null) {
   }
 }
 
-module.exports = { handleMessage, deliverResearch }
+module.exports = { handleMessage, deliverResearch, isThinWrite, isSkipAnswer }

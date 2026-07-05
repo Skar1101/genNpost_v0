@@ -10,6 +10,7 @@
 //   draft-queue      — the draft-lifecycle state machine (generated→queued/rejected/edited→posted→measured)
 const fs = require('fs')
 const accounts = require('./accounts')
+const insightsStore = require('./insightsStore')
 
 function readJSON(file, fallback) {
   try { if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8')) } catch (_) { /* ignore */ }
@@ -123,6 +124,7 @@ function loadContext(account, opts = {}) {
     approved: tail(approvedDrafts.read(a), opts.approvedN || 25),
     rejected: tail(rejectedDrafts.read(a), opts.rejectedN || 40),
     performance: tail(performanceLog.read(a), opts.perfN || 20),
+    insights: insightsStore.get(a),   // learned "what's working" (Phase 4); may be null
   }
 }
 

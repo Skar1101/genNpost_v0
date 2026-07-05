@@ -44,7 +44,9 @@ function listArchive() {
 }
 
 function readArchive(filename) {
-  const file = path.join(ARCHIVE_DIR, filename)
+  // Sanitize: strip any path components so a request can never escape ARCHIVE_DIR (e.g. ../../.env).
+  const safe = path.basename(String(filename || ''))
+  const file = path.join(ARCHIVE_DIR, safe)
   if (!fs.existsSync(file)) return null
   return JSON.parse(fs.readFileSync(file, 'utf8'))
 }

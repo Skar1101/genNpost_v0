@@ -349,6 +349,8 @@ async function findReplyTargets({ target = 30, domains = null, extraKeywords = n
     return {
       rank: i + 1,
       title: r.headline,
+      fullText: r.fullText || r.headline,   // full post — used to draft a reply on demand
+      author: r.author || r.publisher,
       url: r.url,
       source: 'twitter',
       publisher: r.publisher,

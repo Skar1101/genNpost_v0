@@ -67,6 +67,8 @@ async function fetchReplyTargets(queries, onProgress) {
         candidates.push({
           headline: (tweet.text || '').replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim().slice(0, 100),
           snippet: firstWords(tweet.text),
+          fullText: (tweet.text || '').trim(),            // full post — needed to draft a reply later
+          author: `@${tweet.screen_name}`,
           url: `https://x.com/${tweet.screen_name}/status/${tweet.tweet_id}`,
           publisher: `@${tweet.screen_name}`,
           impressions,

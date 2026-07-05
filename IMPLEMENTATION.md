@@ -25,9 +25,9 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | 1 | Framework backbone + account profile | ✅ done |
 | 2 | Feedback loop (approve/reject/edit) | ✅ done |
 | 3 | Learned voice + profile onboarding | 🟡 partial |
-| 4 | Weekly performance loop + tweet analysis | ⬜ next |
-| 5 | Craft upgrades (interview-first, reactive skeleton, thread rules) | ⬜ pending |
-| — | Security hardening | ⬜ pending |
+| 4 | Weekly performance loop + tweet analysis | ✅ done |
+| 5 | Craft upgrades (interview-first, reactive skeleton, thread rules) | ✅ done |
+| — | Security hardening | ✅ done |
 
 ---
 
@@ -109,25 +109,86 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 - [x] Verified: concurrency cap holds (peak ≤ limit), RPM overflow fails fast, token clamp 9000→cap, server
   boots clean. Provider split unchanged (legacy = direct OpenAI gpt-4o-mini; Article Writer = OpenRouter).
 
-## Phase 4 — Weekly performance loop + tweet analysis ⬜
-- [ ] Weekly Telegram reminder → paste top/bottom tweets + stats
-- [ ] Tweet-analysis: extract hook/format/voice patterns → write `performance-log` + update voice/profile
-- [ ] Feed performance patterns back into ChitraG ranking + Koel prompts ("write more like what landed")
-- [ ] `/learned` ("what's working") summary command
-- [ ] Keep ingest pluggable (manual now; RapidAPI own-account / X API later)
+## Reply engine ✅ (on-demand, draft-only, web + Telegram)
+- [x] **Keep the tweet text** — `tools/fetchReplyTargets.js` now retains `fullText` + `author` per candidate;
+  `agents/chitrag.js` `findReplyTargets` carries them into each row + the saved `replyTargetsStore` output.
+- [x] **Reply writer** — `prompts/koelReply.js` `buildReplyPrompt` (reply not standalone tweet; POV + one
+  supporting detail; ≤280; no em dashes; no filler openers) + `agents/koel.js` `draftReply()` (reuses
+  `write` so voice/guardrails apply; `origin:'reply'`; logs one `reply` activity entry; no Koel-panel jump).
+- [x] **No auto-drafting** — each reply target shows a **"💬 Draft reply"** action; a reply is written only
+  when tapped (one cheap Koel call per tapped reply).
+- [x] **Web** — `POST /api/replies/draft { url }`; Replies tab shows 💬 Draft reply on each qualifying row →
+  inline editable reply card with ✅ Approve / ❌ Reject / 📋 Copy + "Open post to reply ↗" (reuses the draft
+  lifecycle `/api/draft/:id/transition`).
+- [x] **Telegram** — `/replies` sends the top 8 targets as individual messages each with a **💬 Draft reply**
+  button (`rd|<idx>`); tapping drafts the reply and delivers it via `sendDrafts` with ✅/❌/✏️/📋.
+- [x] **`/reply <x.com URL | pasted text>`** (web + Telegram) — `handleReplyDraft` in `agents/titto.js`;
+  URL → best-effort `tools/fetchTweet.js` (RapidAPI `tweet.php?id=`), else pasted text → draft card.
+- [x] Hard stop intact — every reply is a draft Souvik sends himself; no X write path.
+- [x] Verified: `/api/replies/draft` → 200 draft; `/reply` acks + broadcasts draft + Telegram send; server
+  boots clean. **Needs from Souvik:** restart server + hard-refresh.
 
-## Phase 5 — Craft upgrades ⬜
-- [ ] Interview-first drafting: when input is thin, ask 1–2 targeted questions before drafting (auto-angle when rich)
-- [ ] Reactive skeleton baked into Koel: hook → insight → translation → POV
-- [ ] Hard formatting rules: no em dashes, breathing room, no corporate words, lowercase option
-- [ ] Stricter thread rules: each tweet standalone, ≤8–10 tweets, one CTA
+## Phase 4 — Weekly performance loop + tweet analysis ✅ (2026-07-04, verified)
+- [x] **`agents/analyst.js`** — the learning engine. Three jobs: (1) `computeSourceStats` — deterministic
+  per-source/per-topic **win-rates** joined from the draft queue's Phase-5 provenance meta (approved =
+  queued/edited/posted/measured, vs rejected); (2) `ingestPerformance` — LLM parses pasted tweets+stats into
+  structured rows, best-effort **matches them to posted drafts → `measured`** (else appends to
+  `performance-log`); (3) `analyze` — LLM reads performance + approved/rejected + win-rates → extracts
+  **what's working** (hooks/formats/topics) + **avoid** + research **focus/downweight**, saved to
+  `state/insightsStore.js`. All calls go through `utils/llmGuard`.
+- [x] **`/perf <pasted tweets + stats>`** (web + Telegram) — ingest this week's numbers, refresh insights,
+  reply with the updated summary. **`/learned`** — show what's landing + the research bias.
+- [x] **Koel writes toward what landed** — `loadContext` now includes `insights`; `buildContextBlock` injects a
+  **"WHAT IS WORKING"** section (hooks/formats/topics to lean into + avoid list) into every draft prompt.
+- [x] **ChitraG ranks toward what landed** — scheduled morning/evening runs pass `analyst.learnedInstructions()`
+  (`focus`/`downweight`) into the ranking prompt (`prompts/rankResults.js` already consumes them). Sources with
+  ≥4 decided drafts and <30% win-rate are auto-downweighted.
+- [x] **Weekly loop** — Sunday wrap now refreshes insights (`analyst.analyze`) and sends a Telegram **reminder**
+  to paste top/bottom tweets with `/perf` (`scheduler/cron.js`).
+- [x] Ingest stays **pluggable** — manual paste today; the same `ingestPerformance` rows accept a RapidAPI /
+  X-API feed later with no downstream change.
+- [x] Verified: source win-rate math (github 100% / reddit 0% → auto-downweight), `/learned` + `/perf` route
+  correctly (web + Telegram), insights inject into Koel context, server boots clean.
+- **Needs from Souvik:** after a week of posting, paste your top 3 + bottom 3 tweets with `/perf` so the loop
+  has real numbers. Restart server + hard-refresh.
 
-## Security hardening ⬜ (audited, fixes pending)
-- [ ] **#1** No auth + binds `0.0.0.0` → anyone on LAN can hit `/api/*` (read profile/drafts/memory/logs, trigger paid calls). Fix: bind `127.0.0.1` OR add a shared-secret token (decision pending: local-only vs other devices)
-- [ ] **#2** Path traversal in `GET /api/research/archive/:filename` (`readArchive` not sanitized) → `path.basename()` fix
-- [ ] **#3** `/api/logs/*` serves raw logs with no auth (gate behind #1's choice)
-- [ ] **#4** Telegram webhook has no secret-token check (only matters if you switch from polling to webhook)
+## Phase 5 — Craft upgrades ✅ (2026-07-04, verified)
+- [x] **Hard formatting rules (house style)** — new shared `prompts/styleRules.js` exports `HOUSE_STYLE_TEXT`
+  (no em/en dashes, breathing room, banned AI-slop/corporate words + filler reply openers) + `BANNED_PHRASES`
+  (now the single source; `prompts/quillArticle.js` imports it too). Injected into Koel's system prompt.
+  Backed by a deterministic `sanitize()` post-pass in `agents/koel.js` that strips em/en dashes (leaves numeric
+  ranges like 5–10 intact) and collapses blank-line runs — the safety net for what the LLM slips on.
+- [x] **Lowercase = opt-in** voice pref (`profile.voice.lowercase`); default off (`prompts/koelWrite.js`).
+- [x] **Reactive skeleton** — short + longform format guides now specify **hook → insight → translation → POV**
+  (unlabeled) and require the 3 drafts to take **distinct angles** (`prompts/koelWrite.js`).
+- [x] **Stricter thread rules** — tightened to **5–8 tweets**, hook promises a specific payoff, **every tweet
+  stands alone**, **exactly one CTA** in the last tweet. Light guard in `agents/koel.js` warns (doesn't fail)
+  if a thread returns >10 tweets.
+- [x] **Interview-first drafting** — a direct `write_post` with a **thin/bare topic** (no angle) makes Titto ask
+  **1–2 targeted questions** first (angle/POV? a concrete example or number?) instead of drafting blind. Rich
+  input (angle in extraInstructions, long brief, or a URL) drafts straight away. Pending state keyed by
+  `sessionId` → **works in web chat and Telegram**. Escape hatch: "just write it" / "you decide" / empty →
+  drafts with auto-angle. **Batch, reply, and article paths never ask** (stay autonomous). (`agents/titto.js`)
+- [x] Verified: house-style + sanitizer unit tests pass (dash punctuation replaced, `5–10` preserved, blanks
+  collapsed), format guides carry skeleton/thread rules, interview heuristics pass 9 cases, server boots clean.
+- **Needs from Souvik:** restart server + hard-refresh.
+
+## Security hardening ✅ (fixed 2026-07-04, verified)
+- [x] **#1** Server now **binds `127.0.0.1` by default** (env `HOST`; set `0.0.0.0` for server deploy) — nothing on the
+  LAN can reach `/api/*`. Plus an **optional shared-secret gate**: when `API_TOKEN` is set, every `/api/*` request must
+  carry it (`Authorization: Bearer`, `x-api-token`, or `?token=`); inert on localhost. (`server/index.js`)
+- [x] **#2** Path traversal fixed — `readArchive` now `path.basename()`-sanitizes the filename before joining
+  `ARCHIVE_DIR` (`state/researchStore.js`). Verified `../../.env` → null / HTTP 404, no leak.
+- [x] **#3** `/api/logs/*` now covered by the same token gate (+ log filenames were already `path.basename`-sanitized
+  in `utils/logger.js`).
+- [x] **#4** Telegram **webhook secret** — `setWebHook` registers `secret_token: TELEGRAM_WEBHOOK_SECRET`; the
+  `/telegram/webhook` handler rejects any POST whose `X-Telegram-Bot-Api-Secret-Token` header doesn't match (403).
+  Warns if unset. (`server/routes/telegram.js`)
 - [x] Secrets safe: `.env` never committed (only `.env.example`); keys in headers/params, not logged; `state/data`+`logs` gitignored
+- [x] **Verified** — 11 checks pass: traversal blocked (unit + HTTP), token gate (401 no/bad token, 200 Bearer/`?token=`),
+  logs gated, localhost bind serves, and default no-token localhost mode still open (no regression).
+- **For 24x7 server deploy:** set `HOST=0.0.0.0`, `API_TOKEN=<secret>`, and (if using webhook) `TELEGRAM_WEBHOOK_SECRET=<secret>`.
+  The browser dashboard will then need to send `API_TOKEN` on its `/api` fetches — small frontend wiring to add at deploy time.
 
 ---
 
@@ -138,11 +199,11 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | 🔄 Feedback Loop | ✅ | approve/reject(+reason)/edit → memory; never repeats rejected |
 | 📅 Daily Batch | ✅ | 6:45am Quill batch — 3 batches × 5 drafts, one-tap buttons |
 | 🔍 Trend Scouting | ✅ | ChitraG + I2C `/replies` + pillar angles (more automated than Sage) |
-| ⚡ Reactive Drafting | 🟡 | works; sharp hook→insight→translation→POV skeleton = Phase 5 |
-| 🧵 Thread Writing | 🟡 | basic format; strict standalone/no-em-dash rules = Phase 5 |
+| ⚡ Reactive Drafting | ✅ | hook→insight→translation→POV skeleton baked into short/longform (Phase 5) |
+| 🧵 Thread Writing | ✅ | 5–8 tweets, standalone, one CTA, no em dashes (Phase 5) |
 | 🎙 Voice Calibration | ✅ | best tweets calibrate on day one + learns from approved/edited over use (just needs your best tweets in the profile) |
-| ✍️ Tweet Drafting (interview-first) | ⬜ | Phase 5 |
-| 📊 Tweet Analysis | ⬜ | Phase 4 |
+| ✍️ Tweet Drafting (interview-first) | ✅ | thin topic → 1–2 questions first; rich input drafts straight (Phase 5) |
+| 📊 Tweet Analysis | ✅ | /perf ingest → win-rates + what's-working insights feed Koel + ChitraG (Phase 4) |
 
 ---
 
@@ -154,9 +215,10 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 - [ ] **Security decision:** do you access the dashboard only from this machine, or also other devices? (picks localhost-bind vs token auth)
 
 ## Key files
-- Agents: `agents/{titto,chitrag,quill,koel}.js`
+- Agents: `agents/{titto,chitrag,quill,koel,analyst}.js`
 - Memory/backbone: `state/{accounts,memory,profileSeed}.js`
-- Stores: `state/{researchStore,toolsStore,replyTargetsStore,koelStore,quillStore,schedulerStore}.js`
+- Stores: `state/{researchStore,toolsStore,replyTargetsStore,koelStore,quillStore,schedulerStore,insightsStore}.js`
+- Style/learning: `prompts/styleRules.js` (shared house style + ban list), `agents/analyst.js` (performance loop)
 - Tools: `tools/{fetchTwitter,fetchReddit,fetchArxiv,fetchGitHub,fetchHackerNews,fetchYouTube,fetchReplyTargets}.js`, `tools/sources.config.js`, `tools/replyDomains.config.js`
 - Prompts: `prompts/{koelWrite,rankResults,tittoReason,quillPlan,...}.js`
 - Server: `server/index.js`, `server/routes/{api,telegram}.js`, `scheduler/cron.js`

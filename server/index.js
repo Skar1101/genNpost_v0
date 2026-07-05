@@ -23,6 +23,20 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
 ws.init(server)
 app.locals.broadcast = ws.broadcast
 
+// Optional shared-secret auth for the API surface. Inert on localhost (no token needed);
+// set API_TOKEN in .env when deploying to a public server to lock down /api/*.
+// Token may be supplied as `Authorization: Bearer <t>`, `x-api-token: <t>`, or `?token=<t>`.
+const API_TOKEN = process.env.API_TOKEN || ''
+if (API_TOKEN) {
+  app.use('/api', (req, res, next) => {
+    const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+    const supplied = bearer || req.headers['x-api-token'] || req.query.token || ''
+    if (supplied === API_TOKEN) return next()
+    return res.status(401).json({ error: 'Unauthorized' })
+  })
+  console.log('   🔒 API token auth: ENABLED')
+}
+
 // Routes
 app.use('/api', apiRouter)
 
@@ -30,8 +44,10 @@ app.use('/api', apiRouter)
 const telegramResult = telegram.init(app, ws.broadcast)
 const telegramSend = telegramResult ? telegram.getSendFn() : null
 const telegramSendDraft = telegramResult ? telegram.getDraftSender() : null
+const telegramSendReplyTargets = telegramResult ? telegram.getReplyTargetSender() : null
 app.locals.telegramSend = telegramSend
 app.locals.telegramSendDraft = telegramSendDraft
+app.locals.telegramSendReplyTargets = telegramSendReplyTargets
 
 // Init scheduler
 initScheduler(ws.broadcast, telegramSend, telegramSendDraft)
@@ -43,8 +59,11 @@ app.get('*', (req, res) => {
 })
 
 const PORT = process.env.PORT || 3000
-server.listen(PORT, () => {
-  console.log(`\n🐦 TinySparrow running at http://localhost:${PORT}`)
+// Bind to localhost by default so nothing on the LAN can reach the API. When deploying to a
+// 24x7 server, set HOST=0.0.0.0 (and API_TOKEN) in .env to expose it safely.
+const HOST = process.env.HOST || '127.0.0.1'
+server.listen(PORT, HOST, () => {
+  console.log(`\n🐦 TinySparrow running at http://${HOST}:${PORT}`)
   console.log(`   Titto is online. ChitraG is standing by.`)
   console.log(`   Scheduled runs: 6:00 AM + 6:00 PM daily\n`)
 })

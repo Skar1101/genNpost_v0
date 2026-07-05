@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const { HOUSE_STYLE_TEXT } = require('./styleRules')
 
 const KOEL_DIR = path.join(__dirname, '..', 'sub-agents', 'koel')
 
@@ -32,7 +33,7 @@ function getKnowledge() {
 // ── Format descriptions shown in UI ──────────────────────────────────────────
 const FORMAT_META = {
   short:       { label: 'Short Form',         desc: 'Single tweet, punchy & direct, max 280 chars' },
-  thread:      { label: 'Thread',             desc: '5–10 tweet thread, numbered, story or how-to' },
+  thread:      { label: 'Thread',             desc: '5–8 tweet thread, numbered, standalone tweets, one CTA' },
   longform:    { label: 'Long Form',          desc: 'Single detailed post, 500–900 chars' },
   motivational:{ label: 'Motivational',       desc: 'Personal story or resilience post, emotional + universal' },
   engagement:  { label: 'Engagement Farming', desc: 'DM giveaway post with CTA keyword' },
@@ -62,6 +63,9 @@ ${k.engTemplates}
 ---
 ## VIRAL LONG-FORM TEMPLATE
 ${k.viralLongform}
+
+---
+${HOUSE_STYLE_TEXT}
 
 ---
 ## OUTPUT RULES (CRITICAL)
@@ -104,6 +108,8 @@ function buildContextBlock(ctx) {
     if (v.doRules && v.doRules.length) out.push('DO: ' + v.doRules.join(' · '))
     if (v.dontRules && v.dontRules.length) out.push("DON'T (hard rules, never violate): " + v.dontRules.join(' · '))
     if (p.restrictions && p.restrictions.length) out.push('Avoid: ' + p.restrictions.join(' · '))
+    // Opt-in lowercase voice — only when the profile explicitly sets it.
+    if (v.lowercase) out.push('CASE: write everything in lowercase (no capitalization at sentence starts or on proper nouns), for a casual all-lowercase voice.')
   }
   // Best tweets are the gold-standard voice reference — show them first and fuller than learned examples.
   const best = (p && p.bestTweets ? p.bestTweets : []).map(bestTweetText).filter(Boolean)
@@ -118,6 +124,15 @@ function buildContextBlock(ctx) {
   if (ctx.approved && ctx.approved.length) {
     out.push('\n=== RECENTLY APPROVED (what resonates — lean toward these patterns) ===')
     ctx.approved.slice(-6).forEach(e => out.push('- ' + oneLine(e.text)))
+  }
+  // Learned performance insights (Phase 4) — what actually landed with the audience.
+  const ins = ctx.insights
+  if (ins && (ins.workingHooks?.length || ins.workingTopics?.length || ins.avoid?.length)) {
+    out.push('\n=== WHAT IS WORKING (from real post performance — lean into these) ===')
+    if (ins.workingHooks?.length) out.push('Hooks that land: ' + ins.workingHooks.slice(0, 5).join(' · '))
+    if (ins.workingFormats?.length) out.push('Formats that land: ' + ins.workingFormats.slice(0, 4).join(' · '))
+    if (ins.workingTopics?.length) out.push('Topics that land: ' + ins.workingTopics.slice(0, 6).join(' · '))
+    if (ins.avoid?.length) out.push('AVOID (underperformed): ' + ins.avoid.slice(0, 6).join(' · '))
   }
   if (ctx.rejected && ctx.rejected.length) {
     out.push('\n=== REJECTED ANGLES — DO NOT REPEAT THESE (avoid the angle and its reason) ===')
@@ -137,11 +152,11 @@ function buildKoelUserPrompt({ format, input, inputType, count = 3, extraInstruc
 
   let formatGuide = ''
   if (format === 'short') {
-    formatGuide = 'Write 3 SHORT FORM tweets (single tweet each, max 280 chars). Hook in line 1. Punchy close or CTA at end.'
+    formatGuide = 'Write 3 SHORT FORM tweets (single tweet each, max 280 chars). Follow this skeleton (do NOT print the labels): hook (stop the scroll) → insight (the non-obvious point) → translation (what it means for the reader) → POV (Souvik\'s take). The 3 drafts must each take a DISTINCT angle — not three rewordings of the same idea.'
   } else if (format === 'thread') {
-    formatGuide = 'Write a THREAD. 6-10 tweets. Tweet 1 is the hook + promise. Number each: "Tweet 1/" "Tweet 2/" etc. Last tweet has CTA.'
+    formatGuide = 'Write a THREAD, 5-8 tweets max (fewer, sharper wins). Tweet 1 is a hook that promises a SPECIFIC payoff. Number each: "Tweet 1/" "Tweet 2/" etc. Every tweet must stand alone — it should make sense if read out of order or screenshotted by itself. Exactly ONE call-to-action, and only in the final tweet. No CTA mid-thread.'
   } else if (format === 'longform') {
-    formatGuide = 'Write 3 LONG FORM posts (single post, 400-900 chars each). Personal/build-in-public voice. Line breaks every 1-2 sentences.'
+    formatGuide = 'Write 3 LONG FORM posts (single post, 400-900 chars each). Personal/build-in-public voice. Follow this skeleton (do NOT print the labels): hook → insight → translation (what it means for the reader) → POV. Line breaks every 1-2 sentences. The 3 drafts must each take a DISTINCT angle.'
   } else if (format === 'motivational') {
     formatGuide = 'Write 3 MOTIVATIONAL posts. Ground each in Souvik\'s real story (transplant comeback, medals, building). Universal lesson at end. Emotional but not cringey.'
   } else if (format === 'engagement') {
