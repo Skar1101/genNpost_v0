@@ -45,12 +45,14 @@ const telegramResult = telegram.init(app, ws.broadcast)
 const telegramSend = telegramResult ? telegram.getSendFn() : null
 const telegramSendDraft = telegramResult ? telegram.getDraftSender() : null
 const telegramSendReplyTargets = telegramResult ? telegram.getReplyTargetSender() : null
+const telegramSendArticleIdeas = telegramResult ? telegram.getArticleIdeaSender() : null
 app.locals.telegramSend = telegramSend
 app.locals.telegramSendDraft = telegramSendDraft
 app.locals.telegramSendReplyTargets = telegramSendReplyTargets
+app.locals.telegramSendArticleIdeas = telegramSendArticleIdeas
 
 // Init scheduler
-initScheduler(ws.broadcast, telegramSend, telegramSendDraft)
+initScheduler(ws.broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas)
 
 // Catch-all → serve index.html (no-store so a new build is always picked up)
 app.get('*', (req, res) => {

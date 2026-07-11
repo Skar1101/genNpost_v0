@@ -12,6 +12,11 @@ const sessionsStore = require('../state/quillSessionsStore')
 const { buildPlanPrompt } = require('../prompts/quillPlan')
 const { buildRefinePrompt } = require('../prompts/quillRefine')
 const { buildArticlePrompt } = require('../prompts/quillArticle')
+const contentVolume = require('../config/contentVolume')
+const articleWriter = require('./articleWriter')
+const articlesStore = require('../state/articlesStore')
+const articleIdeasStore = require('../state/articleIdeasStore')
+const models = require('../config/models')
 const fs = require('fs')
 const path = require('path')
 const logger = require('../utils/logger')
@@ -66,23 +71,26 @@ async function assignTopics(researchResults) {
   const top = (researchResults || []).slice(0, 15)
   const topList = top.map((r, i) => `${i + 1}. [${r.source}] ${r.title}`).join('\n')
 
+  const n = contentVolume.posts.perSection   // items per section (configurable)
+  const example = k => `[${Array.from({ length: n }, (_, i) => `"${k} ${i + 1}"`).join(', ')}]`
+
   const prompt = `You are a content strategist for Souvik — Indian engineer, kidney transplant survivor, 5 medals for India, AI/SaaS builder.
 
 Today's top ranked content:
 ${topList}
 
-Assign topics for today's X posts. Return ONLY valid JSON — exactly 5 items in EACH of the 3 sections:
+Assign topics for today's X posts. Return ONLY valid JSON — exactly ${n} items in EACH of the 3 sections:
 
 {
-  "motivational": ["prompt 1", "prompt 2", "prompt 3", "prompt 4", "prompt 5"],
-  "domain": ["story 1", "story 2", "story 3", "story 4", "story 5"],
-  "trending": ["topic 1", "topic 2", "topic 3", "topic 4", "topic 5"]
+  "motivational": ${example('prompt')},
+  "domain": ${example('story')},
+  "trending": ${example('topic')}
 }
 
 Rules:
-- motivational: exactly 5 prompts, original freetext (NOT copied from list), philosophy/self-help/resilience angle
-- domain: exactly 5 items from the list, span DIFFERENT domains (AI, startup, dev, wellness) — no overlap with trending
-- trending: exactly 5 most time-sensitive/viral items, different from domain
+- motivational: exactly ${n} prompts, original freetext (NOT copied from list), philosophy/self-help/resilience angle
+- domain: exactly ${n} items from the list, span DIFFERENT domains (AI, startup, dev, wellness) — no overlap with trending
+- trending: exactly ${n} most time-sensitive/viral items, different from domain
 - Balance: domain and trending should NOT all be AI — include startup, tech, wellness, dev`
 
   const response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
@@ -128,16 +136,18 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
     assignments = await assignTopics(results)
   } catch (err) {
     log.error('Topic assignment failed — using fallback', err)
+    const n = contentVolume.posts.perSection
+    const motivationalPool = [
+      'What a kidney transplant taught me about urgency and not wasting time',
+      'Most people give up right before it gets good — how to tell the difference',
+      'Stoicism: control what you can, release what you cannot — in practice',
+      'High performance is unglamorous: the quiet accumulation of small daily acts',
+      'Constraint as a forcing function — why finite energy makes you ship',
+    ]
     assignments = {
-      motivational: [
-        'What a kidney transplant taught me about urgency and not wasting time',
-        'Most people give up right before it gets good — how to tell the difference',
-        'Stoicism: control what you can, release what you cannot — in practice',
-        'High performance is unglamorous: the quiet accumulation of small daily acts',
-        'Constraint as a forcing function — why finite energy makes you ship',
-      ],
-      domain: results.slice(0, 5).map(r => r.title),
-      trending: results.slice(5, 10).map(r => r.title),
+      motivational: motivationalPool.slice(0, n),
+      domain: results.slice(0, n).map(r => r.title),
+      trending: results.slice(n, n * 2).map(r => r.title),
     }
   }
 
@@ -218,6 +228,167 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
   log.info(`runDaily complete — ${allDrafts.length} drafts`)
   await tgSend(telegramSend, `✅ Done — ${allDrafts.length} drafts. Full posts in Quill tab.`)
   return output
+}
+
+// ── Value-add quote-reposts ─────────────────────────────────────────────────────
+// Picks the top viral X posts already in the latest research (no new search) and drafts a
+// value-add quote-repost comment for each. Draft-only; delivered to Telegram with action buttons.
+async function runReposts({ research = null, count = null, broadcast = null, telegramSend = null, telegramSendDraft = null, triggerLabel = '🖱 Manual' } = {}) {
+  const n = count || contentVolume.reposts.perDay
+  const results = (research && research.results) || (readLatest() && readLatest().results) || []
+  // Viral X posts from the research (twitter source), most engaged first.
+  const viral = results
+    .filter(r => r.source === 'twitter' && r.url)
+    .sort((a, b) => (b.engagement || 0) - (a.engagement || 0))
+    .slice(0, n)
+  if (!viral.length) {
+    await tgSend(telegramSend, '⚠️ No viral X posts in the latest research to repost. Run /research first.')
+    return { drafts: [], draftRecords: [] }
+  }
+
+  const batch = []
+  for (const item of viral) {
+    try {
+      const sourceText = `${item.title || ''}${item.snippet ? ' — ' + item.snippet : ''}`.trim()
+      const res = await koel.draftRepost({ sourceText, author: item.publisher || '', url: item.url, broadcast: null, triggerLabel })
+      const rec = res.draftRecords && res.draftRecords[0]
+      if (rec) batch.push({ id: rec.id, text: res.drafts[0], format: 'repost' })
+    } catch (err) { log.error('repost draft failed', err) }
+  }
+
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'repost', action: 'reposts', triggerLabel,
+    summary: `${batch.length} quote-repost drafts`, ref: { kind: 'koel' },
+  })
+  if (telegramSendDraft && batch.length) {
+    await telegramSendDraft(batch, { header: `🔁 Quote-reposts — ${batch.length} drafts (comment + link, ready to quote-tweet)` })
+  } else {
+    for (const d of batch) await tgSend(telegramSend, d.text)
+  }
+  if (broadcast) broadcast({ type: 'koel_complete', data: { format: 'repost', drafts: batch.map(b => b.text), draftRecords: batch.map(b => ({ id: b.id, text: b.text })) } })
+  log.info(`runReposts complete — ${batch.length} drafts`)
+  return { drafts: batch.map(b => b.text), draftRecords: batch.map(b => ({ id: b.id, text: b.text })) }
+}
+
+// ── Article idea picker → auto-write ────────────────────────────────────────────
+// Generate N article angles from the latest research (no new search), each tied to a source item so
+// the article can be written from the SAME run. Persists to articleIdeasStore; returns the ideas.
+async function suggestArticleIdeas({ research = null, count = null, broadcast = null } = {}) {
+  const n = count || contentVolume.articleIdeas.count
+  const results = (research && research.results) || (readLatest() && readLatest().results) || []
+  const runId = (research && research.runId) || (readLatest() && readLatest().runId) || null
+  if (!results.length) return []
+
+  const top = results.slice(0, 20)
+  const topList = top.map((r, i) => `${i + 1}. ${r.title} [${r.source}]`).join('\n')
+  const prompt = `Content strategist for Souvik — Indian engineer, transplant survivor, AI SaaS builder.
+
+Today's top stories (numbered):
+${topList}
+
+Suggest ${n} long-form article angles worth writing, each grounded in ONE of the stories above.
+Return ONLY JSON:
+[{ "title": "punchy article title", "angle": "one-line pitch", "sourceIndex": 3 }]  // sourceIndex = the story number`
+
+  let raw = []
+  try {
+    const r = await guard.runGuarded(() => getOpenAI().chat.completions.create(
+      { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 700 },
+      { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
+    ))
+    const txt = r.choices[0].message.content.trim()
+    const m = txt.match(/\[[\s\S]*\]/)
+    raw = JSON.parse(m ? m[0] : txt)
+  } catch (err) { log.error('suggestArticleIdeas failed', err); return [] }
+  if (!Array.isArray(raw)) return []
+
+  const ideas = raw.slice(0, n).map((x, i) => {
+    const src = top[(parseInt(x.sourceIndex) || 0) - 1] || null
+    return {
+      idx: i, title: String(x.title || '').trim() || 'Untitled', angle: String(x.angle || '').trim(),
+      url: src?.url || '', snippet: src?.snippet || '', source: src?.source || '',
+    }
+  }).filter(x => x.title)
+
+  articleIdeasStore.save(null, ideas, { researchRunId: runId })
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'quill', action: 'article_ideas', triggerLabel: '🖱 Ideas',
+    summary: `${ideas.length} article ideas`, ref: { kind: 'quill' },
+  })
+  return ideas
+}
+
+// Write the full article for a chosen idea, in the background, reusing the day's research (no new search).
+// Saves to articlesStore (versioned) and returns { id, title, words, cost }.
+async function writeArticleFromIdea({ idx, broadcast = null } = {}) {
+  const idea = articleIdeasStore.getIdea(null, idx)
+  if (!idea) throw new Error('article idea not found (list may have refreshed)')
+  const results = (readLatest() && readLatest().results) || []
+  const related = results.slice(0, 6)
+  // Make sure the idea's own source item is in the citation pool.
+  if (idea.url && !related.find(r => r.url === idea.url)) {
+    related.unshift({ title: idea.title, url: idea.url, snippet: idea.snippet, source: idea.source })
+  }
+  const topic = idea.angle ? `${idea.title} — ${idea.angle}` : idea.title
+  const modelId = models.articleDefaultModel()
+
+  const rec = articlesStore.create({ topic: idea.title, title: idea.title, text: '', model: modelId })
+  const result = await articleWriter.generate({ topic, model: modelId, relatedItems: related })
+  articlesStore.updateLatestVersion(rec.id, {
+    text: result.text, usage: result.usage, cost: result.cost, sources: result.sources,
+    model: result.modelId, title: result.title,
+  })
+  const words = (result.text || '').split(/\s+/).filter(Boolean).length
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'article', action: 'write', triggerLabel: '📱 Article (idea)',
+    summary: `${words} words · ${(result.sources || []).length} sources${result.cost != null ? ' · $' + result.cost.toFixed(4) : ''}`,
+    ref: { kind: 'article', id: rec.id },
+  })
+  if (broadcast) broadcast({ type: 'article_saved', data: { id: rec.id, title: result.title } })
+  log.info(`writeArticleFromIdea complete — "${result.title}" (${words} words), id ${rec.id}`)
+  return { id: rec.id, title: result.title, words, cost: result.cost }
+}
+
+// Write a full article for an arbitrary topic (a natural-language "write an article" request routed here
+// by Titto). Runs a targeted search on the topic (Souvik asked to "search + write"), saves to
+// articlesStore — so it shows in the Writer/Article section — and streams article_* events so the web
+// Writer renders it live. This is the ONLY article path for free-text requests; Koel is never used.
+// Returns { id, title, words, cost }.
+async function writeArticleFromTopic({ topic, extraInstructions = '', broadcast = null } = {}) {
+  const cleanTopic = String(topic || '').trim()
+  if (!cleanTopic) throw new Error('writeArticleFromTopic: topic required')
+  const angle = String(extraInstructions || '').trim()
+  const fullTopic = angle ? `${cleanTopic} — ${angle}` : cleanTopic
+  const modelId = models.articleDefaultModel()
+
+  const rec = articlesStore.create({ topic: cleanTopic, title: cleanTopic, text: '', model: modelId })
+  if (broadcast) broadcast({ type: 'article_start', data: { id: rec.id, title: cleanTopic, mode: 'generate' } })
+  try {
+    const result = await articleWriter.generate({
+      topic: fullTopic, model: modelId,
+      onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id: rec.id, delta } }) : null,
+    })
+    articlesStore.updateLatestVersion(rec.id, {
+      text: result.text, usage: result.usage, cost: result.cost, sources: result.sources,
+      model: result.modelId, title: result.title,
+    })
+    const words = (result.text || '').split(/\s+/).filter(Boolean).length
+    if (broadcast) broadcast({ type: 'article_done', data: {
+      id: rec.id, version: 1, title: result.title, text: result.text,
+      sources: result.sources, usage: result.usage, cost: result.cost, model: result.modelId,
+    } })
+    activityStore.recordAndBroadcast(broadcast, {
+      agent: 'article', action: 'write', triggerLabel: '💬 Article (topic)',
+      summary: `${words} words · ${(result.sources || []).length} sources${result.cost != null ? ' · $' + result.cost.toFixed(4) : ''}`,
+      ref: { kind: 'article', id: rec.id },
+    })
+    log.info(`writeArticleFromTopic complete — "${result.title}" (${words} words), id ${rec.id}`)
+    return { id: rec.id, title: result.title, words, cost: result.cost }
+  } catch (err) {
+    if (broadcast) broadcast({ type: 'article_error', data: { id: rec.id, message: err.message } })
+    log.error('writeArticleFromTopic failed', err)
+    throw err
+  }
 }
 
 // ── Weekly run ────────────────────────────────────────────────────────────────
@@ -543,4 +714,4 @@ async function quickWrite({ topic, format = 'medium', broadcast = null } = {}) {
   return result
 }
 
-module.exports = { runDaily, runWeekly, planSuggestions, draftFromSuggestion, refineDraft, quickWrite }
+module.exports = { runDaily, runReposts, suggestArticleIdeas, writeArticleFromIdea, writeArticleFromTopic, runWeekly, planSuggestions, draftFromSuggestion, refineDraft, quickWrite }

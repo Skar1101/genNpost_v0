@@ -114,19 +114,54 @@ async function fetchAllSources(broadcast, filterSources = null, searchQuery = nu
     log.info(`Dedup: ${allResults.length} raw → ${deduped.length} unique → ${newItems.length} new (${alreadySeenCount} already seen in past runs)`)
   }
 
-  // Balance: cap each source so no single source dominates the LLM input pool
   const MAX_PER_SOURCE = skipSeenFilter ? 20 : 6
-  const sourceBuckets = {}
-  const balanced = []
-  for (const item of newItems) {
-    const src = item.source || 'unknown'
-    if (!sourceBuckets[src]) sourceBuckets[src] = 0
-    if (sourceBuckets[src] < MAX_PER_SOURCE) {
-      balanced.push(item)
-      sourceBuckets[src]++
+  const sourceCounts = {}
+  const bump = src => { sourceCounts[src] = (sourceCounts[src] || 0) + 1 }
+  let balanced
+
+  if (skipSeenFilter) {
+    // Targeted run (specific source/query) — user asked for one topic; skip the 60/40 quota,
+    // just cap per source so no single one floods the pool.
+    balanced = []
+    for (const item of newItems) {
+      const src = item.source || 'unknown'
+      if ((sourceCounts[src] || 0) >= MAX_PER_SOURCE) continue
+      balanced.push(item); bump(src)
     }
+    log.info(`Balanced pool: ${balanced.length} items (targeted — ${MAX_PER_SOURCE}/source) from: ${JSON.stringify(sourceCounts)}`)
+  } else {
+    // Scheduled/manual full run — enforce Souvik's ~60% human / ~40% tech mix at the SUPPLY layer,
+    // so engagement-sorted AI can't bury discipline/meditation/self-dev/AI-for-humans items.
+    // Each item is tagged `topic` by its fetcher; anything untagged (HN/GitHub/arXiv) = 'tech'.
+    const POOL_SIZE = 20
+    const targets = { human: Math.round(POOL_SIZE * 0.6), tech: POOL_SIZE - Math.round(POOL_SIZE * 0.6) }
+    const bucketOf = it => (it.topic === 'human' ? 'human' : 'tech')
+    const bucketCount = { human: 0, tech: 0 }
+    balanced = []
+    const chosen = new Set()
+    // Human bucket first so it gets first claim on each source's budget; then tech.
+    for (const bucket of ['human', 'tech']) {
+      for (const item of newItems) {
+        if (bucketCount[bucket] >= targets[bucket]) break
+        if (bucketOf(item) !== bucket) continue
+        const src = item.source || 'unknown'
+        if ((sourceCounts[src] || 0) >= MAX_PER_SOURCE) continue
+        balanced.push(item); chosen.add(item.url); bump(src); bucketCount[bucket]++
+      }
+    }
+    // Backfill if a bucket ran thin — fill up to POOL_SIZE from leftovers (source cap only) so the
+    // drop never ships short.
+    if (balanced.length < POOL_SIZE) {
+      for (const item of newItems) {
+        if (balanced.length >= POOL_SIZE) break
+        if (chosen.has(item.url)) continue
+        const src = item.source || 'unknown'
+        if ((sourceCounts[src] || 0) >= MAX_PER_SOURCE) continue
+        balanced.push(item); chosen.add(item.url); bump(src)
+      }
+    }
+    log.info(`Balanced pool: ${balanced.length} items (${bucketCount.human} human / ${bucketCount.tech} tech, target ${targets.human}/${targets.tech}) from: ${JSON.stringify(sourceCounts)}`)
   }
-  log.info(`Balanced pool: ${balanced.length} items (capped at ${MAX_PER_SOURCE}/source) from: ${JSON.stringify(sourceBuckets)}`)
 
   return { raw: balanced, failed }
 }
@@ -263,6 +298,11 @@ async function run({ triggeredBy = 'user', triggerLabel = null, instructions = n
 
   const byCategory = groupByCategory(ranked)
 
+  // Raw items fetched per source (BEFORE ranking) — lets /health flag a source that silently returned 0
+  // even when it didn't throw (e.g. an API that started 400ing but the fetcher swallowed the error).
+  const sourceCounts = {}
+  for (const it of raw) { if (it.source) sourceCounts[it.source] = (sourceCounts[it.source] || 0) + 1 }
+
   const output = {
     runId,
     triggeredBy,
@@ -273,6 +313,7 @@ async function run({ triggeredBy = 'user', triggerLabel = null, instructions = n
     topN: topN || null,
     sourcesRun: filterSources ? filterSources : sourcesConfig.filter(s => s.enabled).map(s => s.id),
     sourcesFailed: failed,
+    sourceCounts,
     totalFetched: raw.length,
     results: ranked,
     byCategory,

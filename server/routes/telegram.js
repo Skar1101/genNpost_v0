@@ -2,11 +2,13 @@ const TelegramBot = require('node-telegram-bot-api')
 const titto = require('../../agents/titto')
 const memory = require('../../state/memory')
 const koel = require('../../agents/koel')
+const quill = require('../../agents/quill')
 const replyTargetsStore = require('../../state/replyTargetsStore')
 
 let bot = null
 let _sendDrafts = null
 let _sendReplyTargets = null
+let _sendArticleIdeas = null
 
 const REASONS = { hook: 'weak hook', voice: 'off-voice', topic: 'wrong topic', seen: 'seen before', other: 'other' }
 
@@ -79,6 +81,22 @@ function init(app, broadcast) {
   }
   _sendReplyTargets = sendReplyTargets
 
+  // Send the article-idea picker: one message + a row of number buttons (aw|<idx> writes that idea).
+  // ideas: [{ idx, title, angle }]
+  const sendArticleIdeas = async (ideas, opts = {}) => {
+    if (!chatId || !bot || !Array.isArray(ideas) || !ideas.length) return
+    const lines = ideas.map((x, i) => `${i + 1}. *${x.title}*\n_${x.angle || ''}_`).join('\n\n')
+    const buttons = ideas.map((x, i) => ({ text: `✍️ ${i + 1}`, callback_data: `aw|${x.idx != null ? x.idx : i}` }))
+    // Chunk buttons into rows of 5 (Telegram is happier with short rows).
+    const rows = []
+    for (let i = 0; i < buttons.length; i += 5) rows.push(buttons.slice(i, i + 5))
+    const header = opts.header || '📝 *Article ideas* — tap a number and I\'ll write the full article (ready in the Writer shortly):'
+    try {
+      await bot.sendMessage(chatId, `${header}\n\n${lines}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } })
+    } catch (e) { console.warn('[Telegram] sendArticleIdeas failed:', e.message) }
+  }
+  _sendArticleIdeas = sendArticleIdeas
+
   // Edit-reply flow state: when the user taps ✏️ Edit, the next plain message is the new text.
   const pendingEdit = {}
 
@@ -137,6 +155,7 @@ function init(app, broadcast) {
         telegramSend: sendToUser,
         telegramSendDraft: sendDrafts,
         telegramSendReplyTargets: sendReplyTargets,
+        telegramSendArticleIdeas: sendArticleIdeas,
       })
       if (result.reply) await sendToUser(result.reply)
     } catch (err) {
@@ -172,6 +191,21 @@ function init(app, broadcast) {
         } catch (e) {
           console.warn('[Telegram] reply draft failed:', e.message)
           await sendToUser('Reply draft failed. Check the logs.')
+        }
+        return
+      }
+
+      // ✍️ Write the full article for a chosen idea (aw|<idx>) — background, then ping when ready.
+      if (parts[0] === 'aw') {
+        const idx = parseInt(parts[1])
+        ack('✍️ Writing the article — I\'ll ping you when it\'s ready…')
+        try {
+          await sendToUser('✍️ Writing that article now… (~30–60s). I\'ll send it when ready.')
+          const out = await quill.writeArticleFromIdea({ idx, broadcast })
+          await sendToUser(`✅ Article ready: *${out.title}*\n${out.words} words${out.cost != null ? ` · $${out.cost.toFixed(4)}` : ''}\n\nOpen the *Writer* tab to review, edit, and export.`)
+        } catch (e) {
+          console.warn('[Telegram] article write failed:', e.message)
+          await sendToUser('Couldn\'t write that one — the idea list may have refreshed. Run /ideas again.')
         }
         return
       }
@@ -252,4 +286,9 @@ function getReplyTargetSender() {
   return _sendReplyTargets
 }
 
-module.exports = { init, getSendFn, getDraftSender, getReplyTargetSender }
+// Returns the article-idea sender (numbered tap-to-write buttons), or null if not configured.
+function getArticleIdeaSender() {
+  return _sendArticleIdeas
+}
+
+module.exports = { init, getSendFn, getDraftSender, getReplyTargetSender, getArticleIdeaSender }

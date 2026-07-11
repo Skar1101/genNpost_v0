@@ -5,7 +5,8 @@ function buildRankingPrompt(rawItems, instructions = {}) {
     const eng = item.engagement > 0 ? ` [eng:${item.engagement}]` : ''
     const pub = item.publisher ? ` [${item.publisher}]` : ''
     const cat = item.source ? ` [cat:${item.source}]` : ''
-    return `${i + 1}.${cat}${pub}${eng} "${item.title}"\n   Snippet: ${(item.snippet || '').slice(0, 120)}\n   URL: ${item.url}`
+    const top = ` [topic:${item.topic === 'human' ? 'human' : 'tech'}]`
+    return `${i + 1}.${cat}${top}${pub}${eng} "${item.title}"\n   Snippet: ${(item.snippet || '').slice(0, 120)}\n   URL: ${item.url}`
   }).join('\n\n')
 
   const focusNote = instructions.focus?.length
@@ -15,32 +16,28 @@ function buildRankingPrompt(rawItems, instructions = {}) {
   const excludeNote = instructions.exclude_topics?.length
     ? `\nEXCLUDE TOPICS: Remove any items about: ${instructions.exclude_topics.join(', ')}.` : ''
 
-  return `You are a content research assistant for a tech/AI creator on X (Twitter).
+  return `You are a content research assistant for a creator on X (Twitter) who blends SELF-DEVELOPMENT, AI-for-humans, and tech — his audience cares about discipline, meditation, self-growth, and how AI affects everyday human life as much as the latest models.
 
-Review these ${rawItems.length} items from multiple sources and return the TOP 20 most relevant items for a broad audience interested in tech, AI, AND personal growth.
+Review these ${rawItems.length} items from multiple sources and return the TOP 20 most relevant items.
 
 HARD EXCLUDE — never include:
 - Religion, sports, celebrity gossip, partisan politics
 ${excludeNote}
 
-SOURCE DIVERSITY REQUIRED:
-- You MUST include items from multiple different [cat:] categories
-- Do NOT pick only from one category (e.g. only twitter)
-- Aim for at least 3-4 different source categories in your final 20
-- If a category has strong items, include 3-5 from it; no single category should exceed 6 items
-- Include 2-3 wellness/productivity/self-help items if available (from reddit/twitter/youtube)
+CONTENT MIX TARGET — this is a HARD requirement, aim for ~60% human / ~40% tech:
+- ~12 items HUMAN (topic:human): discipline/habits, meditation/mindfulness, self-development, use of AI in personal/daily life, and how AI is impacting humans & society
+- ~8 items TECH (topic:tech): trending AI/tech news, tools, models, research
+- Use the [topic:] tag on each item to hit this split. Do NOT return a majority-tech list even if the tech items have higher engagement.
 
-CONTENT MIX TARGET:
-- ~12 items: AI, tech, startups, research, dev tools, GitHub
-- ~5 items: productivity, self-help, habits, personal growth
-- ~3 items: mindfulness, mental wellness, calming practices
+SOURCE DIVERSITY:
+- Include items from multiple different [cat:] categories (aim for 3-4+); no single [cat:] should exceed 6 items.
 
 RANKING CRITERIA:
 1. Timely — recent content preferred
 2. Surprising or counterintuitive
 3. Actionable — reader learns something or can do something
-4. AI/tech/startup OR self-improvement/productivity relevance
-5. High engagement (likes, upvotes, stars, views) signals resonance
+4. Self-development / AI-in-daily-life / AI's-impact-on-humans relevance (primary), OR AI/tech/startup relevance (secondary)
+5. High engagement (likes, upvotes, stars, views) signals resonance — but never let it override the 60/40 mix
 ${focusNote}
 ${downweightNote}
 
@@ -69,7 +66,7 @@ RETURN JSON ARRAY ONLY — no markdown, no explanation:
     "url": "exact url from the item — copy exactly, do not modify",
     "trendingScore": 85,
     "postPotential": "thread|long|short",
-    "why": "one line — why this matters for a tech/AI audience"
+    "why": "one line — why this matters for a self-development + AI-for-humans audience"
   }
 ]`
 }

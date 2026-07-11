@@ -49,6 +49,7 @@ async function fetchYouTube(config) {
           url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
           snippet: first20Words(snippet.description || snippet.title),
           source: 'youtube',
+          topic: channel.topic || 'tech',   // 'human' (self-dev/AI-for-humans) vs 'tech' — used by the 60/40 pool balancer
           publisher: channel.name,
           channelTier: channel.tier,
           publishedAt: snippet.publishedAt || new Date().toISOString(),

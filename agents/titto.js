@@ -10,6 +10,9 @@ const { buildIntentPrompt } = require('../prompts/tittoReason')
 const { matchDomain } = require('../tools/replyDomains.config')
 const fetchTweet = require('../tools/fetchTweet')
 const replyDomainsStore = require('../state/replyDomainsStore')
+const focusStore = require('../state/focusStore')
+const dailyDrop = require('../scheduler/dailyDrop')
+const schedulerStore = require('../state/schedulerStore')
 const memory = require('../state/memory')
 const { ensureProfile } = require('../state/profileSeed')
 
@@ -28,14 +31,61 @@ const SIMPLE_COMMANDS = {
   '/profile': handleProfile,
   '/queue': handleQueue,
   '/learned': handleLearned,
+  '/health': handleHealth,
   '/start': handleStart,
   '/help': handleStart,
+}
+
+// /health — surface silent failures at a glance: research freshness, failed sources, scheduler, keys.
+function handleHealth() {
+  const r = readLatest()
+  const today = dailyDrop.istToday()
+  const researchDay = r?.rankedAt ? dailyDrop.istDateOf(r.rankedAt) : null
+  const fresh = researchDay === today
+  const ran = (r?.sourcesRun || [])
+  const counts = r?.sourceCounts || {}
+  // A source is "dead" if it was enabled but fetched 0 raw items (or is in sourcesFailed).
+  const failedList = new Set(r?.sourcesFailed || [])
+  const dead = ran.filter(s => failedList.has(s) || !(counts[s] > 0))
+  const okSources = ran.filter(s => counts[s] > 0 && !failedList.has(s)).map(s => `${s}(${counts[s]})`)
+  const lastDrop = schedulerStore.getLastDrop()
+  const key = k => process.env[k] ? '✅' : '❌'
+
+  const lines = [
+    '🩺 *Health check*',
+    `Research: ${fresh ? '✅ today' : '⚠️ STALE (' + (researchDay || 'never') + ')'} · ${r?.results?.length || 0} items`,
+    `Sources OK: ${okSources.length ? okSources.join(', ') : '—'}${dead.length ? `\n⚠️ Sources DEAD (0 items): ${dead.join(', ')}` : ''}`,
+    `Scheduler: ${schedulerStore.isEnabled() ? 'ON' : 'OFF'} · drop today: ${lastDrop === today ? '✅ done' : (lastDrop || 'not yet')}`,
+    `Keys: OpenAI ${key('OPENAI_API_KEY')} · OpenRouter ${key('OPENROUTER_API_KEY')} · RapidAPI ${key('RAPIDAPI_KEY')} · Telegram ${key('TELEGRAM_BOT_TOKEN')}`,
+  ]
+  if (!fresh) lines.push('\n→ Run `/drop` (fetches fresh research) or `/research` to update.')
+  return { reply: lines.join('\n'), action: null }
 }
 
 // /learned — show the learned "what's working" summary (Phase 4 performance loop)
 function handleLearned() {
   const acct = memory.accounts.getActiveAccount()
   return { reply: analyst.formatLearnedSummary(acct), action: null }
+}
+
+// /focus [topics | off] — set/clear the research focus override ("area of interest until I say otherwise").
+function handleFocus(rawInput) {
+  const acct = memory.accounts.getActiveAccount()
+  const arg = rawInput.replace(/^\/focus\b\s*/i, '').trim()
+  if (!arg) {
+    const override = focusStore.get(acct)
+    const body = override
+      ? `🎯 Focus override: *${override.join(', ')}*\nClear it with /focus off to revert to your profile niche.`
+      : `🎯 No override — using your profile niche: *${(analyst.profileFocus(acct) || []).join(', ') || '(none set)'}*\nSet one with /focus <topics> (e.g. /focus ai agents, rag, evals).`
+    return { reply: body, action: null }
+  }
+  if (/^(off|clear|reset|none)$/i.test(arg)) {
+    focusStore.clear(acct)
+    return { reply: `🎯 Focus override cleared. Back to your profile niche: *${(analyst.profileFocus(acct) || []).join(', ')}*.`, action: null }
+  }
+  const topics = arg.split(/[,\n]|\s{2,}/).map(t => t.trim()).filter(Boolean)
+  const saved = focusStore.set(acct, topics.length ? topics : [arg])
+  return { reply: `🎯 Focus set to: *${saved.join(', ')}*.\nResearch, reposts, and article ideas will bias here until you say /focus off.`, action: null }
 }
 
 // /perf <pasted tweets + stats> — ingest this week's performance, refresh insights, report back.
@@ -105,7 +155,7 @@ function handleQueue() {
 
 function handleStart() {
   return {
-    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust ChitraG's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C); tap 💬 Draft reply on any\n/reply <x.com link or pasted tweet> — draft a reply to any post in your voice\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/batch — generate today's batch now (15 drafts)\n/article <topic> — draft a professional article in the Writer tab (streams live)\n/profile — your creator profile + what's still needed\n/queue — drafts you've approved & what's pending\n/perf <pasted tweets + stats> — log this week's post performance so I learn what's working\n/learned — what's landing (hooks, formats, topics) + research bias\n/latest — show today's research results\n/status — system status\n\nOr just talk to me normally.`,
+    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust ChitraG's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C); tap 💬 Draft reply on any\n/reply <x.com link or pasted tweet> — draft a reply to any post in your voice\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/batch — generate today's batch now\n/drop — run the full daily drop now (posts + reposts + article ideas)\n/reposts — draft value-add quote-reposts of today's viral posts\n/ideas — get article ideas to tap-and-write (auto-written in the background)\n/article <topic> — draft a professional article in the Writer tab (streams live)\n/focus <topics | off> — bias research to specific topics until you clear it\n/profile — your creator profile + what's still needed\n/queue — drafts you've approved & what's pending\n/perf <pasted tweets + stats> — log this week's post performance so I learn what's working\n/learned — what's landing (hooks, formats, topics) + research bias\n/latest — show today's research results\n/status — system status\n/health — quick check: research freshness, failed sources, keys, scheduler\n\nOr just talk to me normally.`,
     action: null,
   }
 }
@@ -266,9 +316,110 @@ async function handleReplyDraft(rawInput, broadcast, telegramSend, telegramSendD
   return { reply: 'On it — drafting a reply…', action: 'reply_started' }
 }
 
-// ── /batch — on-demand daily batch (3 batches × 5 drafts) ────────────────────
+// ── /drop — run the full daily drop now (posts + reposts + article ideas) ─────────────────────
+async function handleDrop(broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas) {
+  const reply = `On it — running today's full drop now (posts + reposts + article ideas)…`
+  ;(async () => {
+    try {
+      const res = await dailyDrop.runDailyDrop({ broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, triggerLabel: '💬 /drop' })
+      const msg = res.ok
+        ? '✅ Daily drop delivered — check Telegram and the dashboard.'
+        : 'No research yet — run /research first, then /drop.'
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
+    } catch (err) {
+      console.error('[Titto] /drop failed:', err.message)
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: 'Drop hit an error. Check the logs.' } })
+      if (telegramSend) telegramSend('Drop hit an error. Check the logs.')
+    }
+  })()
+  return { reply, action: 'drop_started' }
+}
+
+// ── /reposts — on-demand value-add quote-reposts of viral posts from today's research ─────────
+async function handleReposts(broadcast, telegramSend, telegramSendDraft) {
+  const reply = `On it — drafting quote-reposts of the top viral posts from today's research. They'll arrive with approve/reject/edit/copy shortly.`
+  ;(async () => {
+    try {
+      const research = readLatest()
+      if (!research?.results?.length) {
+        const msg = 'No research yet — run /research first, then /reposts.'
+        if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
+        if (telegramSend) await telegramSend(msg)
+        return
+      }
+      const out = await quill.runReposts({ research, broadcast, telegramSend, telegramSendDraft, triggerLabel: '💬 /reposts' })
+      const n = out?.draftRecords?.length ?? 0
+      const done = `✅ ${n} quote-repost draft${n === 1 ? '' : 's'} ready — approve/edit and quote-tweet manually.`
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: done } })
+    } catch (err) {
+      console.error('[Titto] /reposts failed:', err.message)
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: 'Reposts hit an error. Check the logs.' } })
+      if (telegramSend) telegramSend('Reposts hit an error. Check the logs.')
+    }
+  })()
+  return { reply, action: 'reposts_started' }
+}
+
+// ── /ideas — offer 3–5 article ideas from today's research; tap one to auto-write ─────────────
+async function handleIdeas(broadcast, telegramSend, telegramSendArticleIdeas) {
+  const reply = `On it — pulling article ideas from today's research…`
+  ;(async () => {
+    try {
+      const research = readLatest()
+      if (!research?.results?.length) {
+        const msg = 'No research yet — run /research first, then /ideas.'
+        if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
+        if (telegramSend) await telegramSend(msg)
+        return
+      }
+      const ideas = await quill.suggestArticleIdeas({ research, broadcast })
+      if (!ideas.length) {
+        const msg = "Couldn't shape article ideas from the latest research. Try /research, then /ideas."
+        if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
+        if (telegramSend) await telegramSend(msg)
+        return
+      }
+      // Web: show the list + tap targets in chat (buttons live in the dashboard's ideas UI / broadcast).
+      if (broadcast) broadcast({ type: 'article_ideas', data: { ideas } })
+      const listText = ideas.map((x, i) => `${i + 1}. ${x.title}${x.angle ? ' — ' + x.angle : ''}`).join('\n')
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: `📝 Article ideas (tap a number in Telegram, or use the Writer):\n\n${listText}` } })
+      // Telegram: numbered tap-to-write buttons.
+      if (telegramSendArticleIdeas) await telegramSendArticleIdeas(ideas)
+      else if (telegramSend) await telegramSend(`📝 Article ideas:\n\n${listText}\n\n(Open the dashboard to write one.)`)
+    } catch (err) {
+      console.error('[Titto] /ideas failed:', err.message)
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: 'Article ideas hit an error. Check the logs.' } })
+      if (telegramSend) telegramSend('Article ideas hit an error. Check the logs.')
+    }
+  })()
+  return { reply, action: 'ideas_started' }
+}
+
+// ── write_article — natural-language "write an article" → the Article Writer (never Koel) ─────
+// Writes in the background via the Article Writer, saves to articlesStore (Writer/Article section),
+// and confirms to chat + Telegram. Works on both surfaces; the web Writer streams it live.
+async function handleWriteArticle(topic, extraInstructions, broadcast, telegramSend) {
+  const reply = `On it — writing a full article on "${String(topic).slice(0, 60)}" in the Writer. I'll confirm when it's ready (~30–60s).`
+  ;(async () => {
+    try {
+      if (telegramSend) await telegramSend('✍️ Writing that article now… (~30–60s). I\'ll send it when ready.')
+      const out = await quill.writeArticleFromTopic({ topic, extraInstructions: extraInstructions || '', broadcast })
+      const done = `✅ Article ready: *${out.title}* — ${out.words} words${out.cost != null ? ` · $${out.cost.toFixed(4)}` : ''}.\nOpen the *Writer* tab to review, edit, and export.`
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: done } })
+      if (telegramSend) await telegramSend(done)
+    } catch (err) {
+      console.error('[Titto] write_article failed:', err.message)
+      const msg = 'Article write hit an error. Check the logs and try again.'
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
+      if (telegramSend) telegramSend(msg)
+    }
+  })()
+  return { reply, action: 'article_writing' }
+}
+
+// ── /batch — on-demand daily batch (3 buckets × N drafts) ────────────────────
 async function handleBatch(broadcast, telegramSend, telegramSendDraft) {
-  const reply = `On it — generating today's batch (3 batches × 5 = 15 drafts). They'll arrive with the approve/reject/edit buttons shortly.`
+  const reply = `On it — generating today's batch. They'll arrive with the approve/reject/edit buttons shortly.`
   ;(async () => {
     try {
       let research = readLatest()
@@ -424,7 +575,7 @@ function launchWrite({ format, input, inputType, count = 3, extraInstructions = 
     })
 }
 
-async function handleMessage({ text, sessionId = 'default', broadcast = null, telegramSend = null, telegramSendDraft = null, telegramSendReplyTargets = null }) {
+async function handleMessage({ text, sessionId = 'default', broadcast = null, telegramSend = null, telegramSendDraft = null, telegramSendReplyTargets = null, telegramSendArticleIdeas = null }) {
   const input = text.trim()
 
   // Interview-first: if we asked a clarifying question and are waiting on this session, this message
@@ -505,6 +656,38 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
   // /batch — generate today's batch on demand (3×5 drafts). No LLM intent parsing.
   if (/^\/batch\b/i.test(input)) {
     const result = await handleBatch(broadcast, telegramSend, telegramSendDraft)
+    appendMessage(sessionId, 'user', input)
+    appendMessage(sessionId, 'assistant', result.reply)
+    return result
+  }
+
+  // /focus [topics | off] — set/clear the research focus override. No LLM.
+  if (/^\/focus\b/i.test(input)) {
+    const result = handleFocus(input)
+    appendMessage(sessionId, 'user', input)
+    appendMessage(sessionId, 'assistant', result.reply)
+    return result
+  }
+
+  // /drop — run the full daily drop (posts + reposts + ideas) on demand. No LLM parse.
+  if (/^\/drop\b/i.test(input)) {
+    const result = await handleDrop(broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas)
+    appendMessage(sessionId, 'user', input)
+    appendMessage(sessionId, 'assistant', result.reply)
+    return result
+  }
+
+  // /reposts — on-demand quote-repost drafts from the latest research. No LLM parse.
+  if (/^\/reposts\b/i.test(input)) {
+    const result = await handleReposts(broadcast, telegramSend, telegramSendDraft)
+    appendMessage(sessionId, 'user', input)
+    appendMessage(sessionId, 'assistant', result.reply)
+    return result
+  }
+
+  // /ideas — offer article ideas to tap-and-write. No LLM parse.
+  if (/^\/ideas\b/i.test(input)) {
+    const result = await handleIdeas(broadcast, telegramSend, telegramSendArticleIdeas)
     appendMessage(sessionId, 'user', input)
     appendMessage(sessionId, 'assistant', result.reply)
     return result
@@ -608,6 +791,14 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
   // ── show_latest ──────────────────────────────────────────────────
   if (parsed.intent === 'show_latest') {
     return handleLatest()
+  }
+
+  // ── write_article (long-form article → Article Writer, NEVER Koel) ─
+  if (parsed.intent === 'write_article') {
+    const req = parsed.articleRequest || {}
+    const topic = String(req.topic || input).trim()
+    if (!topic) return { reply: 'Give me a topic for the article — e.g. "write an article about AI agents in daily work".', action: null }
+    return handleWriteArticle(topic, req.extraInstructions || '', broadcast, telegramSend)
   }
 
   // ── write_post (specific topic Souvik named) ─────────────────────

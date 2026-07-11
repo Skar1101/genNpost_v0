@@ -70,9 +70,9 @@ router.post('/research/trigger', async (req, res) => {
 router.post('/chat', async (req, res) => {
   const { message, sessionId = 'web-default' } = req.body
   if (!message) return res.status(400).json({ error: 'message required' })
-  const { broadcast, telegramSend, telegramSendDraft, telegramSendReplyTargets } = req.app.locals
+  const { broadcast, telegramSend, telegramSendDraft, telegramSendReplyTargets, telegramSendArticleIdeas } = req.app.locals
   try {
-    const result = await titto.handleMessage({ text: message, sessionId, source: 'web', broadcast, telegramSend, telegramSendDraft, telegramSendReplyTargets })
+    const result = await titto.handleMessage({ text: message, sessionId, source: 'web', broadcast, telegramSend, telegramSendDraft, telegramSendReplyTargets, telegramSendArticleIdeas })
     res.json({ reply: result.reply, action: result.action, data: result.data || null })
   } catch (err) {
     logger.error('[API] Chat error', err)

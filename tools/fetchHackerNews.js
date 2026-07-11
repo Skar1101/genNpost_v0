@@ -24,13 +24,17 @@ async function fetchHackerNews(config) {
     try {
       logger.info(`Querying: "${query}"`)
       const res = await axios.get(url, {
-        params: { query, tags: 'story', hitsPerPage: searchQuery ? 20 : 8, numericFilters: `points>5,created_at_i>${effectiveCutoff}` },
+        // NOTE: HN Algolia no longer allows `points` in numericFilters (returns 400 —
+        // "invalid numeric attribute(points)"). Keep the server-side recency filter only and
+        // filter by points client-side below.
+        params: { query, tags: 'story', hitsPerPage: searchQuery ? 20 : 15, numericFilters: `created_at_i>${effectiveCutoff}` },
         timeout: 8000,
       })
 
       let added = 0
       for (const hit of res.data.hits) {
         if (seen.has(hit.objectID)) continue
+        if ((hit.points || 0) < 5) continue   // client-side quality floor (was server-side points>5)
         seen.add(hit.objectID)
         added++
         results.push({

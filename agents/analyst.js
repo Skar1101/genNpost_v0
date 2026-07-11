@@ -2,6 +2,7 @@ require('dotenv').config()
 const OpenAI = require('openai')
 const memory = require('../state/memory')
 const insightsStore = require('../state/insightsStore')
+const focusStore = require('../state/focusStore')
 const activityStore = require('../state/activityStore')
 const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
@@ -193,6 +194,40 @@ function learnedInstructions(account) {
   return { focus, downweight }
 }
 
+// Standing human-angle focus so research reinforces the ~60% human / 40% tech mix instead of
+// re-tilting to pure AI. Matches the buckets in chitrag's pool balancer + the ranking prompt.
+const STANDING_HUMAN_FOCUS = [
+  'discipline', 'habits', 'meditation', 'mindfulness', 'self-development',
+  'AI in daily life', 'how AI is impacting humans',
+]
+
+// Default research focus from the creator profile: pillar labels (the area of interest) plus the
+// standing human-angle terms above.
+function profileFocus(account) {
+  const p = memory.getProfile(account) || {}
+  const pillars = (p.pillars || [])
+    .map(pl => (typeof pl === 'string' ? pl : (pl.label || pl.name || pl.title)))
+    .map(s => String(s || '').trim())
+    .filter(Boolean)
+  return [...new Set([...STANDING_HUMAN_FOCUS, ...pillars])]
+}
+
+// The effective ChitraG instructions for scheduled/automated runs:
+//   focus = manual /focus override if set, else profile niche + learned focus
+//   downweight = learned downweight (always)
+// Keeps "all data in my area of interest, until I specify otherwise".
+function researchInstructions(account) {
+  const acct = account || memory.accounts.getActiveAccount()
+  const override = focusStore.get(acct)
+  const learned = insightsStore.get(acct) || {}
+  const focus = override && override.length
+    ? override
+    : [...new Set([...profileFocus(acct), ...((learned.focus) || [])])]
+  const downweight = learned.downweight || []
+  if (!focus.length && !downweight.length) return null
+  return { focus, downweight, source: override && override.length ? 'override' : 'profile+learned' }
+}
+
 // Text summary for the /learned command (web + Telegram).
 function formatLearnedSummary(account) {
   const ins = insightsStore.get(account)
@@ -210,4 +245,4 @@ function formatLearnedSummary(account) {
   return lines.join('\n')
 }
 
-module.exports = { computeSourceStats, ingestPerformance, analyze, getInsights, learnedInstructions, formatLearnedSummary }
+module.exports = { computeSourceStats, ingestPerformance, analyze, getInsights, learnedInstructions, researchInstructions, profileFocus, formatLearnedSummary }

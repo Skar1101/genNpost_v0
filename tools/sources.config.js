@@ -33,8 +33,10 @@ module.exports = [
     fetcher: './fetchReddit',
     maxResults: 25,
     requiresKey: false,           // works via public .json fallback; auto-uses OAuth if creds set
-    // Pruned to high-signal subs (was 12). OAuth (REDDIT_CLIENT_ID/SECRET) recommended for reliability.
-    subreddits: ['artificial', 'MachineLearning', 'LocalLLaMA', 'OpenAI', 'startups', 'SaaS'],
+    // Balanced ~60% human / ~40% tech to match Souvik's audience (self-dev + AI-for-humans, not pure AI).
+    // human: discipline/meditation/self-dev + AI-impact-on-humans; tech: trending AI. See fetchReddit SUB_TOPIC.
+    // OAuth (REDDIT_CLIENT_ID/SECRET) recommended for reliability.
+    subreddits: ['getdisciplined', 'Meditation', 'selfimprovement', 'productivity', 'Stoicism', 'Futurology', 'artificial', 'LocalLLaMA', 'OpenAI'],
   },
   {
     id: 'github',
@@ -64,7 +66,7 @@ module.exports = [
       { name: 'Nick Saraev',   id: 'UCbo-KbSjJDG6JWQ_MTZ_rNA', tier: 1 },
       { name: 'Corbin AI',     id: 'UCJFMlSxcvlZg5yZUYJT0Pug', tier: 1 },
       { name: 'David Shapiro', id: 'UCvKRFNawVcuz4b9ihUTApCg', tier: 1 },
-      { name: 'Ethan Mollick', id: 'UCg7krw0aYBb3uD7x0PQD9Fg', tier: 1 },
+      { name: 'Ethan Mollick', id: 'UCg7krw0aYBb3uD7x0PQD9Fg', tier: 1, topic: 'human' }, // AI's impact on how humans work
       // Tier 2 (verified)
       { name: 'Andrej Karpathy',  id: 'UCXUPKJO5MZQN11PqgIvyuvQ', tier: 2 },
       { name: 'Fireship',         id: 'UCsBjURrPoezykLs9EqgamOA', tier: 2 },
@@ -73,11 +75,11 @@ module.exports = [
       { name: 'The AI Advantage', id: 'UCHhYXsLBEVVnbvsq57n1MTQ', tier: 2 },
       { name: 'Wes Roth',         id: 'UCqcbQf6yw5KzRoDDcZ_wBSw', tier: 2 },
       { name: 'Jeff Su',          id: 'UCwAnu01qlnVg1Ai2AbtTMaA', tier: 2 },
-      // Productivity & Wellness
-      { name: 'Ali Abdaal',       id: 'UCoOae5nYA7VqaXzerajD0lg', tier: 2 },
-      { name: 'Thomas Frank',     id: 'UCG-KntY7aVnIGXYEBQvmBAQ', tier: 2 },
-      { name: 'Andrew Huberman',  id: 'UC2D2CMWXMOVWx7giW1n3LIg', tier: 2 },
-      { name: 'Jay Shetty',       id: 'UCwk49IO9EWa4NeO5HVwEMpg',  tier: 2 },
+      // Productivity & Wellness — the HUMAN bucket (discipline, self-dev, meditation)
+      { name: 'Ali Abdaal',       id: 'UCoOae5nYA7VqaXzerajD0lg', tier: 1, topic: 'human' },
+      { name: 'Thomas Frank',     id: 'UCG-KntY7aVnIGXYEBQvmBAQ', tier: 2, topic: 'human' },
+      { name: 'Andrew Huberman',  id: 'UC2D2CMWXMOVWx7giW1n3LIg', tier: 1, topic: 'human' },
+      { name: 'Jay Shetty',       id: 'UCwk49IO9EWa4NeO5HVwEMpg',  tier: 2, topic: 'human' },
     ],
   },
   {

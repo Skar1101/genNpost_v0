@@ -2,6 +2,7 @@ require('dotenv').config()
 const OpenAI = require('openai')
 const { buildKoelSystemPrompt, buildKoelUserPrompt, buildContextBlock, reloadKnowledge } = require('../prompts/koelWrite')
 const { buildReplyPrompt } = require('../prompts/koelReply')
+const { buildRepostPrompt } = require('../prompts/koelRepost')
 const { sanitize } = require('../prompts/styleRules')
 const { appendEntry } = require('../state/koelStore')
 const activityStore = require('../state/activityStore')
@@ -132,7 +133,7 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
   // Log direct writes only — Quill's per-draft batch calls (origin 'quill') are covered by the
   // single daily_batch/weekly entry, so they're skipped here to avoid flooding the activity feed.
   // 'quill' (batch) and 'reply' record their own single activity entry in their caller — skip here.
-  if (origin !== 'quill' && origin !== 'reply') {
+  if (origin !== 'quill' && origin !== 'reply' && origin !== 'repost') {
     activityStore.recordAndBroadcast(broadcast, {
       agent: 'koel', action: 'write', triggerLabel,
       summary: `${drafts.length} ${format} draft${drafts.length === 1 ? '' : 's'}`,
@@ -163,4 +164,35 @@ async function draftReply({ sourceText, author = '', extra = '', account = null,
   return result
 }
 
-module.exports = { write, reload, draftReply }
+// Draft the value-add COMMENT for a quote-repost of a viral post (draft-only). Mirrors draftReply:
+// reuses write() so voice/profile/guardrails apply. Returns the same shape (drafts + draftRecords).
+async function draftRepost({ sourceText, author = '', url = '', extra = '', account = null, broadcast = null, register = true, triggerLabel = '🔁 Repost' } = {}) {
+  if (!sourceText?.trim()) throw new Error('draftRepost needs the source post text')
+  const acct = account || memory.accounts.getActiveAccount()
+  const extraInstructions = buildRepostPrompt({ sourceText, author, extra })
+  // Generate the comment only (register:false); we compose the final quote-tweet ourselves.
+  const inner = await write({
+    format: 'short',
+    input: `(Quote-repost brief + the viral post are in the instructions above. Write Souvik's value-add comment.)`,
+    inputType: 'freetext', count: 1, extraInstructions,
+    origin: 'repost', account: acct, broadcast: null, register: false,
+    meta: { kind: 'repost', sourceAuthor: author, sourceUrl: url },
+    triggerLabel,
+  })
+  const comment = (inner.drafts[0] || '').trim()
+  // The complete, ready-to-post quote-tweet = comment + the post URL (X embeds the quoted tweet).
+  const finalText = url ? `${comment}\n\n${url}` : comment
+  let draftRecords = []
+  if (register) {
+    const rec = memory.addDraft(acct, { text: finalText, format: 'short', origin: 'repost', meta: { kind: 'repost', sourceAuthor: author, sourceUrl: url } })
+    draftRecords = [{ id: rec.id, text: finalText }]
+  }
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'repost', action: 'repost', triggerLabel,
+    summary: `repost drafted${author ? ' → ' + author : ''}`,
+    ref: { kind: 'koel' },
+  })
+  return { format: 'repost', inputType: 'freetext', account: acct, drafts: [finalText], draftRecords, generatedAt: new Date().toISOString() }
+}
+
+module.exports = { write, reload, draftReply, draftRepost }

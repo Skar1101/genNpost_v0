@@ -62,6 +62,56 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 - [ ] (Deferred) Dedicated profile-editor panel in the web dashboard (API already supports it)
 - [ ] (Optional) Periodic "distill voice-examples → compact voice prompt" step
 
+## Telegram content automation — lean daily drop (2026-07-06, verified)
+Goal: cut time on X. Replies automation stays web-only. **All automation reuses the ONE scheduled daily
+research run — no ad-hoc searches; fresh search is manual via Quill.** Everything draft-only (hard stop intact).
+- [x] **Schedule moved to afternoon** — research **3:00 PM IST** (`30 9 * * *`), daily drop **3:45 PM IST**
+  (`15 10 * * *`). Evening research (6 PM) + Sunday weekly unchanged.
+- [x] **Volume config** — new `config/contentVolume.js` (`posts.perSection`, `reposts.perDay`,
+  `articleIdeas.count`). **Daily batch resized 15 → 6** (3 buckets × 2) via `assignTopics`; feedback loop intact.
+- [x] **Domain filter** — research now biases to the **profile niche** (pillar labels) by default via
+  `analyst.researchInstructions()` (profile focus + learned focus + learned downweight), fed into scheduled
+  ChitraG runs. **`/focus <topics>` / `/focus off`** override (`state/focusStore.js`) — "area of interest until
+  I say otherwise."
+- [x] **2 value-add quote-reposts/day** — `prompts/koelRepost.js` + `koel.draftRepost` (composes comment + post
+  URL into a ready-to-quote-tweet draft) + `quill.runReposts` (picks top-engagement X items already in the
+  research — **no new API calls**). Delivered to Telegram with Approve/Reject/Edit/Copy. On-demand: **`/reposts`**.
+- [x] **Article idea picker → auto-write** — `quill.suggestArticleIdeas` produces N ideas from the day's
+  research (each tied to its source item), saved to `state/articleIdeasStore.js`; Telegram shows numbered
+  **tap-to-write buttons** (`aw|<idx>`). Tapping → background `quill.writeArticleFromIdea` → `articleWriter`
+  (reuses the day's research as `relatedItems`, **no fresh search**) → saves versioned article → **"✅ Article
+  ready" ping** (open in the Writer to review/edit/export). On-demand: **`/ideas`**. **DeepSeek V3** is the
+  article default (`config/models.js articleDefaultModel()`, falls back to gpt-4o-mini without an OpenRouter key).
+- [x] **Daily drop folds all three** into `scheduler/cron.js runBatch`: **6 posts · 2 reposts · N article ideas**
+  at 3:45 PM (guarded by `isEnabled()`).
+- [x] **Cost:** ≈ flat (the 15→6 cut offsets reposts+ideas); DeepSeek articles ≈ $0.005 each; **zero extra
+  RapidAPI calls** (all reuse the daily research run).
+- [x] Verified: batch count follows config, `/focus` override + revert, `/reposts` drafts 2 (comment+link),
+  article picker writes from the day's research with DeepSeek V3 and reuses `relatedItems` (no fresh search),
+  new commands route on web+Telegram, server boots clean. **Needs from Souvik:** restart server + hard-refresh.
+- [x] **Missed-drop safety net** (2026-07-06) — `node-cron` never replays missed jobs, so a restart/sleep at
+  3:45 PM silently loses the day. Fixed: `scheduler/dailyDrop.js` holds the shared drop (posts+reposts+ideas);
+  `schedulerStore` tracks `lastDrop` (IST date, idempotency key); on startup `maybeCatchUp` runs the drop **once**
+  if it's past 3:45 PM IST and today's drop hasn't run (guarded by `lastDrop`, `isEnabled`, and research
+  existing). New **`/drop`** command runs the full drop on demand (web+Telegram). Startup logs the armed schedule
+  + IST now + last drop. **So restarting to load new code also auto-delivers a missed drop ~8s after boot.**
+
+## Reliability pass (2026-07-07) — stop silent failures
+Prompted by recurring "it didn't work" reports. Audited the whole pipeline; fixed real breakage + made failures visible.
+- [x] **HackerNews was fully dead** — HN Algolia now rejects `points` in `numericFilters` (HTTP 400 on every
+  query, silently returning 0 for days). Fixed `tools/fetchHackerNews.js`: keep server-side `created_at_i`
+  recency filter, drop `points`, apply the points≥5 floor client-side. Verified: returns real items again.
+- [x] **Drop guarantees today's research** — `scheduler/dailyDrop.js ensureTodaysResearch()` runs one fresh
+  ChitraG search if the latest run isn't from today (fixes stale `/drop` + stale Quill after a missed 3 PM run).
+- [x] **Auto catch-up every 30 min** (not just on startup) — a laptop that wakes after 3:45 PM with the server
+  still running auto-delivers the drop (`scheduler/cron.js`). Idempotent via `lastDrop`.
+- [x] **`/health` command** — surfaces silent failures at a glance: research freshness (today/stale), **per-source
+  item counts + DEAD sources** (0 items), scheduler on/off + drop-today, and which API keys are set.
+  Backed by new `sourceCounts` in the research run output (`agents/chitrag.js`) so a source that silently returns
+  0 (like HN did) is flagged.
+- **Still operational (not code):** the schedule only fires while the process runs — keep it on a 24×7 host (see
+  the deployment options) or rely on `/drop` + the 30-min catch-up when you sit down.
+
 ## Operational config & fixes (2026-06-28)
 - [x] **Schedule retimed** (`scheduler/cron.js`): **6:30 AM** research + compact morning briefing · **6:45 AM** Quill daily batch · **6:00 PM** research · **Sunday 6 AM** weekly wrap. (Morning split into `runMorning` + `runBatch`.)
 - [x] **Daily batch = 3 batches × 5 drafts** (15 total): Motivational ×5, Domain ×5, Trending ×5 — each batch one short header + 5 draft messages with buttons (`assignTopics` returns 5/section).

@@ -14,6 +14,17 @@ const OAUTH_UA = 'TinySparrow/1.0 (research bot)'
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const RSS_ENGAGEMENT_BASELINE = 200  // RSS has no score; hot-feed posts are already popular
 
+// Sub → topic bucket for the 60/40 human/tech pool balancer in chitrag. Anything not listed = 'tech'.
+const SUB_TOPIC = {
+  getdisciplined: 'human', meditation: 'human', selfimprovement: 'human',
+  productivity: 'human', stoicism: 'human', futurology: 'human',   // AI's impact on humans/society
+  decidingtobebetter: 'human', mindfulness: 'human',
+}
+function topicOfSub(sub) {
+  const key = String(sub || '').replace(/^r\//i, '').toLowerCase()
+  return SUB_TOPIC[key] || 'tech'
+}
+
 let _token = null
 let _tokenExp = 0
 
@@ -66,7 +77,7 @@ async function fetchViaOAuth(token, subreddits, maxResults, searchQuery, cutoff)
           title: post.title,
           url: post.url && post.url.startsWith('http') ? post.url : `https://reddit.com${post.permalink}`,
           snippet: first20Words(post.selftext || post.title),
-          source: 'reddit', publisher: `r/${sub}`,
+          source: 'reddit', topic: topicOfSub(sub), publisher: `r/${sub}`,
           publishedAt: new Date(pub).toISOString(),
           engagement: post.score, comments: post.num_comments,
           fetchedAt: new Date().toISOString(),
@@ -116,7 +127,7 @@ async function fetchViaRss(subreddits, maxResults, searchQuery) {
         title: String(e.title || '').trim(),
         url: link,
         snippet: first20Words(contentText || e.title),
-        source: 'reddit', publisher: sub,
+        source: 'reddit', topic: topicOfSub(sub), publisher: sub,
         publishedAt: pub ? new Date(pub).toISOString() : new Date().toISOString(),
         engagement: RSS_ENGAGEMENT_BASELINE,
         fetchedAt: new Date().toISOString(),
@@ -128,7 +139,7 @@ async function fetchViaRss(subreddits, maxResults, searchQuery) {
 }
 
 async function fetchReddit(config) {
-  const subreddits = config.subreddits || ['artificial', 'MachineLearning', 'LocalLLaMA', 'OpenAI', 'startups', 'SaaS']
+  const subreddits = config.subreddits || ['getdisciplined', 'Meditation', 'selfimprovement', 'productivity', 'Stoicism', 'Futurology', 'artificial', 'LocalLLaMA', 'OpenAI']
   const maxResults = config.maxResults || 25
   const searchQuery = config.searchQuery || null
   const cutoff = searchQuery ? Date.now() - 7 * 24 * 3600 * 1000 : Date.now() - 24 * 3600 * 1000

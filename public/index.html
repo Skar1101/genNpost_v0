@@ -584,6 +584,16 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
           </div>
         </div>
 
+        <!-- ── Latest search (mirrors the Telegram briefing) ── -->
+        <div id="quillSearchCard" style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:0;overflow:hidden;flex-shrink:0;display:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;">🔎 LATEST SEARCH <span id="quillSearchMeta" style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3);"></span></div>
+            <button onclick="loadQuillSearch()" title="Refresh latest search"
+              style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:11px;color:var(--text2);cursor:pointer;">↻ Refresh</button>
+          </div>
+          <div id="quillSearchList"></div>
+        </div>
+
         <!-- ── Working state ── -->
         <div id="quillWorking" class="hidden text-center py-8 fade-up">
           <div style="font-size:32px;margin-bottom:10px">🪶</div>
@@ -870,7 +880,7 @@ function setWS(on) {
   document.getElementById('wsLbl').textContent = on ? 'live' : 'offline'
 }
 function onWSEvent(ev) {
-  if (ev.type === 'research_complete') { stopRunning(); addOrUpdateRun(ev.data); enableRun() }
+  if (ev.type === 'research_complete') { stopRunning(); addOrUpdateRun(ev.data); enableRun(); if (!document.getElementById('panel-quill').classList.contains('hidden')) loadQuillSearch() }
   if (ev.type === 'research_progress')  { document.getElementById('pgStep').textContent = `${ev.data.step === 'fetching' ? 'Fetching' : 'Ranking with AI'} — ${ev.data.source}` }
   if (ev.type === 'reply_progress')      { showTyping(ev.data.message) }
   if (ev.type === 'reply_targets_complete') {
@@ -1616,7 +1626,7 @@ function switchAgent(name) {
   document.getElementById('panel-quill').classList.toggle('hidden', name !== 'quill')
   document.getElementById('panel-titto').classList.toggle('hidden', name !== 'titto')
   document.getElementById('panel-article').classList.toggle('hidden', name !== 'article')
-  if (name === 'quill') { loadPillars(); loadQuillSessions(); loadQuillLatest() }
+  if (name === 'quill') { loadPillars(); loadQuillSessions(); loadQuillSearch(); loadQuillLatest() }
   if (name === 'titto') { loadActivity() }
   if (name === 'article') { initArticleWriter() }
 }
@@ -2695,6 +2705,41 @@ async function triggerQuillWeekly() {
     alert('Weekly run triggered. Check Telegram for results.')
   } catch (e) { alert('Weekly trigger failed: ' + e.message) }
   finally { btn.disabled = false; btn.textContent = '📝 Weekly Run' }
+}
+
+async function loadQuillSearch() {
+  // Latest ChitraG search items — the same set Telegram's briefing sends. Always shown on Quill,
+  // independent of whether a batch ran. Source: GET /api/research/latest (no new API calls).
+  const card = document.getElementById('quillSearchCard')
+  const list = document.getElementById('quillSearchList')
+  const meta = document.getElementById('quillSearchMeta')
+  if (!card || !list) return
+  try {
+    const r = await fetch('/api/research/latest')
+    const data = await r.json()
+    const items = (data.results || []).slice(0, 10)
+    if (!items.length) { card.style.display = 'none'; return }
+    const when = data.rankedAt ? new Date(data.rankedAt).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true
+    }) : ''
+    if (meta) meta.textContent = when ? `· ${items.length} items · ${when} IST` : `· ${items.length} items`
+    list.innerHTML = items.map((s, si) => {
+      const src = (CAT_META[s.source]?.label) || s.source || ''
+      return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);">
+        <span style="font-size:11px;font-weight:700;color:var(--text3);width:18px;flex-shrink:0;">${si+1}</span>
+        <span style="font-size:11px;padding:1px 6px;border-radius:99px;background:var(--surface);border:1px solid var(--border);color:var(--text3);flex-shrink:0;">${esc(src)}</span>
+        <span style="flex:1;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(s.title||'')}</span>
+        <span style="font-size:11px;font-weight:700;color:#b45309;flex-shrink:0;">${s.trendingScore||'?'}</span>
+        <a href="${esc(s.url||'')}" target="_blank" onclick="event.stopPropagation()"
+          style="font-size:12px;color:var(--text3);text-decoration:none;padding:2px 6px;border-radius:6px;border:1px solid var(--border);flex-shrink:0;"
+          onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text3)'">↗</a>
+        <button onclick="askAbout('${esc((s.title||'').replace(/'/g,"\\'"))}')"
+          style="font-size:10px;padding:2px 8px;border-radius:6px;background:var(--accent-glow);border:1px solid rgba(108,92,231,.2);color:var(--accent);cursor:pointer;flex-shrink:0;">Ask Titto</button>
+      </div>`
+    }).join('')
+    card.style.display = ''
+  } catch (_) { card.style.display = 'none' }
 }
 
 async function loadQuillLatest() {

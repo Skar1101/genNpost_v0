@@ -1,18 +1,19 @@
 const axios = require('axios')
 const logger = require('../utils/logger').source('twitter')
 
-// Top viral queries in AI/tech/startup domain
-// Using 'Top' type to get high-engagement posts (not just latest)
-// 5 queries × 5 tweets = 25 candidates → deduped → top 20
+// Top viral queries, weighted ~60% HUMAN (discipline, meditation, self-dev, AI-in-daily-life,
+// AI's impact on humans) / ~40% TECH (trending AI). Each query carries a `topic` used by the
+// 60/40 pool balancer in chitrag. Using 'Top' type to get high-engagement posts (not just latest).
 const QUERIES = [
-  '(AI OR LLM OR "artificial intelligence") (launch OR release OR breakthrough) lang:en',
-  '(ChatGPT OR Claude OR Gemini OR GPT) lang:en',
-  '(AI agent OR AI tool OR automation) lang:en',
-  '(startup OR "venture capital" OR funding) AI lang:en',
-  '(GitHub OR "open source") AI model lang:en',
-  // Self-help, productivity, mindfulness — top viral posts
-  '(productivity OR "deep work" OR "morning routine" OR "time management") tip lang:en',
-  '(mindfulness OR meditation OR stoicism OR "mental clarity" OR "calming") lang:en',
+  // HUMAN — discipline, meditation, self-development, AI for people
+  { q: '(discipline OR "self discipline" OR habits OR "deep work" OR consistency) lang:en', topic: 'human' },
+  { q: '(meditation OR mindfulness OR stoicism OR "mental clarity" OR calm) lang:en', topic: 'human' },
+  { q: '("self improvement" OR "personal growth" OR "self development" OR "become better") lang:en', topic: 'human' },
+  { q: '(AI OR ChatGPT OR Claude) ("daily life" OR "personal life" OR "use it to" OR "changed how i") lang:en', topic: 'human' },
+  { q: '(AI) ("impact on" OR "future of work" OR society OR humanity OR "how we live" OR jobs) lang:en', topic: 'human' },
+  // TECH — trending AI news + flagship models
+  { q: '(AI OR LLM OR "artificial intelligence") (launch OR release OR breakthrough) lang:en', topic: 'tech' },
+  { q: '(ChatGPT OR Claude OR Gemini OR GPT OR "AI agent") lang:en', topic: 'tech' },
 ]
 
 function first20Words(text) {
@@ -33,10 +34,11 @@ async function fetchTwitter(config) {
   const results = []
   const seen = new Set()
 
-  // Targeted query: search exactly what user asked; otherwise use default AI/tech queries
-  const queries = searchQuery ? [`${searchQuery} lang:en`] : QUERIES
+  // Targeted query: search exactly what user asked (topic 'tech' — a targeted search bypasses the
+  // 60/40 balancer anyway); otherwise use the default balanced query set.
+  const queries = searchQuery ? [{ q: `${searchQuery} lang:en`, topic: 'tech' }] : QUERIES
 
-  for (const query of queries) {
+  for (const { q: query, topic } of queries) {
     try {
       logger.info(`Querying X (Top): "${query.slice(0, 60)}…"`)
       const res = await axios.get('https://twitter-api45.p.rapidapi.com/search.php', {
@@ -70,6 +72,7 @@ async function fetchTwitter(config) {
           url: `https://x.com/${tweet.screen_name}/status/${tweet.tweet_id}`,
           snippet: first20Words(tweet.text),
           source: 'twitter',
+          topic,   // 'human' vs 'tech' — feeds the 60/40 pool balancer
           publisher: `@${tweet.screen_name}`,
           publishedAt: new Date(tweet.created_at || Date.now()).toISOString(),
           engagement,
@@ -83,13 +86,21 @@ async function fetchTwitter(config) {
     }
   }
 
-  // Sort by engagement (virality), take top 20
-  const top20 = results
-    .sort((a, b) => b.engagement - a.engagement)
-    .slice(0, maxResults)
+  const byEng = arr => arr.sort((a, b) => b.engagement - a.engagement)
 
-  logger.result(top20.length, results.length - top20.length)
-  return top20
+  // Targeted search → straight top-by-engagement. Default → keep ~60% human / 40% tech within
+  // twitter's own budget, so viral AI tweets don't bury the human-angle ones before chitrag ranks.
+  let top
+  if (searchQuery) {
+    top = byEng(results).slice(0, maxResults)
+  } else {
+    const human = byEng(results.filter(r => r.topic === 'human')).slice(0, Math.ceil(maxResults * 0.6))
+    const tech = byEng(results.filter(r => r.topic !== 'human')).slice(0, Math.floor(maxResults * 0.4))
+    top = [...human, ...tech]
+  }
+
+  logger.result(top.length, results.length - top.length)
+  return top
 }
 
 module.exports = fetchTwitter

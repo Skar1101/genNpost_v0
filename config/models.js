@@ -53,6 +53,13 @@ const MODELS = [
 // The safe default that works even before an OpenRouter key is added.
 const DEFAULT_MODEL_ID = 'openai/gpt-4o-mini'
 
+// Preferred model for the Article Writer: DeepSeek V3 (cheap, strong long-form). Requires an OpenRouter
+// key; falls back to gpt-4o-mini when none is set.
+const ARTICLE_DEFAULT_MODEL = 'deepseek/deepseek-chat'
+function articleDefaultModel() {
+  return process.env.OPENROUTER_API_KEY ? ARTICLE_DEFAULT_MODEL : DEFAULT_MODEL_ID
+}
+
 function byId(id) {
   return MODELS.find(m => m.id === id) || null
 }
@@ -67,4 +74,4 @@ function costFor(modelId, usage) {
   return Math.round(cost * 1e6) / 1e6   // round to 6 decimals (micro-dollars)
 }
 
-module.exports = { MODELS, DEFAULT_MODEL_ID, byId, costFor }
+module.exports = { MODELS, DEFAULT_MODEL_ID, ARTICLE_DEFAULT_MODEL, articleDefaultModel, byId, costFor }

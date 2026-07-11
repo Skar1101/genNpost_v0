@@ -78,15 +78,18 @@ function extractSources(text, relatedItems) {
 
 // ── Generate a fresh article ──────────────────────────────────────────────────
 // Returns { text, title, sources, usage, cost, modelUsed, modelId }.
-async function generate({ topic, model = models.DEFAULT_MODEL_ID, account = null, onToken = null, doResearch = true } = {}) {
+async function generate({ topic, model = models.articleDefaultModel(), account = null, onToken = null, doResearch = true, relatedItems = null } = {}) {
   if (!topic?.trim()) throw new Error('articleWriter.generate: topic required')
   const acct = account || memory.accounts.getActiveAccount()
   ensureProfile(acct)
-  const modelId = models.byId(model) ? model : models.DEFAULT_MODEL_ID
+  const modelId = models.byId(model) ? model : models.articleDefaultModel()
 
-  // 1. Research the topic (best-effort — never block the write on it).
-  let relatedItems = []
-  if (doResearch) {
+  // 1. Grounding sources. If the caller passed relatedItems (e.g. the article picker reusing the day's
+  //    research), use them and DON'T fire a fresh search. Otherwise, best-effort research the topic.
+  if (Array.isArray(relatedItems)) {
+    relatedItems = relatedItems.slice(0, 6)
+    log.info(`Article using ${relatedItems.length} provided related items (no fresh search)`)
+  } else if (doResearch) {
     try {
       const research = await chitrag.run({
         triggeredBy: 'article-research',
@@ -98,7 +101,10 @@ async function generate({ topic, model = models.DEFAULT_MODEL_ID, account = null
       log.info(`Article research found ${relatedItems.length} related items`)
     } catch (err) {
       log.warn(`Article research failed (proceeding without): ${err.message}`)
+      relatedItems = []
     }
+  } else {
+    relatedItems = []
   }
 
   // 2. Build the prompt: system (identity + principles) + voice block + article brief (template + rules + research).
