@@ -796,8 +796,14 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
   // ── write_article (long-form article → Article Writer, NEVER Koel) ─
   if (parsed.intent === 'write_article') {
     const req = parsed.articleRequest || {}
-    const topic = String(req.topic || input).trim()
-    if (!topic) return { reply: 'Give me a topic for the article — e.g. "write an article about AI agents in daily work".', action: null }
+    const topic = String(req.topic || '').trim()
+    // Vague/missing subject ("write an article", "based on this" with no context) → ask, don't write blind.
+    if (!topic || /^(this|it|that|based on this)$/i.test(topic)) {
+      const ask = parsed.reply && /\?/.test(parsed.reply)
+        ? parsed.reply
+        : 'Sure — what topic should the article cover? (e.g. "how AI impacts health in daily life")'
+      return { reply: ask, action: null }
+    }
     return handleWriteArticle(topic, req.extraInstructions || '', broadcast, telegramSend)
   }
 
