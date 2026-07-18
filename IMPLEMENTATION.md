@@ -240,6 +240,55 @@ Prompted by recurring "it didn't work" reports. Audited the whole pipeline; fixe
 - **For 24x7 server deploy:** set `HOST=0.0.0.0`, `API_TOKEN=<secret>`, and (if using webhook) `TELEGRAM_WEBHOOK_SECRET=<secret>`.
   The browser dashboard will then need to send `API_TOKEN` on its `/api` fetches — small frontend wiring to add at deploy time.
 
+## Professional React dashboard — v1 built ✅ (2026-07-18, verified)
+Goal: replace the single-file `public/index.html` dashboard with a proper React app — Control Center
+home (team roster + live status), a Queue triage inbox, and one page per agent — without touching any
+agent logic. `public/index.html` keeps running unmodified until the new app is verified end-to-end and
+explicitly retired (not done yet).
+- [x] **ChitraG → Raven rename**, full — file (`agents/raven.js`, was `chitrag.js`), every require,
+  internal `agent:'raven'` ids, `logger.source('raven')`, `sub-agents/Raven/`, all UI labels + docs.
+  Old `chitrag` history entries (activity log, old log files) intentionally left as-is — historical
+  record, not rewritten. Verified live with a real end-to-end research run.
+- [x] **`web/`** — new React + Vite + React Router + TanStack Query app (no Tailwind; the approved
+  design system ported to `web/src/styles/globals.css`). Dev: two processes — backend
+  (`node server/index.js`, port 3000) + `cd web && npm run dev` (port 5174, proxies `/api`+`/ws` to
+  3000). Production: `npm run build` in `web/` → served by Express (not yet wired — Phase 7).
+- [x] **Control Center** (home) — live team roster (`GET /api/agents`, new: aggregates existing stores,
+  zero new agent logic), Titto lead strip with real pending-queue count, working Open/Run-now/Run-drop
+  buttons (a real bug — buttons had no handlers at first — found + fixed).
+- [x] **Queue** — triage inbox wired to the existing `GET /api/queue` + `POST /api/draft/:id/transition`.
+  Approve/Reject(+reason chips matching Telegram's)/Edit/Copy all real. Draft records gained a
+  `platform` field (default `'x'`) for future LinkedIn/Substack.
+- [x] **9 agent/system pages**, each a real page over already-existing (or newly added) endpoints:
+  **Titto** (persistent floating chat dock, all pages, bottom-left + a dedicated history page — every
+  run, who triggered it, what came out; replaces the old "Activity" tab), **Raven** (research + full
+  Replies sub-view), **Koel** (Write + History), **Quill·X** (pillars, plan, per-suggestion draft +
+  refine), **Article Writer** (live token-streaming generate/refine, versions, export), **Analyst**
+  (new `GET /api/insights` + a `/perf` paste box reusing Titto's existing chat command), **Schedules**
+  (auto-run toggle + slot timeline, new `slots` field on `GET/PUT /api/scheduler`), **Settings**
+  (profile editor + reply-domain toggles). Parrot/Heron (LinkedIn/Substack) are placeholders — v2,
+  by design, never fake data.
+- [x] **LLM guardrail audit** — checked every `chat.completions.create` call site against
+  `guard.runGuarded()`. Found one real pre-existing gap: **Titto's ambiguous-message intent-parse call
+  was never gated** (no rate limit/concurrency cap/timeout). Fixed in `agents/titto.js`; verified live.
+- [x] **Verified live throughout**, not just built: real Koel writes, a real Quill plan run (75s, 10
+  suggestions), a real Article generation (3,932 chars), a full profile/reply-domains/scheduler
+  round-trip against the actual `state/data`, always on an isolated port with test data cleaned up
+  after. Old dashboard + Telegram confirmed unaffected at every step.
+- [ ] **Not yet done:** one live pass of `/drop`-from-Telegram → confirm React updates without a
+  refresh (WS wiring is in place and unit-verified, just not exercised this exact way yet); serving
+  the React build from Express + retiring `public/index.html` (Phase 7, deliberately after full parity).
+
+## Repo migration + deploy-doc fix (2026-07-18)
+- [x] Moved to a new private repo — `github.com/Skar1101/TinySparrow_social_media_manager_V0` — full
+  history pushed, old repo (`TinySparrowV0`, inaccessible/renamed) no longer referenced.
+- [x] **Fixed a real bug in `DEPLOY.md`**: the clone URL was updated to the new repo but the
+  `cd`/`scp`/cron lines still said the old directory name — would have broken a fresh VM setup.
+- [x] `web/dist/` (build artifact) untracked + added to `.gitignore`.
+- **`DEPLOY.md`'s Oracle Cloud plan is otherwise unchanged and ready** — Always-Free ARM VM, pm2,
+  GitHub-push auto-deploy via `scripts/update.sh`, Telegram polling (no public ports), dashboard via
+  SSH tunnel. Not yet executed against a live VM this session.
+
 ---
 
 ## Sage's 9 systems → our coverage
@@ -258,7 +307,16 @@ Prompted by recurring "it didn't work" reports. Audited the whole pipeline; fixe
 ---
 
 ## Things needed from Souvik
-- [ ] **Restart the running server + hard-refresh** the dashboard — none of today's changes (Replies tab, schedule, batch, compact Telegram, Phases 0–3) take effect until then
+- [ ] **Restart the running server** to pick up everything from 2026-07-18 (Raven rename, new
+  `/api/agents`/`/api/insights`/scheduler endpoints, guardrail fix) — confirmed multiple times this
+  session that a running process doesn't pick these up on its own.
+- [ ] Try the new React dashboard (`cd web && npm run dev`, alongside the backend) and flag anything
+  that doesn't work — Control Center, Queue, and all 9 agent pages are built and verified against real
+  data, but not yet exercised by you directly.
+- [ ] One live check: trigger `/drop` in Telegram (new test channel) and confirm the React dashboard
+  updates without a manual refresh.
+- [ ] Decide on VPS deploy timing/details (Oracle VM status, whether to deploy backend-only now) —
+  `DEPLOY.md` is ready; see the migration section above.
 - [x] **Profile inputs** — provided & saved (`skar_connect`); add more best tweets over time to sharpen voice
 - [ ] *(Optional)* **Reddit OAuth creds** (`REDDIT_CLIENT_ID` + `REDDIT_SECRET`) for full metadata — RSS fallback works without them for now
 - [ ] *(Phase 4, later)* Weekly: paste top/bottom tweets + stats
@@ -272,5 +330,6 @@ Prompted by recurring "it didn't work" reports. Audited the whole pipeline; fixe
 - Tools: `tools/{fetchTwitter,fetchReddit,fetchArxiv,fetchGitHub,fetchHackerNews,fetchYouTube,fetchReplyTargets}.js`, `tools/sources.config.js`, `tools/replyDomains.config.js`
 - Prompts: `prompts/{koelWrite,rankResults,tittoReason,quillPlan,...}.js`
 - Server: `server/index.js`, `server/routes/{api,telegram}.js`, `scheduler/cron.js`
-- UI: `public/index.html`
-- Docs: `USE.md` (operator guide), `IMPLEMENTATION.md` (this tracker)
+- UI (legacy, still live): `public/index.html`
+- UI (new, in progress): `web/` — React app; `web/src/pages/*` (one per agent), `web/src/lib/{api,queries,ws,nav}.js`
+- Docs: `USE.md` (operator guide), `DEPLOY.md` (Oracle Cloud deploy), `IMPLEMENTATION.md` (this tracker)
