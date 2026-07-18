@@ -9,11 +9,13 @@ import KoelPage from './pages/KoelPage.jsx'
 import QuillPage from './pages/QuillPage.jsx'
 import ArticleWriterPage from './pages/ArticleWriterPage.jsx'
 import AnalystPage from './pages/AnalystPage.jsx'
+import SchedulesPage from './pages/SchedulesPage.jsx'
+import SettingsPage from './pages/SettingsPage.jsx'
 import PortedPage from './pages/PortedPage.jsx'
 import { portedPages } from './lib/nav.js'
 
 // Agents with a real, built page. Everything else in portedPages still renders
-// the PortedPage placeholder (Parrot/Heron/Schedules/Settings — not built yet).
+// the PortedPage placeholder (Parrot/Heron — deferred to v2, intentionally unbuilt).
 const REAL_PAGES = {
   titto: TittoPage,
   raven: RavenPage,
@@ -21,6 +23,8 @@ const REAL_PAGES = {
   koel: KoelPage,
   article: ArticleWriterPage,
   analyst: AnalystPage,
+  schedules: SchedulesPage,
+  settings: SettingsPage,
 }
 
 export default function App() {

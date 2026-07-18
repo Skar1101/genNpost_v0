@@ -35,9 +35,9 @@ export const navSections = [
     eyebrow: 'System',
     items: [
       { id: 'schedules', label: 'Schedules', to: '/system/schedules',
-        title: 'Schedules', desc: 'Every scheduled run in one place. Retime or pause any of them.' },
+        title: 'Schedules', desc: 'Every scheduled run, IST. Pause or resume all auto-runs with one toggle.' },
       { id: 'settings', label: 'Settings', to: '/system/settings',
-        title: 'Settings', desc: 'Your creator profile, connected platforms, reply domains, and research focus.' },
+        title: 'Settings', desc: 'Your creator profile — identity, voice, watchlist, best tweets — and reply-search domains.' },
     ],
   },
 ]

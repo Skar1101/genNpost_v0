@@ -161,6 +161,32 @@ export function useInsights() {
   return useQuery({ queryKey: ['insights'], queryFn: () => api('/insights') })
 }
 
+// ── Profile / Settings ───────────────────────────────────────────────────────────
+
+export function useProfile() {
+  return useQuery({ queryKey: ['profile'], queryFn: () => api('/profile') })
+}
+
+export function useSaveProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (profile) => api('/profile', { method: 'PUT', body: { profile } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['profile'] }),
+  })
+}
+
+export function useReplyDomains() {
+  return useQuery({ queryKey: ['reply-domains'], queryFn: () => api('/replies/domains') })
+}
+
+export function useSaveReplyDomains() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (enabled) => api('/replies/domains', { method: 'PUT', body: { enabled } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['reply-domains'] }),
+  })
+}
+
 // ── Activity ─────────────────────────────────────────────────────────────────────
 
 export function useActivity(limit = 100) {
