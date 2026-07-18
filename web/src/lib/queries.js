@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from './api.js'
+import { api, apiText } from './api.js'
 
 // ── Queue (draft lifecycle) ────────────────────────────────────────────────────
 
@@ -55,6 +55,21 @@ export function useTriggerResearch() {
   })
 }
 
+// Multi-run history — full run objects, newest first (for the collapsible run-sections view).
+export function useResearchRuns(limit = 10) {
+  return useQuery({ queryKey: ['research-runs', limit], queryFn: () => api(`/research/runs?limit=${limit}`) })
+}
+
+// GET /api/logs/* — text logs (Today / Errors / per-source scrape logs). `logPath` is
+// one of 'today', 'errors', or `scrape/<source>`; null disables the fetch.
+export function useLogText(logPath) {
+  return useQuery({
+    queryKey: ['log', logPath],
+    queryFn: () => apiText(`/logs/${logPath}`),
+    enabled: !!logPath,
+  })
+}
+
 export function useReplies() {
   return useQuery({ queryKey: ['replies'], queryFn: () => api('/replies/latest') })
 }
@@ -85,6 +100,11 @@ export function useKoelHistory() {
   return useQuery({ queryKey: ['koel-history'], queryFn: () => api('/koel/history') })
 }
 
+// Reloads Koel's knowledge files (profile/voice/approvals) from disk without a server restart.
+export function useKoelReload() {
+  return useMutation({ mutationFn: () => api('/koel/reload', { method: 'POST' }) })
+}
+
 // ── Quill (X content ops) ────────────────────────────────────────────────────────
 
 export function useQuillLatest() {
@@ -103,6 +123,21 @@ export function useQuillPlan() {
   return useMutation({
     mutationFn: ({ forceFresh = false } = {}) => api('/quill/plan', { method: 'POST', body: { forceFresh } }),
   })
+}
+
+// Manual daily drop — same run the 3:45pm schedule fires, results arrive via Telegram + WS.
+export function useQuillTriggerDaily() {
+  return useMutation({ mutationFn: () => api('/quill/trigger', { method: 'POST' }) })
+}
+
+// Manual weekly wrap-up run — same as the Sunday 6am schedule.
+export function useQuillTriggerWeekly() {
+  return useMutation({ mutationFn: () => api('/quill/weekly', { method: 'POST' }) })
+}
+
+// Past planning sessions (pillars/suggestions/drafts), newest first — powers "Previous plans".
+export function useQuillSessions() {
+  return useQuery({ queryKey: ['quill-sessions'], queryFn: () => api('/quill/sessions') })
 }
 
 export function useQuillDraft() {

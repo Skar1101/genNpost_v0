@@ -47,10 +47,18 @@ export const portedPages = navSections
   .flatMap((s) => s.items)
   .filter((it) => it.id !== 'cc' && it.id !== 'queue')
 
-// Title/crumb lookup by pathname for the top bar.
-export function pageMetaFor(pathname) {
-  if (pathname === '/') return { title: 'Control Center', crumb: 'MON 17 JUL · 12 drafts waiting' }
-  if (pathname === '/queue') return { title: 'Queue', crumb: '12 pending · 4 approved · 2 rejected today' }
+// Title/crumb lookup by pathname for the top bar. `pendingCount` (real generated-queue
+// count) is passed in from TopBar so Control Center/Queue crumbs reflect live data
+// instead of hardcoded placeholder numbers.
+export function pageMetaFor(pathname, pendingCount) {
+  if (pathname === '/') {
+    const n = pendingCount ?? 0
+    return { title: 'Control Center', crumb: `${n} draft${n === 1 ? '' : 's'} waiting on your call` }
+  }
+  if (pathname === '/queue') {
+    const n = pendingCount ?? 0
+    return { title: 'Queue', crumb: n > 0 ? `${n} waiting for review` : 'Nothing waiting for review' }
+  }
   const p = portedPages.find((x) => x.to === pathname)
-  return p ? { title: p.title, crumb: 'existing page — same layout, reskinned' } : { title: 'TinySparrow', crumb: '' }
+  return p ? { title: p.title, crumb: p.desc } : { title: 'TinySparrow', crumb: '' }
 }

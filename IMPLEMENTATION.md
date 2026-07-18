@@ -17,6 +17,84 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 
 ---
 
+# 📋 The Plan — read this first
+
+*(Everything below this point through "Detailed technical log" is the human-readable master plan.
+The sections after that are the detailed build history — dates, file paths, verification notes —
+kept for reference, not required reading.)*
+
+## What TinySparrow is
+A personal, **draft-only** social media manager. A team of AI agents researches trends, writes posts
+in your voice, and learns from what you approve/reject/edit — you always make the final call and post
+everything yourself. It runs two ways today: a Telegram bot (the fast, daily-use surface) and a web
+dashboard (the deeper view). The dashboard is currently being rebuilt from a single HTML file into a
+proper app — that rebuild is most of what's "in progress" below.
+
+## ✅ Done
+
+**The content engine (the part that actually researches and writes):**
+- A research agent (**Raven**) pulls from Hacker News, Reddit, GitHub, YouTube, arXiv, and X, ranks
+  what's worth posting, and balances the mix (~60% personal/human topics, ~40% tech) to match your voice.
+- A writer (**Koel**) drafts posts in five formats (short, thread, long-form, motivational, engagement),
+  reading your profile, voice, and past approvals/rejections before every draft — it never repeats an
+  angle you've rejected.
+- A content-ops agent (**Quill**) assembles the daily drop (6 posts + 2 quote-reposts + article ideas),
+  runs the weekly wrap, and plans posts against your content pillars.
+- A dedicated **Article Writer** streams full long-form articles live, with citations, version history,
+  and `.md` export — separate from Koel so tweet-voice never leaks into essay-voice.
+- A learning agent (**Analyst**) tracks which sources/topics/formats actually land (from your
+  approve/reject/edit history and pasted tweet stats), and feeds that back into both research and writing.
+- A reply engine drafts replies to specific posts on demand — nothing is ever auto-drafted or auto-sent.
+- **The learning loop**: every draft moves through `generated → approved/rejected/edited → posted →
+  measured`. Approvals and edits sharpen future drafts; rejections (with a reason) are never repeated.
+- **Telegram**: one-tap Approve/Reject(+reason)/Edit/Copy on every draft, daily drop delivery, on-demand
+  commands (`/research`, `/drop`, `/batch`, `/replies`, `/article`, `/perf`, `/learned`, `/health`, …).
+- **Reliability**: dead-source detection (`/health`), a missed-drop safety net (catches up automatically
+  if the app was asleep), and one shared rate/cost limit across every AI call so nothing runs away.
+- **Security**: the server only listens on localhost by default, path-traversal and webhook-forgery
+  protections are in place, and secrets never touch git.
+- **The hard stop is real** — there is no code path anywhere that posts, replies, or engages on X
+  automatically. Every draft requires a manual tap from you before it exists in your approved queue,
+  and posting itself is always done by hand.
+
+**The new professional dashboard (this month's work):**
+- A full React web app (in `web/`) is built and verified against real data: a **Control Center** home
+  showing the whole team's live status, a **Queue** you can triage from, and a dedicated page for every
+  agent (Titto, Raven, Koel, Quill, Article Writer, Analyst) plus **Schedules** and **Settings**.
+- Titto now lives as a small floating chat bubble on every page (talk to it anytime) plus its own page
+  showing the full run history — every research pull, draft, and reply, what triggered it, what it produced.
+- The research agent was renamed **ChitraG → Raven** throughout the whole codebase.
+- Found and fixed two real bugs along the way: Control Center's buttons weren't wired to anything, and
+  one AI call (Titto's message-understanding step) had no rate/cost limit on it.
+- The project moved to a new private GitHub repo, with a deployment guide (`DEPLOY.md`) ready to go.
+
+## 🔲 What's left, in order
+1. **One live test**: trigger the daily drop from Telegram and confirm the new dashboard updates on
+   its own, without you refreshing the page.
+2. **Switch over**: once you've used the new dashboard a bit and I'm confident nothing's missing, make
+   it the only dashboard (retire the old single-file one).
+3. **Put it on a server**: right now it only runs while your laptop is on. `DEPLOY.md` has a ready,
+   free hosting plan (Oracle Cloud) — this makes it run 24/7 regardless of your laptop.
+4. *(Later, not started)* Add LinkedIn and Substack as additional platforms the team can research and
+   write for — deliberately deferred until the above is solid.
+
+## 🙋 Things needed from you
+- **Restart the server** so it picks up everything built recently — it doesn't update itself while running.
+- **Try the new dashboard** (`web/` — ask me how to start it if you haven't) and tell me anything that
+  feels off or missing.
+- **Do the live `/drop` test** using your new test Telegram channel (item 1 above).
+- **Decide on the server**: is the Oracle Cloud VM already set up from before, or do we need to create
+  one? And do you want it live now, or after you've used the new dashboard more?
+- *(Ongoing)* Paste your weekly top/bottom tweet stats with `/perf` so the learning loop has real numbers.
+- *(Optional)* Reddit API credentials, for more reliable Reddit data (it works without them today).
+
+---
+
+## Detailed technical log
+
+*(Everything from here down is historical build detail — dates, exact file paths, verification steps —
+for reference. If you just want to know where things stand, the section above is complete on its own.)*
+
 ## Phase status at a glance
 
 | Phase | Title | Status |

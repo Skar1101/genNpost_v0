@@ -12,8 +12,9 @@ const server = http.createServer(app)
 
 // Middleware
 app.use(express.json())
+// Serve the built React dashboard (web/dist — run `npm run build:web` after any UI change).
 // Never cache HTML so the dashboard always loads the latest build (static assets can still cache).
-app.use(express.static(path.join(__dirname, '..', 'public'), {
+app.use(express.static(path.join(__dirname, '..', 'web', 'dist'), {
   setHeaders(res, filePath) {
     if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-store, must-revalidate')
   },
@@ -54,10 +55,10 @@ app.locals.telegramSendArticleIdeas = telegramSendArticleIdeas
 // Init scheduler
 initScheduler(ws.broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas)
 
-// Catch-all → serve index.html (no-store so a new build is always picked up)
+// Catch-all → serve the React app's index.html (no-store so a new build is always picked up)
 app.get('*', (req, res) => {
   res.setHeader('Cache-Control', 'no-store, must-revalidate')
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'))
+  res.sendFile(path.join(__dirname, '..', 'web', 'dist', 'index.html'))
 })
 
 const PORT = process.env.PORT || 3000

@@ -1,47 +1,129 @@
-/* TinySparrow design system — indigo control-center.
-   Ported verbatim from the approved mockup so the look is what you signed off on. */
+/* TinySparrow design system — restored from the original colorful dashboard.
+   Light values are exact (public/index.html's :root); dark is derived (the old
+   dashboard was light-only) to keep the existing light/dark toggle working. */
 
 *, *::before, *::after { box-sizing: border-box; }
 
 :root {
-  --bg: #EEF0F6; --surface: #FBFBFD; --surface-2: #E7E9F2; --border: #D8DBE7;
-  --ink: #191D2C; --muted: #5A6072; --faint: #888FA3;
-  --accent: #3D4EAD; --accent-ink: #FFFFFF; --accent-soft: #E3E6F7;
-  --good: #2F8F63; --good-soft: #DCEEE4;
-  --warn: #B0781E; --warn-soft: #F1E7CF;
-  --crit: #BB4E37; --crit-soft: #F2DFD9;
-  --idle: #8A90A2;
-  --shadow: 0 1px 2px rgba(25,29,44,.05), 0 6px 20px rgba(25,29,44,.05);
+  --bg: #FFFFFF; --surface: #F8F9FB; --surface-2: #F1F3F6; --surface-3: #E8EBF0; --border: #E2E6EB;
+  --ink: #1A1D23; --muted: #4A5568; --faint: #9AA3B0;
+  --accent: #6C5CE7; --accent-ink: #FFFFFF; --accent-soft: rgba(108,92,231,.10);
+  --good: #00B894; --good-soft: rgba(0,184,148,.10);
+  --warn: #F59F00; --warn-soft: rgba(245,159,0,.10);
+  --crit: #E03131; --crit-soft: rgba(224,49,49,.10);
+  --idle: #9AA3B0;
+  --shadow: 0 1px 2px rgba(25,29,44,.06), 0 6px 20px rgba(25,29,44,.06);
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
   --r: 12px; --r-sm: 8px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0E1017; --surface: #161926; --surface-2: #1E2233; --border: #2B3044;
-    --ink: #E7E9F2; --muted: #969CB2; --faint: #6C7288;
-    --accent: #8591F3; --accent-ink: #0B0E1A; --accent-soft: #1E2340;
-    --good: #4FB183; --good-soft: #143226; --warn: #D7A24C; --warn-soft: #2E2512;
-    --crit: #DC6E52; --crit-soft: #2F1F1B; --idle: #6C7288;
+    --bg: #15161C; --surface: #1C1E26; --surface-2: #23262F; --surface-3: #2B2F3A; --border: #333747;
+    --ink: #E7E9F2; --muted: #9AA3B0; --faint: #6B7280;
+    --accent: #8B7FF2; --accent-ink: #15161C; --accent-soft: rgba(139,127,242,.18);
+    --good: #2DD4A8; --good-soft: rgba(45,212,168,.16); --warn: #F7B84F; --warn-soft: rgba(247,184,79,.16);
+    --crit: #F0616B; --crit-soft: rgba(240,97,107,.16); --idle: #6B7280;
     --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.28);
   }
 }
 :root[data-theme="light"] {
-  --bg: #EEF0F6; --surface: #FBFBFD; --surface-2: #E7E9F2; --border: #D8DBE7;
-  --ink: #191D2C; --muted: #5A6072; --faint: #888FA3;
-  --accent: #3D4EAD; --accent-ink: #FFFFFF; --accent-soft: #E3E6F7;
-  --good: #2F8F63; --good-soft: #DCEEE4; --warn: #B0781E; --warn-soft: #F1E7CF;
-  --crit: #BB4E37; --crit-soft: #F2DFD9; --idle: #8A90A2;
-  --shadow: 0 1px 2px rgba(25,29,44,.05), 0 6px 20px rgba(25,29,44,.05);
+  --bg: #FFFFFF; --surface: #F8F9FB; --surface-2: #F1F3F6; --surface-3: #E8EBF0; --border: #E2E6EB;
+  --ink: #1A1D23; --muted: #4A5568; --faint: #9AA3B0;
+  --accent: #6C5CE7; --accent-ink: #FFFFFF; --accent-soft: rgba(108,92,231,.10);
+  --good: #00B894; --good-soft: rgba(0,184,148,.10); --warn: #F59F00; --warn-soft: rgba(245,159,0,.10);
+  --crit: #E03131; --crit-soft: rgba(224,49,49,.10); --idle: #9AA3B0;
+  --shadow: 0 1px 2px rgba(25,29,44,.06), 0 6px 20px rgba(25,29,44,.06);
 }
 :root[data-theme="dark"] {
-  --bg: #0E1017; --surface: #161926; --surface-2: #1E2233; --border: #2B3044;
-  --ink: #E7E9F2; --muted: #969CB2; --faint: #6C7288;
-  --accent: #8591F3; --accent-ink: #0B0E1A; --accent-soft: #1E2340;
-  --good: #4FB183; --good-soft: #143226; --warn: #D7A24C; --warn-soft: #2E2512;
-  --crit: #DC6E52; --crit-soft: #2F1F1B; --idle: #6C7288;
+  --bg: #15161C; --surface: #1C1E26; --surface-2: #23262F; --surface-3: #2B2F3A; --border: #333747;
+  --ink: #E7E9F2; --muted: #9AA3B0; --faint: #6B7280;
+  --accent: #8B7FF2; --accent-ink: #15161C; --accent-soft: rgba(139,127,242,.18);
+  --good: #2DD4A8; --good-soft: rgba(45,212,168,.16); --warn: #F7B84F; --warn-soft: rgba(247,184,79,.16);
+  --crit: #F0616B; --crit-soft: rgba(240,97,107,.16); --idle: #6B7280;
   --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.28);
 }
+
+/* ── Source / type / score badges (Raven's research results) ────────────────
+   Light values match the old dashboard's badge-* classes exactly; dark is derived. */
+.src-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700;
+  padding: 2px 8px; border-radius: 99px; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; border: 1px solid; }
+.src-youtube     { background: #FFF0F0; color: #C0392B; border-color: #FAD7D7; }
+.src-twitter     { background: #EFF6FF; color: #1D6FA4; border-color: #BDD7F5; }
+.src-github      { background: #F3F0FF; color: #5B21B6; border-color: #D8CCF9; }
+.src-news        { background: #FFFBEB; color: #92400E; border-color: #FDE68A; }
+.src-ai_research, .src-arxiv { background: #ECFDF5; color: #065F46; border-color: #A7F3D0; }
+.src-hackernews  { background: #FFF7ED; color: #C2410C; border-color: #FED7AA; }
+.src-reddit      { background: #FFF1F0; color: #C0392B; border-color: #FFCCC7; }
+.src-wellness    { background: #F0FDF4; color: #166534; border-color: #86EFAC; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .src-youtube    { background: rgba(224,49,49,.14); color: #F0616B; border-color: rgba(240,97,107,.3); }
+  :root:not([data-theme="light"]) .src-twitter    { background: rgba(29,111,164,.2); color: #7FBBEA; border-color: rgba(127,187,234,.3); }
+  :root:not([data-theme="light"]) .src-github     { background: rgba(139,127,242,.16); color: #B7A8F5; border-color: rgba(183,168,245,.3); }
+  :root:not([data-theme="light"]) .src-news       { background: rgba(245,159,0,.14); color: #F7B84F; border-color: rgba(247,184,79,.3); }
+  :root:not([data-theme="light"]) .src-ai_research, :root:not([data-theme="light"]) .src-arxiv { background: rgba(45,212,168,.14); color: #4FD8B5; border-color: rgba(79,216,181,.3); }
+  :root:not([data-theme="light"]) .src-hackernews { background: rgba(226,111,15,.18); color: #F0975A; border-color: rgba(240,151,90,.3); }
+  :root:not([data-theme="light"]) .src-reddit     { background: rgba(224,49,49,.14); color: #F0616B; border-color: rgba(240,97,107,.3); }
+  :root:not([data-theme="light"]) .src-wellness   { background: rgba(0,184,148,.14); color: #2DD4A8; border-color: rgba(45,212,168,.3); }
+}
+:root[data-theme="dark"] .src-youtube    { background: rgba(224,49,49,.14); color: #F0616B; border-color: rgba(240,97,107,.3); }
+:root[data-theme="dark"] .src-twitter    { background: rgba(29,111,164,.2); color: #7FBBEA; border-color: rgba(127,187,234,.3); }
+:root[data-theme="dark"] .src-github     { background: rgba(139,127,242,.16); color: #B7A8F5; border-color: rgba(183,168,245,.3); }
+:root[data-theme="dark"] .src-news       { background: rgba(245,159,0,.14); color: #F7B84F; border-color: rgba(247,184,79,.3); }
+:root[data-theme="dark"] .src-ai_research, :root[data-theme="dark"] .src-arxiv { background: rgba(45,212,168,.14); color: #4FD8B5; border-color: rgba(79,216,181,.3); }
+:root[data-theme="dark"] .src-hackernews { background: rgba(226,111,15,.18); color: #F0975A; border-color: rgba(240,151,90,.3); }
+:root[data-theme="dark"] .src-reddit     { background: rgba(224,49,49,.14); color: #F0616B; border-color: rgba(240,97,107,.3); }
+:root[data-theme="dark"] .src-wellness   { background: rgba(0,184,148,.14); color: #2DD4A8; border-color: rgba(45,212,168,.3); }
+
+.type-badge { display: inline-flex; align-items: center; font-size: 10px; font-weight: 700; padding: 2px 8px;
+  border-radius: 99px; text-transform: uppercase; letter-spacing: .04em; border: 1px solid; white-space: nowrap; }
+.type-thread { background: #F3F0FF; color: #6C5CE7; border-color: #D8CCF9; }
+.type-long   { background: #ECFDF5; color: #059669; border-color: #A7F3D0; }
+.type-short  { background: #FFFBEB; color: #D97706; border-color: #FDE68A; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .type-thread { background: rgba(139,127,242,.16); color: #B7A8F5; border-color: rgba(183,168,245,.3); }
+  :root:not([data-theme="light"]) .type-long   { background: rgba(45,212,168,.14); color: #4FD8B5; border-color: rgba(79,216,181,.3); }
+  :root:not([data-theme="light"]) .type-short  { background: rgba(245,159,0,.14); color: #F7B84F; border-color: rgba(247,184,79,.3); }
+}
+:root[data-theme="dark"] .type-thread { background: rgba(139,127,242,.16); color: #B7A8F5; border-color: rgba(183,168,245,.3); }
+:root[data-theme="dark"] .type-long   { background: rgba(45,212,168,.14); color: #4FD8B5; border-color: rgba(79,216,181,.3); }
+:root[data-theme="dark"] .type-short  { background: rgba(245,159,0,.14); color: #F7B84F; border-color: rgba(247,184,79,.3); }
+
+.score-hi  { color: var(--good); }
+.score-mid { color: var(--warn); }
+.score-lo  { color: var(--faint); }
+
+/* ── Raven result rows + collapsible run sections ────────────────────────────── */
+.run-section { margin-bottom: 12px; }
+.run-header { display: flex; align-items: center; gap: 8px; padding: 9px 14px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r) var(--r) 0 0;
+  cursor: pointer; user-select: none; }
+.run-header.is-collapsed { border-radius: var(--r); }
+.run-trigger { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 99px; white-space: nowrap; flex: none; }
+.run-trigger.scheduled { background: var(--good-soft); color: var(--good); }
+.run-trigger.titto     { background: var(--accent-soft); color: var(--accent); }
+.run-trigger.telegram  { background: rgba(29,111,164,.12); color: #1D6FA4; }
+.run-trigger.manual    { background: var(--warn-soft); color: var(--warn); }
+.run-time { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.run-latest { font-size: 10px; padding: 1px 7px; border-radius: 99px; background: var(--good-soft); color: var(--good); font-weight: 700; flex: none; }
+.run-count { font-size: 11px; color: var(--faint); margin-left: auto; flex: none; }
+.run-arrow { font-size: 11px; color: var(--faint); flex: none; }
+.run-body { background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--r) var(--r); overflow: hidden; }
+
+.raven-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.raven-row:last-child { border-bottom: none; }
+.raven-row .rank { font-size: 11px; font-weight: 700; color: var(--faint); width: 22px; text-align: right; flex: none; }
+.raven-row .score { font-size: 13px; font-weight: 800; width: 26px; text-align: center; flex: none; }
+.raven-row .body { flex: 1; min-width: 0; }
+.raven-row .title { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.raven-row .meta { font-size: 11px; color: var(--faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.raven-row .row-acts { display: flex; gap: 5px; align-items: center; flex: none; }
+.raven-row .row-act { font-size: 11px; padding: 3px 9px; border-radius: 99px; border: 1px solid; cursor: pointer; white-space: nowrap; background: none; }
+.raven-row .row-act.write { background: var(--warn-soft); border-color: var(--warn-soft); color: var(--warn); }
+.raven-row .row-act.ask { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent); }
+.raven-row .row-link { font-size: 12px; color: var(--faint); padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); }
+.raven-row .row-link:hover { color: var(--ink); }
+.raven-row-drafts { padding: 0 14px 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
 
 body {
   margin: 0; background: var(--bg); color: var(--ink);
@@ -102,7 +184,7 @@ a { color: inherit; text-decoration: none; }
   display: flex; align-items: center; gap: 14px; padding: 13px 26px; }
 .topbar .titles { flex: 1; min-width: 0; }
 .topbar h1 { font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
-.topbar .crumb { font-family: var(--font-mono); font-size: 11px; color: var(--faint); letter-spacing: .03em; margin-top: 2px; }
+.topbar .crumb { font-family: var(--font-mono); font-size: 11px; color: var(--faint); letter-spacing: .03em; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 640px; }
 
 .content { padding: 24px 26px 48px; max-width: 1120px; width: 100%; }
 .section { margin-top: 26px; }
@@ -132,6 +214,18 @@ a { color: inherit; text-decoration: none; }
   border-radius: 20px; padding: 5px 13px; font-size: 12.5px; font-weight: 550; }
 .chip:hover { border-color: var(--faint); color: var(--ink); }
 .chip.is-active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Result-item detail modal (Raven/Quill search rows) */
+.modal-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(10,10,16,.6);
+  display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-card { width: 100%; max-width: 560px; max-height: 82vh; overflow-y: auto; padding: 20px 22px; }
+.modal-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.modal-head h3 { flex: 1; font-size: 16px; font-weight: 650; line-height: 1.4; }
+.modal-body { display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--muted); }
+.modal-body p { line-height: 1.6; margin: 0; }
+.modal-why { color: var(--accent); font-style: italic; }
+.modal-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.modal-acts .btn { text-align: center; justify-content: center; }
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow); }
 
@@ -269,11 +363,12 @@ textarea.field { resize: vertical; line-height: 1.5; }
 .stat-row { display: flex; gap: 16px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 11.5px; color: var(--faint);
   border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 16px; }
 
-/* ── Titto floating dock (persistent chat, bottom-left, all pages) ──────────── */
-.titto-dock { position: fixed; left: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+/* ── Titto floating dock (persistent chat, bottom-right, all pages) ─────────── */
+.titto-dock { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 .titto-dock-fab { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--border);
   background: var(--accent); color: var(--accent-ink); display: grid; place-items: center;
-  box-shadow: 0 6px 20px rgba(20,20,40,.22); position: relative; }
+  box-shadow: 0 6px 20px rgba(20,20,40,.22); position: relative;
+  font-family: var(--font-mono); font-size: 19px; font-weight: 700; }
 .titto-dock-fab:hover { filter: brightness(1.06); }
 .titto-dock-badge { position: absolute; top: -4px; right: -4px; background: var(--crit); color: #fff;
   font-family: var(--font-mono); font-size: 10px; font-weight: 700; min-width: 17px; height: 17px;

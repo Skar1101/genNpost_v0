@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import Sparrow from './Sparrow.jsx'
 import { useChat } from '../lib/queries.js'
 import { useWSEvent } from '../lib/ws.js'
+import { useTittoDockState, setOpen, clearPrefill } from '../lib/tittoDockStore.js'
 
 const SESSION_ID = 'web-default'
 const WELCOME = `Hey, I'm Titto — your Chief of Staff. Ask me to research a topic, write a post, find replies, or check what's working.`
 
 // Persistent floating chat — mounted once in AppShell so it survives page navigation.
+// Open/prefill state lives in tittoDockStore so other pages (e.g. Raven's "Ask Titto"
+// button) can open this with a pre-filled question.
 export default function TittoDock() {
-  const [open, setOpen] = useState(false)
+  const { open, prefill } = useTittoDockState()
   const [unread, setUnread] = useState(0)
   const [messages, setMessages] = useState([{ role: 'titto', text: WELCOME }])
   const [input, setInput] = useState('')
@@ -19,6 +21,14 @@ export default function TittoDock() {
   useEffect(() => {
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [messages, typing, open])
+
+  // Pick up a prefill set by another page (e.g. Raven's "Ask Titto").
+  useEffect(() => {
+    if (open && prefill) {
+      setInput(prefill)
+      clearPrefill()
+    }
+  }, [open, prefill])
 
   useWSEvent('chat_reply', (data) => {
     setTyping(false)
@@ -32,7 +42,7 @@ export default function TittoDock() {
   })
 
   function toggle() {
-    setOpen((o) => !o)
+    setOpen(!open)
     setUnread(0)
   }
 
@@ -66,7 +76,6 @@ export default function TittoDock() {
       {open && (
         <div className="titto-dock-panel card">
           <div className="titto-dock-head">
-            <Sparrow style={{ width: 18, height: 18, color: 'var(--accent)' }} />
             <span style={{ fontWeight: 650, fontSize: 13 }}>Titto</span>
             <span className="mono" style={{ fontSize: 10, color: 'var(--faint)' }}>CHIEF OF STAFF</span>
             <button className="icon-btn" style={{ marginLeft: 'auto', width: 26, height: 26 }} onClick={toggle} aria-label="Close chat">✕</button>
@@ -85,7 +94,7 @@ export default function TittoDock() {
         </div>
       )}
       <button className="titto-dock-fab" onClick={toggle} aria-label="Toggle Titto chat">
-        <Sparrow style={{ width: 22, height: 22 }} />
+        T
         {unread > 0 && <span className="titto-dock-badge">{unread}</span>}
       </button>
     </div>

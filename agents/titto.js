@@ -4,6 +4,7 @@ const raven = require('./raven')
 const koel = require('./koel')
 const quill = require('./quill')
 const analyst = require('./analyst')
+const toolsAgent = require('./toolsAgent')
 const { readLatest, findLatestRunBySource } = require('../state/researchStore')
 const { getHistory, appendMessage } = require('../state/conversationStore')
 const { buildIntentPrompt } = require('../prompts/tittoReason')
@@ -34,8 +35,36 @@ const SIMPLE_COMMANDS = {
   '/queue': handleQueue,
   '/learned': handleLearned,
   '/health': handleHealth,
+  '/tools': handleTools,
   '/start': handleStart,
   '/help': handleStart,
+}
+
+// /tools — find today's top AI tools (was a dedicated dashboard tab; now a chat-only capability).
+async function handleTools(_, broadcast, telegramSend) {
+  const reply = `On it — finding today's top AI tools…`
+  ;(async () => {
+    try {
+      const result = await toolsAgent.run({ broadcast, triggerLabel: '💬 /tools' })
+      const tools = result?.tools || []
+      if (!tools.length) {
+        const msg = 'No new tools found right now — try again later.'
+        if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
+        if (telegramSend) await telegramSend(msg)
+        return
+      }
+      const lines = tools.map((t, i) => `${i + 1}. *${t.name}*\n${t.description || ''}\n${t.url}`).join('\n\n')
+      const msg = `🛠 Today's top AI tools:\n\n${lines}`
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
+      if (telegramSend) await telegramSend(msg)
+    } catch (err) {
+      console.error('[Titto] /tools failed:', err.message)
+      const msg = 'Tool search hit an error. Check the logs.'
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
+      if (telegramSend) telegramSend(msg)
+    }
+  })()
+  return { reply, action: 'tools_started' }
 }
 
 // /health — surface silent failures at a glance: research freshness, failed sources, scheduler, keys.
@@ -157,7 +186,7 @@ function handleQueue() {
 
 function handleStart() {
   return {
-    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust Raven's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C); tap 💬 Draft reply on any\n/reply <x.com link or pasted tweet> — draft a reply to any post in your voice\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/batch — generate today's batch now\n/drop — run the full daily drop now (posts + reposts + article ideas)\n/reposts — draft value-add quote-reposts of today's viral posts\n/ideas — get article ideas to tap-and-write (auto-written in the background)\n/article <topic> — draft a professional article in the Writer tab (streams live)\n/focus <topics | off> — bias research to specific topics until you clear it\n/profile — your creator profile + what's still needed\n/queue — drafts you've approved & what's pending\n/perf <pasted tweets + stats> — log this week's post performance so I learn what's working\n/learned — what's landing (hooks, formats, topics) + research bias\n/latest — show today's research results\n/status — system status\n/health — quick check: research freshness, failed sources, keys, scheduler\n\nOr just talk to me normally.`,
+    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust Raven's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C); tap 💬 Draft reply on any\n/reply <x.com link or pasted tweet> — draft a reply to any post in your voice\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/batch — generate today's batch now\n/drop — run the full daily drop now (posts + reposts + article ideas)\n/reposts — draft value-add quote-reposts of today's viral posts\n/ideas — get article ideas to tap-and-write (auto-written in the background)\n/article <topic> — draft a professional article in the Writer tab (streams live)\n/focus <topics | off> — bias research to specific topics until you clear it\n/profile — your creator profile + what's still needed\n/queue — drafts you've approved & what's pending\n/perf <pasted tweets + stats> — log this week's post performance so I learn what's working\n/learned — what's landing (hooks, formats, topics) + research bias\n/latest — show today's research results\n/status — system status\n/health — quick check: research freshness, failed sources, keys, scheduler\n/tools — find today's top AI tools\n\nOr just talk to me normally.`,
     action: null,
   }
 }

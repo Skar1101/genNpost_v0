@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import DraftCard from '../components/DraftCard.jsx'
-import { useKoelWrite, useKoelHistory } from '../lib/queries.js'
+import { useKoelWrite, useKoelHistory, useKoelReload } from '../lib/queries.js'
 
 const FORMATS = [
   { id: 'short', label: 'Short Form', desc: 'Single tweet, punchy & direct, max 280 chars' },
@@ -23,9 +23,18 @@ export default function KoelPage() {
   const [extra, setExtra] = useState('')
   const [showExtra, setShowExtra] = useState(false)
   const [result, setResult] = useState(null)
+  const [reloadMsg, setReloadMsg] = useState('')
 
   const write = useKoelWrite()
   const history = useKoelHistory()
+  const reload = useKoelReload()
+
+  function reloadFiles() {
+    reload.mutate(undefined, {
+      onSuccess: (data) => setReloadMsg(data.message || 'Reloaded.'),
+      onError: (err) => setReloadMsg(`Failed: ${err.message}`),
+    })
+  }
 
   function generate() {
     if (!input.trim()) return
@@ -44,7 +53,12 @@ export default function KoelPage() {
           <button className={tab === 'write' ? 'is-active' : ''} onClick={() => setTab('write')}>Write</button>
           <button className={tab === 'history' ? 'is-active' : ''} onClick={() => setTab('history')}>History</button>
         </div>
+        <div className="spacer" />
+        <button className="btn sm" onClick={reloadFiles} disabled={reload.isPending} title="Reload knowledge files (profile, voice, approvals) after editing">
+          {reload.isPending ? 'Reloading…' : '↻ Reload Files'}
+        </button>
       </div>
+      {reloadMsg && <div className="hint" style={{ margin: '8px 0 0' }}>{reloadMsg}</div>}
 
       {tab === 'write' && (
         <>
