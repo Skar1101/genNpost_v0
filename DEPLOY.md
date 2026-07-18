@@ -37,7 +37,7 @@ node -v   # should be v20.x (arm64)
 ## 4. Get the code
 ```bash
 git clone https://github.com/Skar1101/TinySparrow_social_media_manager_V0.git
-cd TinySparrowV0
+cd TinySparrow_social_media_manager_V0
 npm ci --omit=dev
 ```
 
@@ -62,7 +62,7 @@ PORT=3000
 `state/data/` is gitignored, so it isn't in the repo. Copy it from the **laptop** (run on the laptop, not the
 VM):
 ```bash
-scp -i oracle.key -r state/data ubuntu@<PUBLIC_IP>:~/TinySparrowV0/state/
+scp -i oracle.key -r state/data ubuntu@<PUBLIC_IP>:~/TinySparrow_social_media_manager_V0/state/
 ```
 *(Skip this only if you want to start fresh — then re-do `/profile` and lose past approvals/insights.)*
 
@@ -79,7 +79,7 @@ crontab -e
 ```
 Add this line (checks GitHub every 10 min; pulls + reloads only when there are new commits):
 ```
-*/10 * * * * cd ~/TinySparrowV0 && bash scripts/update.sh >> logs/update.log 2>&1
+*/10 * * * * cd ~/TinySparrow_social_media_manager_V0 && bash scripts/update.sh >> logs/update.log 2>&1
 ```
 From now on: **edit → commit → `git push`** → the VM self-updates within ~10 min (zero-downtime `pm2 reload`,
 `npm ci` only if deps changed, `state/data` untouched). Need it now? `npm run update` on the VM.
