@@ -36,7 +36,7 @@ node -v   # should be v20.x (arm64)
 
 ## 4. Get the code
 ```bash
-git clone https://github.com/Skar1101/TinySparrowV0.git
+git clone https://github.com/Skar1101/TinySparrow_social_media_manager_V0.git
 cd TinySparrowV0
 npm ci --omit=dev
 ```
