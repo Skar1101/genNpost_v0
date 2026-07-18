@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 
-// Reply-target (I2C) runs are stored separately from ChitraG research so they never overlap or
+// Reply-target (I2C) runs are stored separately from Raven research so they never overlap or
 // evict research runs from the history. Latest run only — it's a low-frequency, on-demand feature.
 const DATA_DIR = path.join(__dirname, 'data')
 const LATEST_FILE = path.join(DATA_DIR, 'reply-targets-latest.json')

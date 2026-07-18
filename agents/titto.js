@@ -1,6 +1,6 @@
 require('dotenv').config()
 const OpenAI = require('openai')
-const chitrag = require('./chitrag')
+const raven = require('./raven')
 const koel = require('./koel')
 const quill = require('./quill')
 const analyst = require('./analyst')
@@ -15,6 +15,8 @@ const dailyDrop = require('../scheduler/dailyDrop')
 const schedulerStore = require('../state/schedulerStore')
 const memory = require('../state/memory')
 const { ensureProfile } = require('../state/profileSeed')
+const guard = require('../utils/llmGuard')
+const G = require('../config/guardrails')
 
 let _openai = null
 function getOpenAI() {
@@ -155,7 +157,7 @@ function handleQueue() {
 
 function handleStart() {
   return {
-    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust ChitraG's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C); tap 💬 Draft reply on any\n/reply <x.com link or pasted tweet> — draft a reply to any post in your voice\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/batch — generate today's batch now\n/drop — run the full daily drop now (posts + reposts + article ideas)\n/reposts — draft value-add quote-reposts of today's viral posts\n/ideas — get article ideas to tap-and-write (auto-written in the background)\n/article <topic> — draft a professional article in the Writer tab (streams live)\n/focus <topics | off> — bias research to specific topics until you clear it\n/profile — your creator profile + what's still needed\n/queue — drafts you've approved & what's pending\n/perf <pasted tweets + stats> — log this week's post performance so I learn what's working\n/learned — what's landing (hooks, formats, topics) + research bias\n/latest — show today's research results\n/status — system status\n/health — quick check: research freshness, failed sources, keys, scheduler\n\nOr just talk to me normally.`,
+    reply: `Hey, I'm Titto — your Chief of Staff.\n\nHere's what I can do:\n• Run research on AI, tech & startup news (auto: 6am + 6pm)\n• Rank the best topics for your X posts\n• Take your feedback and adjust Raven's research\n\nCommands:\n/research — trigger a research run now\n/replies — find fresh X posts to reply to (≤4h, >10K impressions, high I2C); tap 💬 Draft reply on any\n/reply <x.com link or pasted tweet> — draft a reply to any post in your voice\n/replies investment, world cup — widen the search for one run\n/replies domains — manage which domains the reply search covers\n/batch — generate today's batch now\n/drop — run the full daily drop now (posts + reposts + article ideas)\n/reposts — draft value-add quote-reposts of today's viral posts\n/ideas — get article ideas to tap-and-write (auto-written in the background)\n/article <topic> — draft a professional article in the Writer tab (streams live)\n/focus <topics | off> — bias research to specific topics until you clear it\n/profile — your creator profile + what's still needed\n/queue — drafts you've approved & what's pending\n/perf <pasted tweets + stats> — log this week's post performance so I learn what's working\n/learned — what's landing (hooks, formats, topics) + research bias\n/latest — show today's research results\n/status — system status\n/health — quick check: research freshness, failed sources, keys, scheduler\n\nOr just talk to me normally.`,
     action: null,
   }
 }
@@ -178,11 +180,11 @@ function handleLatest() {
 
 async function handleTriggerResearch(_, broadcast, telegramSend, filterSources = null) {
   const srcLabel = filterSources?.length ? ` (${filterSources.join(', ')} only)` : ''
-  const reply = `On it. ChitraG is running research${srcLabel} now — I'll let you know when it's ready.`
+  const reply = `On it. Raven is running research${srcLabel} now — I'll let you know when it's ready.`
   const label = filterSources?.length
     ? `📱 Telegram · ${filterSources.join(', ')}`
     : '📱 Telegram · /research'
-  chitrag.run({ triggeredBy: 'user', triggerLabel: label, broadcast, filterSources }).then(async results => {
+  raven.run({ triggeredBy: 'user', triggerLabel: label, broadcast, filterSources }).then(async results => {
     if (results) await deliverResearch(results, telegramSend, broadcast)
   }).catch(err => {
     console.error('[Titto] Research run failed:', err.message)
@@ -242,11 +244,11 @@ async function handleReplyTargets(args, broadcast, telegramSend, telegramSendRep
     ? ` (widening with ${[...adhocDomains, ...keywords].join(', ')})`
     : ''
   const reply = `On it — scanning X for reply targets (≤4h old, >10K impressions, high I2C)${widenNote}. I'll send the list shortly.`
-  chitrag.findReplyTargets({ domains, extraKeywords: keywords, broadcast }).then(async result => {
-    // Chat/Telegram get only the qualifying reply targets; the full pool is saved to the ChitraG list.
+  raven.findReplyTargets({ domains, extraKeywords: keywords, broadcast }).then(async result => {
+    // Chat/Telegram get only the qualifying reply targets; the full pool is saved to the Raven list.
     const items = result.qualified || []
     if (!items.length) {
-      const msg = `No posts met the bar this run (≤${result.windowUsedMin}m old · >10K impressions · I2C>50). All ${result.totalInList || 0} scanned posts are saved in ChitraG (Reply tag) for reference. Try widening: e.g. \`/replies investment, world cup\`, or \`/replies domains add investment\`.`
+      const msg = `No posts met the bar this run (≤${result.windowUsedMin}m old · >10K impressions · I2C>50). All ${result.totalInList || 0} scanned posts are saved in Raven (Reply tag) for reference. Try widening: e.g. \`/replies investment, world cup\`, or \`/replies domains add investment\`.`
       if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: msg } })
       if (telegramSend) await telegramSend(msg)
       return
@@ -254,7 +256,7 @@ async function handleReplyTargets(args, broadcast, telegramSend, telegramSendRep
     const lines = items.map((r, i) =>
       `${i + 1}. ${r.title}\n   ${r.impressions.toLocaleString()} imp · I2C ${r.i2c} · ${r.ageMinutes}m old · ${r.url}`
     ).join('\n\n')
-    const header = `${items.length} reply targets (window ${result.windowUsedMin}m, sorted by I2C) · ${result.totalInList} scanned saved to ChitraG:`
+    const header = `${items.length} reply targets (window ${result.windowUsedMin}m, sorted by I2C) · ${result.totalInList} scanned saved to Raven:`
     const full = `${header}\n\n${lines}`
     if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: full } })
     // Telegram: send the top targets as individual messages, each with a "💬 Draft reply" button.
@@ -424,8 +426,8 @@ async function handleBatch(broadcast, telegramSend, telegramSendDraft) {
     try {
       let research = readLatest()
       if (!research?.results?.length) {
-        if (telegramSend) await telegramSend('No fresh research yet — running ChitraG first…')
-        research = await chitrag.run({ triggeredBy: 'user', triggerLabel: '💬 /batch', broadcast })
+        if (telegramSend) await telegramSend('No fresh research yet — running Raven first…')
+        research = await raven.run({ triggeredBy: 'user', triggerLabel: '💬 /batch', broadcast })
       }
       if (!research?.results?.length) {
         const msg = 'Could not get research to build a batch. Try /research, then /batch.'
@@ -523,7 +525,7 @@ function handleStatus() {
   const nextRun = next6am < next6pm ? next6am : next6pm
 
   return {
-    reply: `System status:\n• Last research run: ${lastRun}\n• Results available: ${data?.results?.length || 0}\n• Next scheduled run: ${nextRun.toISOString().slice(0, 16).replace('T', ' ')} UTC\n• ChitraG: ready`,
+    reply: `System status:\n• Last research run: ${lastRun}\n• Results available: ${data?.results?.length || 0}\n• Next scheduled run: ${nextRun.toISOString().slice(0, 16).replace('T', ' ')} UTC\n• Raven: ready`,
     action: null,
   }
 }
@@ -531,7 +533,7 @@ function handleStatus() {
 function formatResearchSummary(data) {
   if (!data || !data.results?.length) return "Research completed but no results were returned."
   const top = data.results[0]
-  return `Research done. ${data.results.length} results ranked.\n\nTop pick: "${top.title}" [Score: ${top.trendingScore}] — ${top.postPotential} · ${top.source}\n\nCheck the ChitraG panel for the full list.`
+  return `Research done. ${data.results.length} results ranked.\n\nTop pick: "${top.title}" [Score: ${top.trendingScore}] — ${top.postPotential} · ${top.source}\n\nCheck the Raven panel for the full list.`
 }
 
 // Push freshly generated drafts to Telegram with one-tap Approve/Reject/Edit buttons.
@@ -725,12 +727,10 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
   const history = getHistory(sessionId)
   const prompt = buildIntentPrompt(input, history)
 
-  const response = await getOpenAI().chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.2,
-    max_tokens: 400,
-  })
+  const response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
+    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 400 },
+    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
+  ))
 
   let parsed
   try {
@@ -757,7 +757,7 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
       ? `💬 Titto · ${filterSources.join(', ')} · "${input.slice(0, 40)}"`
       : `💬 Titto · "${input.slice(0, 50)}"`
 
-    chitrag.run({
+    raven.run({
       triggeredBy: 'feedback-redo',
       triggerLabel: tLabel,
       instructions: parsed.instructionDelta || null,
@@ -884,7 +884,7 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
       broadcast,
       origin: 'koel',
       triggerLabel: '💬 Titto',
-      // Run-level research provenance for the future ChitraG feedback loop. write_from_list can blend
+      // Run-level research provenance for the future Raven feedback loop. write_from_list can blend
       // several items per draft (combined/multi_version), so we record the run + the items involved
       // rather than a single source per draft.
       meta: {

@@ -5,7 +5,7 @@ Edit it directly to change the default voice, structure, or rules — changes ar
 picked up on the next article generation. Anything passed in the Refine input or
 via `/quill article` will override this template (highest priority).
 
-When you click Article, Quill first runs a ChitraG search on the topic to pull
+When you click Article, Quill first runs a Raven search on the topic to pull
 related content from Reddit, GitHub, HN, X, YouTube, and arXiv. Those items become
 the primary citation sources — the article weaves them in as inline Markdown links.
 

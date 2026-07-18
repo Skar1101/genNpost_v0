@@ -1,14 +1,14 @@
 # AGENTS.md (Quill — Functional Instructions)
 
 ## What Quill Does
-Quill is the daily content planner. It runs automatically after ChitraG's morning research
+Quill is the daily content planner. It runs automatically after Raven's morning research
 and produces a full day's worth of X post drafts across multiple formats.
 
 ## Daily Run (`runDaily`)
-Triggered by: scheduler at 6am IST (after ChitraG) OR `POST /api/quill/trigger`
+Triggered by: scheduler at 6am IST (after Raven) OR `POST /api/quill/trigger`
 
 ### Step 1: Topic Assignment (1 LLM call)
-Given ChitraG's top 15 results, assign topics:
+Given Raven's top 15 results, assign topics:
 - `motivational` — 3 freetext prompts grounded in Souvik's story
 - `threads` — 1-2 research topics for thread format
 - `shorts` — 3 research topics for short tweet format

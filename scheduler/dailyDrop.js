@@ -2,7 +2,7 @@
 // the /drop command, and the catch-up. All draft-only. Guarantees TODAY's research: if the latest research
 // isn't from today (e.g. the laptop was asleep at 3 PM), it runs a fresh search first, then builds the drop.
 const quill = require('../agents/quill')
-const chitrag = require('../agents/chitrag')
+const raven = require('../agents/raven')
 const analyst = require('../agents/analyst')
 const { readLatest } = require('../state/researchStore')
 const { isEnabled, getLastDrop, setLastDrop } = require('../state/schedulerStore')
@@ -14,15 +14,15 @@ function istMinutes() { const d = istNow(); return d.getUTCHours() * 60 + d.getU
 function istDateOf(ts) { return ts ? new Date(new Date(ts).getTime() + (5 * 60 + 30) * 60 * 1000).toISOString().slice(0, 10) : null }
 const DROP_IST_MIN = 15 * 60 + 45   // 3:45 PM IST
 
-// Return today's research, running ONE fresh ChitraG search if the latest run isn't from today (IST).
+// Return today's research, running ONE fresh Raven search if the latest run isn't from today (IST).
 async function ensureTodaysResearch({ broadcast = null, telegramSend = null, triggerLabel = '' } = {}) {
   const latest = readLatest()
   if (latest?.results?.length && istDateOf(latest.rankedAt) === istToday()) return latest   // already fresh today — no new search
-  console.log('[Drop] No research for today yet — running a fresh ChitraG search first')
+  console.log('[Drop] No research for today yet — running a fresh Raven search first')
   if (telegramSend) await telegramSend('🔎 No fresh research for today yet — searching now, then building your drop…').catch(() => {})
   try {
     const instructions = analyst.researchInstructions() || null
-    return await chitrag.run({ triggeredBy: 'drop', triggerLabel: (triggerLabel || 'drop') + ' · research', instructions, broadcast })
+    return await raven.run({ triggeredBy: 'drop', triggerLabel: (triggerLabel || 'drop') + ' · research', instructions, broadcast })
   } catch (e) { console.warn('[Drop] fresh research failed:', e.message); return latest }   // fall back to whatever we have
 }
 

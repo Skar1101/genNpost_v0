@@ -89,7 +89,7 @@ The voice + research sharpen from your actions:
 ---
 
 ## Part E — Where things live
-- **Dashboard panels:** ChitraG (research), Reply Targets (I2C posts to reply to), Koel (write + history),
+- **Dashboard panels:** Raven (research), Reply Targets (I2C posts to reply to), Koel (write + history),
   Quill (pillars + plan + 🔎 Latest search), Writer (articles), Titto (activity), Logs.
 - **Your data:** `state/data/accounts/skar_connect/` — `profile.json`, `approved-drafts.json`,
   `rejected-drafts.json`, `draft-queue.json`, `insights.json`, …
@@ -107,7 +107,7 @@ The voice + research sharpen from your actions:
 ---
 
 ## Schedule (IST)
-- **3:00 PM** — ChitraG research + briefing
+- **3:00 PM** — Raven research + briefing
 - **3:45 PM** — daily drop (6 posts + 2 reposts + 3–5 article ideas)
 - **6:00 PM** — fresh research
 - **Sunday 6 AM** — weekly wrap + performance nudge

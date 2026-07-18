@@ -18,7 +18,7 @@ function getOpenAI() {
 const APPROVED_STATES = ['queued', 'edited', 'posted', 'measured']
 const norm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
 
-// ── ChitraG learner (deterministic) ───────────────────────────────────────────
+// ── Raven learner (deterministic) ───────────────────────────────────────────
 // Win-rate per research source/topic, joined from the draft queue's provenance meta
 // (recorded in Phase 5). Approved = reached queued/edited/posted/measured; rejected = rejected.
 function computeSourceStats(account) {
@@ -100,7 +100,7 @@ Return ONLY a JSON array, no markdown:
 
 // ── Analyze (the learner) ─────────────────────────────────────────────────────
 // Reads performance + approved/rejected + source win-rates → LLM extracts what's working and
-// what to avoid, plus focus/downweight for ChitraG. Saves to insightsStore. Returns the insights.
+// what to avoid, plus focus/downweight for Raven. Saves to insightsStore. Returns the insights.
 async function analyze({ account = null, broadcast = null } = {}) {
   const acct = account || memory.accounts.getActiveAccount()
   const perf = memory.performanceLog.read(acct).slice(-40)
@@ -185,7 +185,7 @@ Return ONLY JSON, no markdown:
 // ── Consumers ─────────────────────────────────────────────────────────────────
 function getInsights(account) { return insightsStore.get(account) }
 
-// Learned research bias for ChitraG scheduled runs. Returns { focus, downweight } or null.
+// Learned research bias for Raven scheduled runs. Returns { focus, downweight } or null.
 function learnedInstructions(account) {
   const ins = insightsStore.get(account)
   if (!ins) return null
@@ -195,7 +195,7 @@ function learnedInstructions(account) {
 }
 
 // Standing human-angle focus so research reinforces the ~60% human / 40% tech mix instead of
-// re-tilting to pure AI. Matches the buckets in chitrag's pool balancer + the ranking prompt.
+// re-tilting to pure AI. Matches the buckets in raven's pool balancer + the ranking prompt.
 const STANDING_HUMAN_FOCUS = [
   'discipline', 'habits', 'meditation', 'mindfulness', 'self-development',
   'AI in daily life', 'how AI is impacting humans',
@@ -212,7 +212,7 @@ function profileFocus(account) {
   return [...new Set([...STANDING_HUMAN_FOCUS, ...pillars])]
 }
 
-// The effective ChitraG instructions for scheduled/automated runs:
+// The effective Raven instructions for scheduled/automated runs:
 //   focus = manual /focus override if set, else profile niche + learned focus
 //   downweight = learned downweight (always)
 // Keeps "all data in my area of interest, until I specify otherwise".

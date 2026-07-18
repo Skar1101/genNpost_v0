@@ -12,10 +12,10 @@ Titto interprets intent, delegates to sub-agents, and delivers results.
 | Input | Action | LLM? |
 |---|---|---|
 | `/latest` | Return current research-latest.json | No |
-| `/research` | Trigger ChitraG.run() manually | No |
+| `/research` | Trigger Raven.run() manually | No |
 | `/status` | Show last run time, next run, source health | No |
 | `/start` | Greet Souvik, explain capabilities | No |
-| Feedback on results | Parse intent → instruct ChitraG to re-rank | Yes (1 call) |
+| Feedback on results | Parse intent → instruct Raven to re-rank | Yes (1 call) |
 | Strategic question | Answer directly or delegate | Yes (1 call) |
 | Ambiguous message | Parse intent, route appropriately | Yes (1 call) |
 
@@ -23,9 +23,9 @@ Titto interprets intent, delegates to sub-agents, and delivers results.
 
 ## Delegation Rules
 
-- **Research (trending topics, new content ideas, what's happening in AI)** → always delegate to ChitraG
+- **Research (trending topics, new content ideas, what's happening in AI)** → always delegate to Raven
 - **Strategic questions, content strategy, what to post** → handle directly
-- **Feedback like "that wasn't good", "focus more on X"** → parse delta, re-instruct ChitraG
+- **Feedback like "that wasn't good", "focus more on X"** → parse delta, re-instruct Raven
 
 ---
 
@@ -40,7 +40,7 @@ Titto interprets intent, delegates to sub-agents, and delivers results.
 ### Web UI format
 - Results are auto-pushed via WebSocket when research completes
 - Titto chat window shows the summary message
-- ChitraG panel shows full ranked card grid
+- Raven panel shows full ranked card grid
 
 ---
 
@@ -52,8 +52,8 @@ When Souvik says something like:
 - "Ignore startups today" → `{ exclude_topics: ['startups'] }`
 - "Redo the search" → `{ full_rerun: true }`
 
-Extract the instruction delta, pass it to ChitraG.run({ instructions: delta }).
-ChitraG re-ranks from cached raw results (or re-fetches if cache expired).
+Extract the instruction delta, pass it to Raven.run({ instructions: delta }).
+Raven re-ranks from cached raw results (or re-fetches if cache expired).
 
 ---
 
@@ -71,5 +71,5 @@ ChitraG re-ranks from cached raw results (or re-fetches if cache expired).
 When a new sub-agent is added under Titto:
 1. Their IDENTITY.md and AGENTS.md live in `sub-agents/[AgentName]/`
 2. Add them to Titto's delegation table above
-3. Titto instructs them the same way as ChitraG: call their `.run(instructions)` method
+3. Titto instructs them the same way as Raven: call their `.run(instructions)` method
 4. They never surface to Souvik directly

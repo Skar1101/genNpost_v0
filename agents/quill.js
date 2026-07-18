@@ -1,7 +1,7 @@
 require('dotenv').config()
 const OpenAI = require('openai')
 const koel = require('./koel')
-const chitrag = require('./chitrag')
+const raven = require('./raven')
 const { appendRun } = require('../state/quillStore')
 const activityStore = require('../state/activityStore')
 const guard = require('../utils/llmGuard')
@@ -104,7 +104,7 @@ Rules:
 }
 
 // Match a batch topic string back to the research item it came from, so drafts can carry
-// research provenance (url/source/rank) for the future ChitraG feedback loop. Title-based since
+// research provenance (url/source/rank) for the future Raven feedback loop. Title-based since
 // assignTopics returns bare strings. Returns null for original (motivational) topics.
 function matchResearchItem(topic, results) {
   if (!topic || !results?.length) return null
@@ -511,8 +511,8 @@ async function planSuggestions({ broadcast = null, forceFresh = false, triggerLa
       : !research?.results?.length
         ? 'no prior research'
         : `research is ${ageHours.toFixed(1)}h old (>${STALE_HOURS}h threshold)`
-    log.info(`Triggering fresh ChitraG run — ${reason}`)
-    research = await chitrag.run({
+    log.info(`Triggering fresh Raven run — ${reason}`)
+    research = await raven.run({
       triggeredBy: 'quill-plan',
       triggerLabel: '🪶 Quill · plan',
       broadcast: null,
@@ -583,7 +583,7 @@ async function draftFromSuggestion({ suggestion, format, broadcast = null, sessi
       if (broadcast) broadcast({ type: 'quill_progress', data: { step: 'researching_similar' } })
       log.info(`Article research — searching for similar content on "${topicQuery.slice(0, 60)}"`)
       try {
-        const research = await chitrag.run({
+        const research = await raven.run({
           triggeredBy: 'quill-article-research',
           triggerLabel: `🪶 Quill · article research · "${topicQuery.slice(0, 40)}"`,
           searchQuery: topicQuery,

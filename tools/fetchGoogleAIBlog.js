@@ -23,7 +23,7 @@ async function fetchGoogleAIBlog(config) {
       fetchedAt: new Date().toISOString(),
     }))
   } catch (err) {
-    console.warn(`[ChitraG] Google AI Blog fetch failed: ${err.message}`)
+    console.warn(`[Raven] Google AI Blog fetch failed: ${err.message}`)
     return []
   }
 }

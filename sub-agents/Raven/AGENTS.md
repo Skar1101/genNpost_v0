@@ -1,4 +1,4 @@
-# AGENTS.md (ChitraG — Functional Instructions)
+# AGENTS.md (Raven — Functional Instructions)
 
 ## Research Run Flow
 

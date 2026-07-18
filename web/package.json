@@ -1,0 +1,22 @@
+{
+  "name": "tinysparrow-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "TinySparrow dashboard — React front end (additive; the existing public/ dashboard keeps working)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.51.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0"
+  }
+}

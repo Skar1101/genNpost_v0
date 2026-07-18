@@ -3,7 +3,7 @@ const logger = require('../utils/logger').source('twitter')
 
 // Top viral queries, weighted ~60% HUMAN (discipline, meditation, self-dev, AI-in-daily-life,
 // AI's impact on humans) / ~40% TECH (trending AI). Each query carries a `topic` used by the
-// 60/40 pool balancer in chitrag. Using 'Top' type to get high-engagement posts (not just latest).
+// 60/40 pool balancer in raven. Using 'Top' type to get high-engagement posts (not just latest).
 const QUERIES = [
   // HUMAN — discipline, meditation, self-development, AI for people
   { q: '(discipline OR "self discipline" OR habits OR "deep work" OR consistency) lang:en', topic: 'human' },
@@ -89,7 +89,7 @@ async function fetchTwitter(config) {
   const byEng = arr => arr.sort((a, b) => b.engagement - a.engagement)
 
   // Targeted search → straight top-by-engagement. Default → keep ~60% human / 40% tech within
-  // twitter's own budget, so viral AI tweets don't bury the human-angle ones before chitrag ranks.
+  // twitter's own budget, so viral AI tweets don't bury the human-angle ones before raven ranks.
   let top
   if (searchQuery) {
     top = byEng(results).slice(0, maxResults)

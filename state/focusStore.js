@@ -1,4 +1,4 @@
-// Account-keyed research focus OVERRIDE. When set, ChitraG biases toward these topics until Souvik
+// Account-keyed research focus OVERRIDE. When set, Raven biases toward these topics until Souvik
 // clears it ("until I specify otherwise"). When empty, the system falls back to the profile niche.
 const fs = require('fs')
 const accounts = require('./accounts')

@@ -1,7 +1,7 @@
 {
   "name": "tinysparrow",
   "version": "1.0.0",
-  "description": "Multi-agent content management team — Titto & ChitraG",
+  "description": "Multi-agent content management team — Titto & Raven",
   "main": "server/index.js",
   "engines": {
     "node": ">=18"

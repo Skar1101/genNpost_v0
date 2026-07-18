@@ -217,8 +217,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
     <div class="px-4 pb-2 text-xs font-semibold uppercase tracking-widest" style="color:var(--text3)">Agents</div>
 
     <div class="agent-tab active px-4 py-2.5 text-sm font-medium flex items-center gap-2.5" onclick="switchAgent('chitrag')" id="tab-chitrag">
-      <div style="width:24px;height:24px;border-radius:8px;background:var(--green-dim);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--green)">C</div>
-      ChitraG
+      <div style="width:24px;height:24px;border-radius:8px;background:var(--green-dim);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--green)">Rv</div>
+      Raven
     </div>
 
     <div class="agent-tab px-4 py-2.5 text-sm font-medium flex items-center gap-2.5" onclick="switchAgent('koel')" id="tab-koel">
@@ -251,14 +251,14 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
   <!-- ── MAIN CONTENT ── -->
   <main class="flex-1 flex flex-col overflow-hidden relative">
 
-    <!-- ChitraG panel -->
+    <!-- Raven panel -->
     <div id="panel-chitrag" class="flex-1 flex flex-col overflow-hidden">
 
-      <!-- ChitraG toolbar -->
+      <!-- Raven toolbar -->
       <div style="background:var(--surface); border-bottom:1px solid var(--border); padding:10px 20px;" class="flex items-center gap-3 shrink-0 flex-wrap">
         <div class="flex items-center gap-2">
-          <div style="width:28px;height:28px;border-radius:8px;background:var(--green-dim);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--green)">C</div>
-          <span class="font-semibold text-sm" style="color:var(--green)">ChitraG</span>
+          <div style="width:28px;height:28px;border-radius:8px;background:var(--green-dim);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--green)">Rv</div>
+          <span class="font-semibold text-sm" style="color:var(--green)">Raven</span>
           <span class="text-xs" style="color:var(--text3)">Research Agent</span>
         </div>
 
@@ -325,14 +325,14 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
         <div id="emptyState" class="flex flex-col items-center justify-center h-full text-center fade-up">
           <div style="font-size:48px;margin-bottom:16px">🔍</div>
           <div class="text-lg font-semibold mb-2">No research yet</div>
-          <div class="text-sm mb-6" style="color:var(--text2)">ChitraG runs automatically at 6 AM and 6 PM.<br>Or kick it off now.</div>
+          <div class="text-sm mb-6" style="color:var(--text2)">Raven runs automatically at 6 AM and 6 PM.<br>Or kick it off now.</div>
           <button onclick="triggerResearch()" class="px-5 py-2 rounded-xl text-sm font-semibold" style="background:var(--green);color:#09090f">Run Research Now</button>
         </div>
 
         <!-- ── RUNNING STATE ── -->
         <div id="runningState" class="hidden flex-col items-center justify-center h-full text-center fade-up">
           <div style="font-size:48px;margin-bottom:16px">⚡</div>
-          <div class="text-base font-semibold mb-1" style="color:var(--green)">ChitraG is researching…</div>
+          <div class="text-base font-semibold mb-1" style="color:var(--green)">Raven is researching…</div>
           <div id="pgStep" class="text-sm pulse" style="color:var(--text2)">Starting…</div>
         </div>
 
@@ -404,7 +404,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
               <button onclick="loadLog('scrape/twitter')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">Twitter</button>
               <button onclick="loadLog('scrape/youtube')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">YouTube</button>
               <button onclick="loadLog('scrape/arxiv')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">arXiv</button>
-              <button onclick="loadLog('scrape/chitrag')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">ChitraG</button>
+              <button onclick="loadLog('scrape/raven')" class="log-tab-btn" style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;">Raven</button>
             </div>
             <button onclick="loadLog(currentLogTab)" style="margin-left:auto;font-size:11px;padding:3px 10px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--text3);cursor:pointer;">↻ Refresh</button>
           </div>
@@ -573,7 +573,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
               <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;margin-bottom:3px;">PLAN TODAY'S POSTS</div>
               <div style="font-size:11px;color:var(--text3);">Quill finds 2–3 trending items per pillar. Pick what to write.</div>
             </div>
-            <label title="Force a fresh ChitraG scrape, bypass cache. Slower but always-new content."
+            <label title="Force a fresh Raven scrape, bypass cache. Slower but always-new content."
               style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);cursor:pointer;user-select:none;flex-shrink:0;">
               <input type="checkbox" id="planFreshChk" style="cursor:pointer;accent-color:#db2777;">
               Fresh search
@@ -604,7 +604,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
         <!-- ── Suggestions area (grouped by pillar; drafts appear inline per suggestion) ── -->
         <div id="quillSuggestionsArea" style="display:flex;flex-direction:column;gap:18px;"></div>
 
-        <!-- ── Previous plans (collapsible, ChitraG-style) ── -->
+        <!-- ── Previous plans (collapsible, Raven-style) ── -->
         <div id="quillPrevPlansArea"></div>
 
         <!-- ── Empty state ── -->
@@ -801,7 +801,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
     <div class="fade-up" style="display:flex;gap:8px;align-items:flex-start;">
       <div style="width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,#7c6ff7,#a99cf7);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">T</div>
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px 14px 14px 4px;padding:9px 13px;font-size:13px;line-height:1.5;max-width:260px;">
-        Hey — I'm Titto, your Chief of Staff.<br><br>ChitraG runs research at <strong>6am + 6pm</strong>. Ask me anything or use a command.<br><br>
+        Hey — I'm Titto, your Chief of Staff.<br><br>Raven runs research at <strong>6am + 6pm</strong>. Ask me anything or use a command.<br><br>
         <span style="color:var(--text3);font-size:11px">/research · /latest · /status</span>
       </div>
     </div>
@@ -1000,7 +1000,7 @@ function renderSchedulerToggle() {
 async function toggleScheduler() {
   if (_schedEnabled === null) return
   const newVal = !_schedEnabled
-  if (!newVal && !confirm('Pause all scheduled auto-runs?\n\n• 6am ChitraG + Quill daily lineup\n• 6pm ChitraG\n• Sunday weekly wrap\n\nManual buttons will still work.')) return
+  if (!newVal && !confirm('Pause all scheduled auto-runs?\n\n• 6am Raven + Quill daily lineup\n• 6pm Raven\n• Sunday weekly wrap\n\nManual buttons will still work.')) return
   try {
     const r = await fetch('/api/scheduler', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -1417,7 +1417,7 @@ function writeFromItem(item) {
 // ══════════════════ RESEARCH TRIGGER ══════════════════
 async function triggerResearch() {
   disableRun(); startRunning()
-  addMsg('titto','Starting research. ChitraG is on it — I\'ll notify you when done.')
+  addMsg('titto','Starting research. Raven is on it — I\'ll notify you when done.')
   if (tittoSize === 'hidden') toggleTitto()
   try { await fetch('/api/research/trigger', { method:'POST' }) }
   catch(_) { stopRunning(); enableRun(); addMsg('titto','⚠️ Could not trigger research.') }
@@ -1854,7 +1854,9 @@ function onArticleError(d) {
 
 // ══════════════════ TITTO ACTIVITY (control tower) ══════════════════
 const ACTIVITY_AGENTS = {
-  'chitrag':         { label: 'ChitraG', color: 'var(--green)', bg: 'var(--green-dim)' },
+  'raven':           { label: 'Raven',   color: 'var(--green)', bg: 'var(--green-dim)' },
+  'raven-replies':   { label: 'Replies', color: 'var(--green)', bg: 'var(--green-dim)' },
+  'chitrag':         { label: 'Raven',   color: 'var(--green)', bg: 'var(--green-dim)' },
   'chitrag-replies': { label: 'Replies', color: 'var(--green)', bg: 'var(--green-dim)' },
   'quill':           { label: 'Quill',   color: '#db2777',      bg: 'rgba(236,72,153,.12)' },
   'koel':            { label: 'Koel',    color: '#d97706',      bg: 'rgba(245,158,11,.12)' },
@@ -1968,7 +1970,7 @@ function selectInputType(itype) {
   const placeholders = {
     freetext: 'Describe the topic, give an instruction, or write a seed idea\u2026',
     url:      'Paste an article URL here\u2026',
-    topic:    'Copy a headline or topic from ChitraG\u2019s research results\u2026',
+    topic:    'Copy a headline or topic from Raven\u2019s research results\u2026',
   }
   document.getElementById('koelInput').placeholder = placeholders[itype] || ''
 }
@@ -2708,7 +2710,7 @@ async function triggerQuillWeekly() {
 }
 
 async function loadQuillSearch() {
-  // Latest ChitraG search items — the same set Telegram's briefing sends. Always shown on Quill,
+  // Latest Raven search items — the same set Telegram's briefing sends. Always shown on Quill,
   // independent of whether a batch ran. Source: GET /api/research/latest (no new API calls).
   const card = document.getElementById('quillSearchCard')
   const list = document.getElementById('quillSearchList')
@@ -2777,7 +2779,7 @@ function renderQuillHistory(history) {
       bySection[d.section].push(d)
     }
 
-    // Draft rows — compact row layout like ChitraG
+    // Draft rows — compact row layout like Raven
     const sectionsHtml = ['motivational', 'domain', 'trending'].map(sec => {
       const drafts = bySection[sec]
       if (!drafts?.length) return ''

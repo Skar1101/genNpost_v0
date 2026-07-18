@@ -66,6 +66,6 @@ const PORT = process.env.PORT || 3000
 const HOST = process.env.HOST || '127.0.0.1'
 server.listen(PORT, HOST, () => {
   console.log(`\n🐦 TinySparrow running at http://${HOST}:${PORT}`)
-  console.log(`   Titto is online. ChitraG is standing by.`)
+  console.log(`   Titto is online. Raven is standing by.`)
   console.log(`   Scheduled runs: 6:00 AM + 6:00 PM daily\n`)
 })

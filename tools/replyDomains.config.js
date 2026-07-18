@@ -1,5 +1,5 @@
-// Domain registry for ChitraG's reply-target search.
-// `core: true` domains are always on (ChitraG's default focus). The rest are optional —
+// Domain registry for Raven's reply-target search.
+// `core: true` domains are always on (Raven's default focus). The rest are optional —
 // enabled persistently via the reply-domains setting, or added ad-hoc per /replies run
 // (handy when a run returns few/0 results and you want to widen the net).
 const DOMAINS = [

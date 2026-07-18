@@ -1,4 +1,4 @@
-// Tracks seen tool URLs so ChitraG never shows the same tool twice
+// Tracks seen tool URLs so Raven never shows the same tool twice
 const fs = require('fs')
 const path = require('path')
 

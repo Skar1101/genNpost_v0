@@ -14,7 +14,7 @@ const OAUTH_UA = 'TinySparrow/1.0 (research bot)'
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const RSS_ENGAGEMENT_BASELINE = 200  // RSS has no score; hot-feed posts are already popular
 
-// Sub → topic bucket for the 60/40 human/tech pool balancer in chitrag. Anything not listed = 'tech'.
+// Sub → topic bucket for the 60/40 human/tech pool balancer in raven. Anything not listed = 'tech'.
 const SUB_TOPIC = {
   getdisciplined: 'human', meditation: 'human', selfimprovement: 'human',
   productivity: 'human', stoicism: 'human', futurology: 'human',   // AI's impact on humans/society

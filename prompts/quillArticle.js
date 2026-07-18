@@ -2,7 +2,7 @@ const { BANNED_PHRASES } = require('./styleRules')
 
 // Article-mode prompt builder. Composes:
 //   - Template (from ARTICLE_TEMPLATE.md, user-editable voice + structure)
-//   - Related research items (from ChitraG search on the topic — primary citation sources)
+//   - Related research items (from Raven search on the topic — primary citation sources)
 //   - Hard structure rules (paragraphs, markdown links, transitions)
 //   - Anti-AI-slop ban list (specific tics to never use)
 //   - Citation rules (no invented stats)

@@ -70,6 +70,7 @@ function addDraft(account, draft) {
     text: draft.text || '',
     format: draft.format || 'short',
     origin: draft.origin || 'koel',   // koel | quill | reply
+    platform: draft.platform || 'x',  // x | linkedin | substack (only 'x' produced today)
     meta: draft.meta || {},
   }
   q.push(rec)

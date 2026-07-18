@@ -57,7 +57,7 @@ All files are in `sub-agents/koel/`. Edit them anytime — changes take effect o
 ## Input Types
 - `freetext` — topic, idea, or instruction
 - `url` — article or tweet URL to write about
-- `topic` — headline from ChitraG research results
+- `topic` — headline from Raven research results
 
 ## How to Improve Koel
 Edit the knowledge files above. No code changes needed.

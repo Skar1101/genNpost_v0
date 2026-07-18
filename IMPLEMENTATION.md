@@ -71,7 +71,7 @@ research run — no ad-hoc searches; fresh search is manual via Quill.** Everyth
   `articleIdeas.count`). **Daily batch resized 15 → 6** (3 buckets × 2) via `assignTopics`; feedback loop intact.
 - [x] **Domain filter** — research now biases to the **profile niche** (pillar labels) by default via
   `analyst.researchInstructions()` (profile focus + learned focus + learned downweight), fed into scheduled
-  ChitraG runs. **`/focus <topics>` / `/focus off`** override (`state/focusStore.js`) — "area of interest until
+  Raven runs. **`/focus <topics>` / `/focus off`** override (`state/focusStore.js`) — "area of interest until
   I say otherwise."
 - [x] **2 value-add quote-reposts/day** — `prompts/koelRepost.js` + `koel.draftRepost` (composes comment + post
   URL into a ready-to-quote-tweet draft) + `quill.runReposts` (picks top-engagement X items already in the
@@ -102,7 +102,7 @@ Prompted by recurring "it didn't work" reports. Audited the whole pipeline; fixe
   query, silently returning 0 for days). Fixed `tools/fetchHackerNews.js`: keep server-side `created_at_i`
   recency filter, drop `points`, apply the points≥5 floor client-side. Verified: returns real items again.
 - [x] **Drop guarantees today's research** — `scheduler/dailyDrop.js ensureTodaysResearch()` runs one fresh
-  ChitraG search if the latest run isn't from today (fixes stale `/drop` + stale Quill after a missed 3 PM run).
+  Raven search if the latest run isn't from today (fixes stale `/drop` + stale Quill after a missed 3 PM run).
 - [x] **Auto catch-up every 30 min** (not just on startup) — a laptop that wakes after 3:45 PM with the server
   still running auto-delivers the drop (`scheduler/cron.js`). Idempotent via `lastDrop`.
 - [x] **`/health` command** — surfaces silent failures at a glance: research freshness (today/stale), **per-source
@@ -116,7 +116,7 @@ Prompted by recurring "it didn't work" reports. Audited the whole pipeline; fixe
 - [x] **Schedule retimed** (`scheduler/cron.js`): **6:30 AM** research + compact morning briefing · **6:45 AM** Quill daily batch · **6:00 PM** research · **Sunday 6 AM** weekly wrap. (Morning split into `runMorning` + `runBatch`.)
 - [x] **Daily batch = 3 batches × 5 drafts** (15 total): Motivational ×5, Domain ×5, Trending ×5 — each batch one short header + 5 draft messages with buttons (`assignTopics` returns 5/section).
 - [x] **Compact Telegram** — `deliverResearch` is now ONE short briefing (top 3 + dashboard link), not 6 messages; Quill intro/source-link chatter removed from Telegram. Drafts stay full. (Principle: Telegram = short signal + drafts; depth in dashboard.)
-- [x] **Reply targets (I2C) separated** — own store `state/replyTargetsStore.js` + dedicated **💬 Replies tab** (mirrors Tools) + `GET /api/replies/latest`, `POST /api/replies/trigger` + `reply_targets_complete` event. No longer archived into / overlapping ChitraG research (`listArchive` excludes `reply-`; leftovers deleted). Current bars: **5000 impressions / I2C 50**.
+- [x] **Reply targets (I2C) separated** — own store `state/replyTargetsStore.js` + dedicated **💬 Replies tab** (mirrors Tools) + `GET /api/replies/latest`, `POST /api/replies/trigger` + `reply_targets_complete` event. No longer archived into / overlapping Raven research (`listArchive` excludes `reply-`; leftovers deleted). Current bars: **5000 impressions / I2C 50**.
 - [x] **`/batch` command** (Telegram + web chat) — generate today's batch on demand (3×5 = 15 drafts); fetches fresh research first if none. `handleBatch` in `agents/titto.js`.
 - [x] **`/batch` web-chat fix** — web route now passes `telegramSend`/`telegramSendDraft` so web-triggered batches reach Telegram; Titto chat posts a "✅ Batch run done" confirmation.
 - [x] **Telegram 📋 Copy button** — second button row on every draft; sends the draft as a tap-to-copy code block (`server/routes/telegram.js`).
@@ -127,7 +127,7 @@ Prompted by recurring "it didn't work" reports. Audited the whole pipeline; fixe
 ## Article Writer — dedicated professional writing workspace ✅ (B1–B4)
 - [x] **Model layer** — `config/models.js` (registry + per-1M pricing) + `utils/llm.js` (OpenAI-compatible;
   routes via **OpenRouter** when `OPENROUTER_API_KEY` set, else falls back to OpenAI; supports streaming).
-- [x] **`agents/articleWriter.js`** — dedicated pipeline: research pull (ChitraG) + article prompt/template
+- [x] **`agents/articleWriter.js`** — dedicated pipeline: research pull (Raven) + article prompt/template
   + **voice via `buildContextBlock`**, on a **purpose-built article knowledge base** (identity + writing
   principles + long-form template; **excludes** tweet-copy/100K-tweet/engagement knowledge). `generate` +
   conversational `refine`; returns text + usage + **cost** + sources.
@@ -155,7 +155,7 @@ Prompted by recurring "it didn't work" reports. Audited the whole pipeline; fixe
   hard-aborts at `TIMEOUT_MS` even mid-stream; SDK `maxRetries` capped.
 - [x] **Legacy agents routed through the same gate** — `agents/{koel,chitrag}.js` (guard + `maxRetries:0`
   so their own retry loops don't stack), `agents/quill.js` (assignTopics / weekly / plan). One process-wide
-  budget shared across Article Writer + Koel + ChitraG + Quill.
+  budget shared across Article Writer + Koel + Raven + Quill.
 - [x] Verified: concurrency cap holds (peak ≤ limit), RPM overflow fails fast, token clamp 9000→cap, server
   boots clean. Provider split unchanged (legacy = direct OpenAI gpt-4o-mini; Article Writer = OpenRouter).
 
@@ -190,7 +190,7 @@ Prompted by recurring "it didn't work" reports. Audited the whole pipeline; fixe
   reply with the updated summary. **`/learned`** — show what's landing + the research bias.
 - [x] **Koel writes toward what landed** — `loadContext` now includes `insights`; `buildContextBlock` injects a
   **"WHAT IS WORKING"** section (hooks/formats/topics to lean into + avoid list) into every draft prompt.
-- [x] **ChitraG ranks toward what landed** — scheduled morning/evening runs pass `analyst.learnedInstructions()`
+- [x] **Raven ranks toward what landed** — scheduled morning/evening runs pass `analyst.learnedInstructions()`
   (`focus`/`downweight`) into the ranking prompt (`prompts/rankResults.js` already consumes them). Sources with
   ≥4 decided drafts and <30% win-rate are auto-downweighted.
 - [x] **Weekly loop** — Sunday wrap now refreshes insights (`analyst.analyze`) and sends a Telegram **reminder**
@@ -248,12 +248,12 @@ Prompted by recurring "it didn't work" reports. Audited the whole pipeline; fixe
 | 🧠 Learning Loop | ✅ | reads memory before every draft |
 | 🔄 Feedback Loop | ✅ | approve/reject(+reason)/edit → memory; never repeats rejected |
 | 📅 Daily Batch | ✅ | 6:45am Quill batch — 3 batches × 5 drafts, one-tap buttons |
-| 🔍 Trend Scouting | ✅ | ChitraG + I2C `/replies` + pillar angles (more automated than Sage) |
+| 🔍 Trend Scouting | ✅ | Raven + I2C `/replies` + pillar angles (more automated than Sage) |
 | ⚡ Reactive Drafting | ✅ | hook→insight→translation→POV skeleton baked into short/longform (Phase 5) |
 | 🧵 Thread Writing | ✅ | 5–8 tweets, standalone, one CTA, no em dashes (Phase 5) |
 | 🎙 Voice Calibration | ✅ | best tweets calibrate on day one + learns from approved/edited over use (just needs your best tweets in the profile) |
 | ✍️ Tweet Drafting (interview-first) | ✅ | thin topic → 1–2 questions first; rich input drafts straight (Phase 5) |
-| 📊 Tweet Analysis | ✅ | /perf ingest → win-rates + what's-working insights feed Koel + ChitraG (Phase 4) |
+| 📊 Tweet Analysis | ✅ | /perf ingest → win-rates + what's-working insights feed Koel + Raven (Phase 4) |
 
 ---
 
@@ -265,7 +265,7 @@ Prompted by recurring "it didn't work" reports. Audited the whole pipeline; fixe
 - [ ] **Security decision:** do you access the dashboard only from this machine, or also other devices? (picks localhost-bind vs token auth)
 
 ## Key files
-- Agents: `agents/{titto,chitrag,quill,koel,analyst}.js`
+- Agents: `agents/{titto,raven,quill,koel,analyst}.js` (raven.js was chitrag.js — renamed 2026-07-18)
 - Memory/backbone: `state/{accounts,memory,profileSeed}.js`
 - Stores: `state/{researchStore,toolsStore,replyTargetsStore,koelStore,quillStore,schedulerStore,insightsStore}.js`
 - Style/learning: `prompts/styleRules.js` (shared house style + ban list), `agents/analyst.js` (performance loop)

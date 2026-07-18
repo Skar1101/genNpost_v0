@@ -1,7 +1,7 @@
 const express = require('express')
 const router = express.Router()
 const titto = require('../../agents/titto')
-const chitrag = require('../../agents/chitrag')
+const raven = require('../../agents/raven')
 const toolsAgent = require('../../agents/toolsAgent')
 const koel = require('../../agents/koel')
 const quill = require('../../agents/quill')
@@ -18,9 +18,11 @@ const { readLatest: readRepliesLatest } = require('../../state/replyTargetsStore
 const activityStore = require('../../state/activityStore')
 const articleWriter = require('../../agents/articleWriter')
 const articlesStore = require('../../state/articlesStore')
+const analyst = require('../../agents/analyst')
 const modelsConfig = require('../../config/models')
 const memory = require('../../state/memory')
 const { ensureProfile } = require('../../state/profileSeed')
+const dailyDrop = require('../../scheduler/dailyDrop')
 
 // GET /api/research/latest
 router.get('/research/latest', (req, res) => {
@@ -58,7 +60,7 @@ router.post('/research/trigger', async (req, res) => {
   res.json({ message: 'Research triggered. Results will arrive via WebSocket.' })
   try {
     const label = triggerLabel || (filterSources?.length ? `🖱 Manual · ${filterSources.join(', ')}` : '🖱 Manual Run')
-    const results = await chitrag.run({ triggeredBy: 'user', triggerLabel: label, broadcast, filterSources })
+    const results = await raven.run({ triggeredBy: 'user', triggerLabel: label, broadcast, filterSources })
     if (results) await titto.deliverResearch(results, null, broadcast)  // null = no Telegram
   } catch (err) {
     logger.error('[API] Research trigger failed', err)
@@ -254,11 +256,104 @@ router.get('/activity', (req, res) => {
   res.json({ activity: activityStore.list(limit) })
 })
 
+// GET /api/insights → the Analyst's learned "what's working" summary (today only reachable via /learned in chat)
+router.get('/insights', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  res.json({ account, insights: analyst.getInsights(account) })
+})
+
+// ── Control Center roster ───────────────────────────────────────────────────────
+// Pure read-only aggregator over existing stores — no new agent logic, no new state.
+// 'raven' and legacy 'chitrag' activity entries are treated as the same agent (pre-rename history).
+
+const DAILY_SLOT_MINUTES = {
+  raven: [{ label: '3:00 PM', minutes: 900 }, { label: '6:00 PM', minutes: 1080 }],
+  'quill-x': [{ label: '3:45 PM', minutes: 945 }],
+}
+
+function nextDailyLabel(agentId) {
+  const slots = DAILY_SLOT_MINUTES[agentId]
+  if (!slots) return null
+  const nowMin = dailyDrop.istMinutes()
+  const upcoming = slots.filter(s => s.minutes > nowMin).sort((a, b) => a.minutes - b.minutes)
+  return (upcoming[0] || [...slots].sort((a, b) => a.minutes - b.minutes)[0]).label
+}
+
+// Most recent activity entry for any of the given agent ids (newest first list already).
+function latestActivity(ids) {
+  return activityStore.list(200).find(a => ids.includes(a.agent)) || null
+}
+
+router.get('/agents', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+
+  const research = readLatest()
+  const ravenActivity = latestActivity(['raven', 'chitrag'])
+  const raven = {
+    id: 'raven', name: 'Raven', role: 'central search', kind: 'shared',
+    status: 'idle',
+    lastRun: research?.rankedAt || ravenActivity?.ts || null,
+    summary: research ? `${research.results?.length || 0} items ranked` : (ravenActivity?.summary || 'No runs yet'),
+    nextRun: nextDailyLabel('raven'),
+  }
+
+  const quillLatest = readQuillLatest()
+  const quillActivity = latestActivity(['quill'])
+  const quillX = {
+    id: 'quill-x', name: 'Quill', role: 'manager · X', kind: 'platform', platform: 'x',
+    status: 'idle',
+    lastRun: quillLatest?.generatedAt || quillActivity?.ts || null,
+    summary: quillLatest ? `${quillLatest.totalDrafts ?? quillLatest.drafts?.length ?? 0} drafts` : (quillActivity?.summary || 'No runs yet'),
+    nextRun: nextDailyLabel('quill-x'),
+  }
+
+  const koelActivity = latestActivity(['koel'])
+  const koel = {
+    id: 'koel', name: 'Koel', role: 'writer', kind: 'shared',
+    status: 'idle', mode: 'on demand',
+    lastRun: koelActivity?.ts || null,
+    summary: koelActivity?.summary || 'No drafts yet',
+  }
+
+  const articleActivity = latestActivity(['article'])
+  const articles = articlesStore.list(1)
+  const article = {
+    id: 'article', name: 'Article Writer', role: 'long-form', kind: 'shared',
+    status: 'idle', mode: 'on demand',
+    lastRun: articleActivity?.ts || null,
+    summary: articles[0] ? `Last: "${articles[0].title || articles[0].topic}"` : (articleActivity?.summary || 'No articles yet'),
+  }
+
+  const insights = analyst.getInsights(account)
+  const analystActivity = latestActivity(['analyst'])
+  const analystCard = {
+    id: 'analyst', name: 'Analyst', role: 'learning', kind: 'shared',
+    status: 'idle',
+    lastRun: insights?.updatedAt || analystActivity?.ts || null,
+    summary: insights?.summary || 'Not enough data yet',
+    nextRun: 'Sun 6:00 AM',
+  }
+
+  // Not built yet (v2) — always present so the Control Center can show them, never with fake data.
+  const parrot = { id: 'parrot', name: 'Parrot', role: 'manager · LinkedIn', kind: 'platform', platform: 'linkedin', status: 'not-built', summary: 'No trend source connected yet.' }
+  const heron = { id: 'heron', name: 'Heron', role: 'manager · Substack', kind: 'platform', platform: 'substack', status: 'not-built', summary: 'No trend source connected yet.' }
+
+  res.json({ agents: [raven, quillX, parrot, heron, koel, article, analystCard] })
+})
+
 // ── Scheduler control ─────────────────────────────────────────────────────────
 
-// GET /api/scheduler  →  { enabled: bool, updatedAt? }
+// Fixed IST cron slots (scheduler/cron.js). Display-only — no scheduling logic here.
+const SCHEDULE_SLOTS = [
+  { id: 'morning-research', time: '3:00 PM', what: 'Research + briefing', agent: 'raven' },
+  { id: 'daily-drop', time: '3:45 PM', what: 'Daily drop', agent: 'quill-x' },
+  { id: 'evening-research', time: '6:00 PM', what: 'Fresh research', agent: 'raven' },
+  { id: 'weekly-wrap', time: 'Sun 6:00 AM', what: 'Weekly wrap + perf nudge', agent: 'quill-x' },
+]
+
+// GET /api/scheduler  →  { enabled: bool, updatedAt?, slots: [...] }
 router.get('/scheduler', (req, res) => {
-  res.json(getSchedulerStatus())
+  res.json({ ...getSchedulerStatus(), slots: SCHEDULE_SLOTS })
 })
 
 // PUT /api/scheduler  body: { enabled: bool }
@@ -386,7 +481,7 @@ router.post('/replies/trigger', async (req, res) => {
   const { domains = null, keywords = null } = req.body || {}
   res.json({ message: 'Reply-target search triggered. Results arrive via WebSocket.' })
   try {
-    await chitrag.findReplyTargets({ domains, extraKeywords: keywords, broadcast })
+    await raven.findReplyTargets({ domains, extraKeywords: keywords, broadcast })
   } catch (err) {
     logger.error('[API] Reply-target trigger failed', err)
     if (broadcast) broadcast({ type: 'error', data: { message: 'Reply-target search failed: ' + err.message } })

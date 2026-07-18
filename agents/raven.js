@@ -13,7 +13,7 @@ const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 const { filterNew, markSeen } = require('../state/seenUrlsStore')
 const logger = require('../utils/logger')
-const log = logger.source('chitrag')
+const log = logger.source('raven')
 
 let _openai = null
 function getOpenAI() {
@@ -322,7 +322,7 @@ async function run({ triggeredBy = 'user', triggerLabel = null, instructions = n
   writeLatest(output)
   archiveRun(output)
   activityStore.recordAndBroadcast(broadcast, {
-    agent: 'chitrag', action: 'research', triggerLabel: triggerLabel || '🖱 Manual',
+    agent: 'raven', action: 'research', triggerLabel: triggerLabel || '🖱 Manual',
     summary: `${ranked.length} ranked` + (filterSources ? ` · ${filterSources.join(', ')}` : ''),
     ref: { kind: 'research', id: runId },
   })
@@ -430,16 +430,16 @@ async function findReplyTargets({ target = 30, domains = null, extraKeywords = n
     sourcesRun: ['twitter'],
     sourcesFailed: [],
     totalFetched: pool.length,
-    results: allRows,                   // full list saved + shown in ChitraG panel
+    results: allRows,                   // full list saved + shown in the Raven panel
     qualified: qualifiedRows,           // subset Titto delivers to chat/Telegram
   }
 
   // Store in the SEPARATE reply-targets store (its own tab) — never the research archive, so it can't
-  // overlap or evict ChitraG research runs. Broadcast a dedicated event for the Replies tab.
+  // overlap or evict Raven research runs. Broadcast a dedicated event for the Replies tab.
   replyTargetsStore.writeLatest(output)
   if (broadcast) broadcast({ type: 'reply_targets_complete', data: output })
   activityStore.recordAndBroadcast(broadcast, {
-    agent: 'chitrag-replies', action: 'reply_targets', triggerLabel: '💬 Reply Targets',
+    agent: 'raven-replies', action: 'reply_targets', triggerLabel: '💬 Reply Targets',
     summary: `${qualifiedRows.length} targets · ${allRows.length} scanned · ${windowUsedMin}m window`,
     ref: { kind: 'replies' },
   })

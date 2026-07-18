@@ -1,4 +1,4 @@
-// Persists seen URLs across runs so ChitraG never shows duplicate content
+// Persists seen URLs across runs so Raven never shows duplicate content
 const fs = require('fs')
 const path = require('path')
 

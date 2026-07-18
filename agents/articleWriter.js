@@ -3,7 +3,7 @@ const fs = require('fs')
 const path = require('path')
 const llm = require('../utils/llm')
 const models = require('../config/models')
-const chitrag = require('./chitrag')
+const raven = require('./raven')
 const memory = require('../state/memory')
 const { ensureProfile } = require('../state/profileSeed')
 const { buildContextBlock } = require('../prompts/koelWrite')
@@ -91,7 +91,7 @@ async function generate({ topic, model = models.articleDefaultModel(), account =
     log.info(`Article using ${relatedItems.length} provided related items (no fresh search)`)
   } else if (doResearch) {
     try {
-      const research = await chitrag.run({
+      const research = await raven.run({
         triggeredBy: 'article-research',
         triggerLabel: `🪶 Article research · "${topic.slice(0, 40)}"`,
         searchQuery: topic,

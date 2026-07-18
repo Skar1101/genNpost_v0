@@ -1,7 +1,8 @@
 const cron = require('node-cron')
-const chitrag = require('../agents/chitrag')
+const raven = require('../agents/raven')
 const titto = require('../agents/titto')
 const analyst = require('../agents/analyst')
+const quill = require('../agents/quill')
 const dailyDrop = require('./dailyDrop')
 const { isEnabled, getLastDrop } = require('../state/schedulerStore')
 
@@ -37,7 +38,7 @@ async function runMorning(broadcast, telegramSend) {
   console.log('[Scheduler] Starting afternoon research run (3:00pm IST)')
   try {
     const instructions = analyst.researchInstructions() || null   // profile niche (+ /focus override) + what's landed
-    const results = await chitrag.run({ triggeredBy: 'scheduler', triggerLabel: '⏰ Scheduled · 3:00 PM IST', instructions, broadcast })
+    const results = await raven.run({ triggeredBy: 'scheduler', triggerLabel: '⏰ Scheduled · 3:00 PM IST', instructions, broadcast })
     if (results) {
       await titto.deliverResearch(results, telegramSend, broadcast)
       console.log(`[Scheduler] Morning briefing delivered — ${results.results?.length} results`)
@@ -64,7 +65,7 @@ async function runEvening(broadcast, telegramSend) {
   console.log('[Scheduler] Starting evening research run (6pm IST)')
   try {
     const instructions = analyst.researchInstructions() || null   // profile niche (+ /focus override) + what's landed
-    const results = await chitrag.run({ triggeredBy: 'scheduler', triggerLabel: '⏰ Scheduled · 6:00 PM IST', instructions, broadcast })
+    const results = await raven.run({ triggeredBy: 'scheduler', triggerLabel: '⏰ Scheduled · 6:00 PM IST', instructions, broadcast })
     if (results) {
       await titto.deliverResearch(results, telegramSend, broadcast)
       console.log(`[Scheduler] Evening research delivered — ${results.results?.length} results`)

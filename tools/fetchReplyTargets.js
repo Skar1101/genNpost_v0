@@ -17,8 +17,8 @@ function firstWords(text, n = 16) {
 }
 
 // Fetch a broad pool of recent (Latest) domain posts with their impression/comment metrics.
-// `queries` is the list of search strings to run (built from the selected domains by ChitraG).
-// Returns the FULL unfiltered candidate pool — ChitraG applies the age/impression/I2C filters so
+// `queries` is the list of search strings to run (built from the selected domains by Raven).
+// Returns the FULL unfiltered candidate pool — Raven applies the age/impression/I2C filters so
 // the window-widening fallback can re-filter the same pool without extra API calls.
 async function fetchReplyTargets(queries, onProgress) {
   const apiKey = process.env.RAPIDAPI_KEY
