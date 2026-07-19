@@ -13,6 +13,7 @@ const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 const { filterNew, markSeen } = require('../state/seenUrlsStore')
 const logger = require('../utils/logger')
+const costTracker = require('../utils/costTracker')
 const log = logger.source('raven')
 
 let _openai = null
@@ -206,6 +207,7 @@ async function rankWithLLM(rawItems, instructions, broadcast) {
 
   try {
     const usage = response.usage
+    costTracker.priceAndRecord({ agent: 'raven', action: 'rank', modelId: 'openai/gpt-4o-mini', usage })
     log.info(`LLM ranking complete — tokens used: ${usage?.prompt_tokens} in / ${usage?.completion_tokens} out`)
 
     const text = response.choices[0].message.content.trim()

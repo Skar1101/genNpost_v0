@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import DraftCard from '../components/DraftCard.jsx'
-import { useKoelWrite, useKoelHistory, useKoelReload } from '../lib/queries.js'
+import { useKoelWrite, useKoelHistory, useKoelReload, useInsights } from '../lib/queries.js'
 
 const FORMATS = [
   { id: 'short', label: 'Short Form', desc: 'Single tweet, punchy & direct, max 280 chars' },
@@ -16,18 +17,21 @@ const INPUT_TYPES = [
 ]
 
 export default function KoelPage() {
+  const navigate = useNavigate()
   const [tab, setTab] = useState('write')
   const [format, setFormat] = useState('short')
   const [inputType, setInputType] = useState('freetext')
   const [input, setInput] = useState('')
   const [extra, setExtra] = useState('')
   const [showExtra, setShowExtra] = useState(false)
+  const [count, setCount] = useState(3)
   const [result, setResult] = useState(null)
   const [reloadMsg, setReloadMsg] = useState('')
 
   const write = useKoelWrite()
   const history = useKoelHistory()
   const reload = useKoelReload()
+  const insights = useInsights()
 
   function reloadFiles() {
     reload.mutate(undefined, {
@@ -39,7 +43,7 @@ export default function KoelPage() {
   function generate() {
     if (!input.trim()) return
     write.mutate(
-      { format, input, inputType, count: 3, extraInstructions: extra },
+      { format, input, inputType, count, extraInstructions: extra },
       { onSuccess: (data) => setResult(data) },
     )
   }
@@ -77,6 +81,14 @@ export default function KoelPage() {
               <div className="hint" style={{ marginTop: 6 }}>{fmt?.desc}</div>
             </div>
 
+            <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="hint">Number of drafts</div>
+              <input
+                className="field" type="number" min={1} max={10} style={{ width: 70 }}
+                value={count} onChange={(e) => setCount(Math.max(1, Number(e.target.value) || 1))}
+              />
+            </div>
+
             <div style={{ marginBottom: 12 }}>
               <div className="hint" style={{ marginBottom: 6 }}>Input</div>
               <div className="choice-row" style={{ marginBottom: 8 }}>
@@ -107,9 +119,22 @@ export default function KoelPage() {
             </div>
 
             <button className="btn primary" style={{ width: '100%', justifyContent: 'center' }} onClick={generate} disabled={write.isPending || !input.trim()}>
-              {write.isPending ? 'Writing…' : '✍️ Generate 3 Drafts'}
+              {write.isPending ? 'Writing…' : '✍️ Generate Drafts'}
             </button>
           </div>
+
+          {(() => {
+            const ins = insights.data?.insights
+            if (!ins || (!ins.workingFormats?.length && !ins.avoid?.length)) return null
+            return (
+              <div className="card" style={{ padding: '10px 14px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span className="hint" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em' }}>What's working</span>
+                {(ins.workingFormats || []).slice(0, 3).map((f, i) => <span key={`f${i}`} className="chip">✅ {f}</span>)}
+                {(ins.avoid || []).slice(0, 2).map((a, i) => <span key={`a${i}`} className="chip">🚫 {a}</span>)}
+                <button className="link-btn" style={{ marginLeft: 'auto' }} onClick={() => navigate('/agent/analyst')}>→ Analyst</button>
+              </div>
+            )
+          })()}
 
           {write.isPending && (
             <div className="card working"><div className="spin">✍️</div><div>Koel is writing…</div><div className="step mono">Crafting drafts in your voice</div></div>

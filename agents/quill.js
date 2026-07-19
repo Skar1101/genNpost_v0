@@ -17,6 +17,7 @@ const articleWriter = require('./articleWriter')
 const articlesStore = require('../state/articlesStore')
 const articleIdeasStore = require('../state/articleIdeasStore')
 const models = require('../config/models')
+const costTracker = require('../utils/costTracker')
 const fs = require('fs')
 const path = require('path')
 const logger = require('../utils/logger')
@@ -97,6 +98,7 @@ Rules:
     { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 900 },
     { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
   ))
+  costTracker.priceAndRecord({ agent: 'quill', action: 'assign_topics', modelId: 'openai/gpt-4o-mini', usage: response.usage })
 
   const raw = response.choices[0].message.content.trim()
   const match = raw.match(/\{[\s\S]*\}/)
@@ -296,6 +298,7 @@ Return ONLY JSON:
       { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 700 },
       { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
     ))
+    costTracker.priceAndRecord({ agent: 'quill', action: 'article_ideas', modelId: 'openai/gpt-4o-mini', usage: r.usage })
     const txt = r.choices[0].message.content.trim()
     const m = txt.match(/\[[\s\S]*\]/)
     raw = JSON.parse(m ? m[0] : txt)
@@ -431,6 +434,7 @@ Return ONLY JSON:
       { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 600 },
       { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
     ))
+    costTracker.priceAndRecord({ agent: 'quill', action: 'weekly_ideas', modelId: 'openai/gpt-4o-mini', usage: r.usage })
     const raw = r.choices[0].message.content.trim()
     const match = raw.match(/\[[\s\S]*\]/)
     ideas = JSON.parse(match ? match[0] : raw)
@@ -530,6 +534,7 @@ async function planSuggestions({ broadcast = null, forceFresh = false, triggerLa
     { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 1500 },
     { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
   ))
+  costTracker.priceAndRecord({ agent: 'quill', action: 'plan', modelId: 'openai/gpt-4o-mini', usage: res.usage })
   const raw = res.choices[0].message.content.trim()
   const m = raw.match(/\{[\s\S]*\}/)
   let suggestions

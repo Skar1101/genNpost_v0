@@ -51,10 +51,8 @@ as of this snapshot.
 
 ## 🔲 What's pending, phase-wise
 
-Same order as `IMPLEMENTATION.md`'s "What's left" — unchanged by this session's work, still accurate:
-
-1. **One live test** — trigger the daily drop from Telegram and confirm the dashboard updates on its
-   own, without a manual refresh. Not touched this session; still open.
+1. ~~One live test — trigger the daily drop from Telegram and confirm the dashboard updates on its
+   own, without a manual refresh.~~ **Confirmed working 2026-07-19.**
 2. **Switch over** — once the new dashboard's been used a bit and nothing's missing, retire the old
    single-file dashboard (`public/index.html`).
 3. **Put it on a server** — currently only runs while your laptop is on. `DEPLOY.md` has a ready, free
@@ -85,6 +83,6 @@ Same order as `IMPLEMENTATION.md`'s "What's left" — unchanged by this session'
      Productivity") → confirm References now renders.
    - Confirm the **Past Articles** dropdown stays on the same row as Write Article, doesn't wrap.
    - Preview an older version, then try **Make current**.
-7. *(Still open from before)* — the live `/drop`-from-Telegram test (pending item 1 above).
+7. ~~Live `/drop`-from-Telegram test~~ — **confirmed working 2026-07-19.**
 8. *(Ongoing)* — paste weekly tweet stats via `/perf` when you have them; decide on Oracle Cloud VM
    timing whenever you're ready (optional, no rush).

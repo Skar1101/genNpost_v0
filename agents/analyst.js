@@ -8,6 +8,7 @@ const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 const logger = require('../utils/logger')
 const log = logger.source('analyst')
+const costTracker = require('../utils/costTracker')
 
 let _openai = null
 function getOpenAI() {
@@ -67,6 +68,7 @@ Return ONLY a JSON array, no markdown:
     { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 1500 },
     { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
   ))
+  costTracker.priceAndRecord({ agent: 'analyst', action: 'parse_tweets', modelId: 'openai/gpt-4o-mini', usage: res.usage })
   let rows = []
   try {
     const raw = res.choices[0].message.content.trim()
@@ -156,6 +158,7 @@ Return ONLY JSON, no markdown:
     { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 900 },
     { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
   ))
+  costTracker.priceAndRecord({ agent: 'analyst', action: 'insights', modelId: 'openai/gpt-4o-mini', usage: res.usage })
   let parsed = {}
   try {
     const raw = res.choices[0].message.content.trim()

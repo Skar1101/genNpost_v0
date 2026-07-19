@@ -69,8 +69,9 @@ ${HOUSE_STYLE_TEXT}
 
 ---
 ## OUTPUT RULES (CRITICAL)
-- Always produce EXACTLY 3 drafts unless told otherwise
-- Separate drafts with: --- DRAFT 2 --- and --- DRAFT 3 ---
+- Produce EXACTLY the number of drafts stated in the instructions below — no more, no fewer
+- Separate drafts with: --- DRAFT 2 ---, --- DRAFT 3 ---, etc. (one separator per additional draft,
+  matching the requested count)
 - Start with DRAFT 1 (no header needed, just start writing)
 - Never explain your choices, never add notes or meta-commentary
 - Never number lines inside a tweet
@@ -152,18 +153,16 @@ function buildKoelUserPrompt({ format, input, inputType, count = 3, extraInstruc
 
   let formatGuide = ''
   if (format === 'short') {
-    formatGuide = 'Write 3 SHORT FORM tweets (single tweet each, max 280 chars). Follow this skeleton (do NOT print the labels): hook (stop the scroll) → insight (the non-obvious point) → translation (what it means for the reader) → POV (Souvik\'s take). The 3 drafts must each take a DISTINCT angle — not three rewordings of the same idea.'
+    formatGuide = `Write ${count} SHORT FORM tweets (single tweet each, max 280 chars). Follow this skeleton (do NOT print the labels): hook (stop the scroll) → insight (the non-obvious point) → translation (what it means for the reader) → POV (Souvik's take). The ${count} drafts must each take a DISTINCT angle — not ${count === 1 ? 'a reworded rehash of a single' : 'rewordings of the same'} idea.`
   } else if (format === 'thread') {
     formatGuide = 'Write a THREAD, 5-8 tweets max (fewer, sharper wins). Tweet 1 is a hook that promises a SPECIFIC payoff. Number each: "Tweet 1/" "Tweet 2/" etc. Every tweet must stand alone — it should make sense if read out of order or screenshotted by itself. Exactly ONE call-to-action, and only in the final tweet. No CTA mid-thread.'
   } else if (format === 'longform') {
-    formatGuide = 'Write 3 LONG FORM posts (single post, 400-900 chars each). Personal/build-in-public voice. Follow this skeleton (do NOT print the labels): hook → insight → translation (what it means for the reader) → POV. Line breaks every 1-2 sentences. The 3 drafts must each take a DISTINCT angle.'
+    formatGuide = `Write ${count} LONG FORM posts (single post, 400-900 chars each). Personal/build-in-public voice. Follow this skeleton (do NOT print the labels): hook → insight → translation (what it means for the reader) → POV. Line breaks every 1-2 sentences. The ${count} drafts must each take a DISTINCT angle.`
   } else if (format === 'motivational') {
-    formatGuide = 'Write 3 MOTIVATIONAL posts. Ground each in Souvik\'s real story (transplant comeback, medals, building). Universal lesson at end. Emotional but not cringey.'
+    formatGuide = `Write ${count} MOTIVATIONAL posts. Ground each in Souvik's real story (transplant comeback, medals, building). Universal lesson at end. Emotional but not cringey.`
   } else if (format === 'engagement') {
-    formatGuide = 'Write 3 ENGAGEMENT FARMING posts. Each has: hook → what you\'re giving away → 3 bullet benefits → CTA with a keyword (must be following). Make the keyword relevant and punchy.'
+    formatGuide = `Write ${count} ENGAGEMENT FARMING posts. Each has: hook → what you're giving away → 3 bullet benefits → CTA with a keyword (must be following). Make the keyword relevant and punchy.`
   }
-
-  const countNote = count !== 3 ? `Produce ${count} drafts instead of 3.` : ''
 
   // Titto's instructions always take highest priority — placed first so the LLM sees them before format defaults
   if (extraInstructions) {
@@ -173,7 +172,6 @@ ${extraInstructions}
 ---
 FORMAT REFERENCE: ${meta.label} — ${meta.desc}
 ${formatGuide}
-${countNote}
 
 ${inputLabel}:
 ${input}
@@ -182,7 +180,6 @@ Write now. No preamble.`
   }
 
   return `${formatGuide}
-${countNote}
 
 ${inputLabel}:
 ${input}

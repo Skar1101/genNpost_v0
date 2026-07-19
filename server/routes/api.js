@@ -19,6 +19,7 @@ const activityStore = require('../../state/activityStore')
 const articleWriter = require('../../agents/articleWriter')
 const articlesStore = require('../../state/articlesStore')
 const analyst = require('../../agents/analyst')
+const costStore = require('../../state/costStore')
 const modelsConfig = require('../../config/models')
 const memory = require('../../state/memory')
 const { ensureProfile } = require('../../state/profileSeed')
@@ -260,6 +261,43 @@ router.get('/activity', (req, res) => {
 router.get('/insights', (req, res) => {
   const account = memory.accounts.getActiveAccount()
   res.json({ account, insights: analyst.getInsights(account) })
+})
+
+// GET /api/expenses?days=N → LLM spend, bucketed by IST calendar day and by agent. Merges the
+// cost log (every agent except Article Writer) with articlesStore's own per-version costs (Article
+// Writer already persists its cost where it is — not duplicated into the cost log).
+function istDateKey(iso) {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) // → 'YYYY-MM-DD'
+}
+router.get('/expenses', (req, res) => {
+  const days = Math.min(parseInt(req.query.days) || 30, 90)
+  const cutoff = Date.now() - days * 86400000
+  const entries = [...costStore.list(), ...articlesStore.listCostEntries()]
+    .filter(e => e.cost != null && new Date(e.ts).getTime() >= cutoff)
+
+  const byDay = {}
+  for (const e of entries) {
+    const key = istDateKey(e.ts)
+    if (!byDay[key]) byDay[key] = { date: key, total: 0, byAgent: {} }
+    byDay[key].total += e.cost
+    byDay[key].byAgent[e.agent] = (byDay[key].byAgent[e.agent] || 0) + e.cost
+  }
+  const daysArr = Object.values(byDay)
+    .map(d => ({
+      ...d,
+      total: +d.total.toFixed(6),
+      byAgent: Object.fromEntries(Object.entries(d.byAgent).map(([k, v]) => [k, +v.toFixed(6)])),
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date))
+
+  const byAgent = {}
+  let grandTotal = 0
+  for (const d of daysArr) {
+    grandTotal += d.total
+    for (const [k, v] of Object.entries(d.byAgent)) byAgent[k] = +((byAgent[k] || 0) + v).toFixed(6)
+  }
+
+  res.json({ days: daysArr, byAgent, grandTotal: +grandTotal.toFixed(6) })
 })
 
 // ── Control Center roster ───────────────────────────────────────────────────────

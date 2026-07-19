@@ -2,17 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useActivity } from '../lib/queries.js'
 import { useWSEvent } from '../lib/ws.js'
 import { triggerClass } from '../lib/sourceMeta.js'
-
-const AGENT_META = {
-  raven: { label: 'Raven', cls: 'raven' }, chitrag: { label: 'Raven', cls: 'raven' },
-  'raven-replies': { label: 'Replies', cls: 'raven' }, 'chitrag-replies': { label: 'Replies', cls: 'raven' },
-  reply: { label: 'Reply', cls: 'raven' }, repost: { label: 'Repost', cls: 'raven' },
-  quill: { label: 'Quill', cls: 'quill' },
-  koel: { label: 'Koel', cls: 'koel' },
-  article: { label: 'Article', cls: 'article' },
-  tools: { label: 'Tools', cls: 'tools' },
-  insights: { label: 'Analyst', cls: 'insights' },
-}
+import { AGENT_META } from '../lib/agentMeta.js'
 
 // Where "Open →" sends you, keyed by activityStore's ref.kind.
 const REF_ROUTE = {

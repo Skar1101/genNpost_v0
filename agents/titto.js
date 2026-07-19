@@ -13,6 +13,7 @@ const fetchTweet = require('../tools/fetchTweet')
 const replyDomainsStore = require('../state/replyDomainsStore')
 const focusStore = require('../state/focusStore')
 const dailyDrop = require('../scheduler/dailyDrop')
+const costTracker = require('../utils/costTracker')
 const schedulerStore = require('../state/schedulerStore')
 const memory = require('../state/memory')
 const { ensureProfile } = require('../state/profileSeed')
@@ -760,6 +761,7 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
     { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 400 },
     { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
   ))
+  costTracker.priceAndRecord({ agent: 'titto', action: 'intent_parse', modelId: 'openai/gpt-4o-mini', usage: response.usage })
 
   let parsed
   try {

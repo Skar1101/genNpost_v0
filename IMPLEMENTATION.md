@@ -67,22 +67,21 @@ proper app — that rebuild is most of what's "in progress" below.
 - Found and fixed two real bugs along the way: Control Center's buttons weren't wired to anything, and
   one AI call (Titto's message-understanding step) had no rate/cost limit on it.
 - The project moved to a new private GitHub repo, with a deployment guide (`DEPLOY.md`) ready to go.
+- **Live `/drop` test confirmed** — triggered from Telegram, works correctly. The one remaining
+  question from Phase 6 (live WebSocket updates) is now closed.
 
 ## 🔲 What's left, in order
-1. **One live test**: trigger the daily drop from Telegram and confirm the new dashboard updates on
-   its own, without you refreshing the page.
-2. **Switch over**: once you've used the new dashboard a bit and I'm confident nothing's missing, make
+1. **Switch over**: once you've used the new dashboard a bit and I'm confident nothing's missing, make
    it the only dashboard (retire the old single-file one).
-3. **Put it on a server**: right now it only runs while your laptop is on. `DEPLOY.md` has a ready,
+2. **Put it on a server**: right now it only runs while your laptop is on. `DEPLOY.md` has a ready,
    free hosting plan (Oracle Cloud) — this makes it run 24/7 regardless of your laptop.
-4. *(Later, not started)* Add LinkedIn and Substack as additional platforms the team can research and
+3. *(Later, not started)* Add LinkedIn and Substack as additional platforms the team can research and
    write for — deliberately deferred until the above is solid.
 
 ## 🙋 Things needed from you
 - **Restart the server** so it picks up everything built recently — it doesn't update itself while running.
 - **Try the new dashboard** (`web/` — ask me how to start it if you haven't) and tell me anything that
   feels off or missing.
-- **Do the live `/drop` test** using your new test Telegram channel (item 1 above).
 - **Decide on the server**: is the Oracle Cloud VM already set up from before, or do we need to create
   one? And do you want it live now, or after you've used the new dashboard more?
 - *(Ongoing)* Paste your weekly top/bottom tweet stats with `/perf` so the learning loop has real numbers.
@@ -353,8 +352,7 @@ explicitly retired (not done yet).
   suggestions), a real Article generation (3,932 chars), a full profile/reply-domains/scheduler
   round-trip against the actual `state/data`, always on an isolated port with test data cleaned up
   after. Old dashboard + Telegram confirmed unaffected at every step.
-- [ ] **Not yet done:** one live pass of `/drop`-from-Telegram → confirm React updates without a
-  refresh (WS wiring is in place and unit-verified, just not exercised this exact way yet); serving
+- [x] **Live `/drop`-from-Telegram pass** — confirmed 2026-07-19, works correctly. Still open: serving
   the React build from Express + retiring `public/index.html` (Phase 7, deliberately after full parity).
 
 ## Repo migration + deploy-doc fix (2026-07-18)
@@ -385,14 +383,14 @@ explicitly retired (not done yet).
 ---
 
 ## Things needed from Souvik
-- [ ] **Restart the running server** to pick up everything from 2026-07-18 (Raven rename, new
+- [x] **Restart the running server** to pick up everything from 2026-07-18 (Raven rename, new
   `/api/agents`/`/api/insights`/scheduler endpoints, guardrail fix) — confirmed multiple times this
   session that a running process doesn't pick these up on its own.
 - [ ] Try the new React dashboard (`cd web && npm run dev`, alongside the backend) and flag anything
   that doesn't work — Control Center, Queue, and all 9 agent pages are built and verified against real
   data, but not yet exercised by you directly.
-- [ ] One live check: trigger `/drop` in Telegram (new test channel) and confirm the React dashboard
-  updates without a manual refresh.
+- [x] One live check: trigger `/drop` in Telegram (new test channel) and confirm the React dashboard
+  updates without a manual refresh. **Confirmed working 2026-07-19.**
 - [ ] Decide on VPS deploy timing/details (Oracle VM status, whether to deploy backend-only now) —
   `DEPLOY.md` is ready; see the migration section above.
 - [x] **Profile inputs** — provided & saved (`skar_connect`); add more best tweets over time to sharpen voice

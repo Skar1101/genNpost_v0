@@ -3,8 +3,10 @@ import { api, apiText } from './api.js'
 
 // ── Queue (draft lifecycle) ────────────────────────────────────────────────────
 
+// state=null/undefined → every draft regardless of lifecycle state (matches GET /api/queue's own
+// "no filter" behavior when the query param is omitted entirely).
 export function useQueue(state = 'generated') {
-  return useQuery({ queryKey: ['queue', state], queryFn: () => api(`/queue?state=${state}`) })
+  return useQuery({ queryKey: ['queue', state], queryFn: () => api(state ? `/queue?state=${state}` : '/queue') })
 }
 
 export function useTransition() {
@@ -226,4 +228,10 @@ export function useSaveReplyDomains() {
 
 export function useActivity(limit = 100) {
   return useQuery({ queryKey: ['activity', limit], queryFn: () => api(`/activity?limit=${limit}`) })
+}
+
+// ── Expenses (LLM spend, day-wise) ──────────────────────────────────────────────
+
+export function useExpenses(days = 30) {
+  return useQuery({ queryKey: ['expenses', days], queryFn: () => api(`/expenses?days=${days}`) })
 }

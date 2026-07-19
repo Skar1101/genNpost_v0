@@ -12,6 +12,7 @@ const memory = require('../state/memory')
 const { ensureProfile } = require('../state/profileSeed')
 const logger = require('../utils/logger')
 const log = logger.source('koel')
+const costTracker = require('../utils/costTracker')
 
 let _openai = null
 function getOpenAI() {
@@ -32,10 +33,12 @@ function reload() {
   log.info('Knowledge files reloaded')
 }
 
-// Parse the LLM output into an array of draft strings
+// Parse the LLM output into an array of draft strings. Accepts the requested "--- DRAFT N ---"
+// separator, but also a bare "---" on its own line — the model reliably separates multiple drafts
+// with SOME dash rule even when it drops the "DRAFT N" label, so matching only the labeled form
+// silently collapsed multi-draft output into one draft.
 function parseDrafts(text) {
-  // Split on draft separators
-  const parts = text.split(/---\s*DRAFT\s*\d+\s*---/i)
+  const parts = text.split(/^[ \t]*-{2,}[ \t]*(?:DRAFT[ \t]*\d+[ \t]*)?-{0,}[ \t]*$/im)
   const drafts = parts.map(p => p.trim()).filter(p => p.length > 0)
   // If parsing fails (LLM didn't follow format), return single draft
   if (drafts.length === 0) return [text.trim()]
@@ -90,6 +93,7 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
   }
 
   const usage = response.usage
+  costTracker.priceAndRecord({ agent: origin, action: meta?.kind || 'write', modelId: 'openai/gpt-4o-mini', usage })
   log.info(`Koel done — tokens: ${usage?.prompt_tokens} in / ${usage?.completion_tokens} out`)
 
   const raw = response.choices[0].message.content.trim()

@@ -107,6 +107,28 @@ function list(limit = 50) {
   return items.slice(0, limit)
 }
 
+// Flatten every priced version across every article into cost-log-shaped entries, for the Expenses
+// aggregator. Article costs already persist here (per-version) — this is a read-only view, not a
+// second store, so nothing can drift out of sync.
+function listCostEntries() {
+  ensureDirs()
+  const files = fs.readdirSync(ARTICLES_DIR).filter(f => f.endsWith('.json'))
+  const entries = []
+  for (const f of files) {
+    try {
+      const r = JSON.parse(fs.readFileSync(path.join(ARTICLES_DIR, f), 'utf8'))
+      for (const v of r.versions || []) {
+        if (v.cost == null) continue
+        entries.push({
+          ts: v.createdAt, agent: 'article', action: 'write', model: v.model || r.model,
+          cost: v.cost, promptTokens: v.usage?.prompt_tokens ?? null, completionTokens: v.usage?.completion_tokens ?? null,
+        })
+      }
+    } catch (_) {}
+  }
+  return entries
+}
+
 // Write the latest version to a frontmattered .md file. Returns { file, filename, markdown }.
 function exportMarkdown(id) {
   const record = get(id)
@@ -132,4 +154,4 @@ function exportMarkdown(id) {
   return { file, filename, markdown }
 }
 
-module.exports = { create, get, addVersion, updateLatestVersion, latestText, list, exportMarkdown, slugify, ARTICLES_DIR, FILES_DIR }
+module.exports = { create, get, addVersion, updateLatestVersion, latestText, list, listCostEntries, exportMarkdown, slugify, ARTICLES_DIR, FILES_DIR }

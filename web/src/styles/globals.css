@@ -122,6 +122,7 @@
 .agent-badge.article { background: #0EA5E91A; color: #0EA5E9; }
 .agent-badge.tools   { background: rgba(29,111,164,.12); color: #1D6FA4; }
 .agent-badge.insights{ background: var(--accent-soft); color: var(--accent); }
+.agent-badge.titto  { background: var(--accent-soft); color: var(--accent); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .agent-badge.quill    { background: rgba(244,114,182,.16); color: #F472B6; }
   :root:not([data-theme="light"]) .agent-badge.article  { background: rgba(56,189,248,.16); color: #7FD4F5; }

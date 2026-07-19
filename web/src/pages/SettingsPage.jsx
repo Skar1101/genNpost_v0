@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useProfile, useSaveProfile, useReplyDomains, useSaveReplyDomains } from '../lib/queries.js'
+import { useProfile, useSaveProfile, useReplyDomains, useSaveReplyDomains, useExpenses } from '../lib/queries.js'
 
 const linesToArray = (s) => s.split('\n').map((x) => x.trim()).filter(Boolean)
 const arrayToLines = (a) => (a || []).join('\n')
@@ -51,6 +51,68 @@ function formToProfile(form, original) {
     watchlist: linesToArray(form.watchlist),
     bestTweets: linesToArray(form.bestTweets),
   }
+}
+
+function istToday() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+}
+function daysAgoKey(n) {
+  const d = new Date(Date.now() - n * 86400000)
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+}
+
+function ExpensesCard() {
+  const [window_, setWindow] = useState(30)
+  // Always fetch the widest window once; 7d/30d/90d totals + the visible list are all derived
+  // client-side from this, so switching the selector needs no extra request.
+  const q = useExpenses(90)
+  const allDays = q.data?.days || []
+
+  const cutoff7 = daysAgoKey(6)
+  const cutoff30 = daysAgoKey(29)
+  const total7 = allDays.filter((d) => d.date >= cutoff7).reduce((s, d) => s + d.total, 0)
+  const total30 = allDays.filter((d) => d.date >= cutoff30).reduce((s, d) => s + d.total, 0)
+  const total90 = q.data?.grandTotal ?? 0
+
+  const cutoff = window_ === 7 ? cutoff7 : window_ === 30 ? cutoff30 : daysAgoKey(89)
+  const visibleDays = allDays.filter((d) => d.date >= cutoff)
+
+  return (
+    <div className="card" style={{ padding: 18, marginTop: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ fontWeight: 650, fontSize: 14 }}>Expenses</div>
+        <select className="select" style={{ marginLeft: 'auto', width: 100 }} value={window_} onChange={(e) => setWindow(Number(e.target.value))}>
+          <option value={7}>7 days</option>
+          <option value={30}>30 days</option>
+          <option value={90}>90 days</option>
+        </select>
+      </div>
+      <p className="hint" style={{ marginBottom: 12 }}>LLM API cost — total spend, day by day.</p>
+
+      {!q.isLoading && (
+        <div className="choice-row" style={{ marginBottom: 14 }}>
+          <span className="chip">7d: ${total7.toFixed(4)}</span>
+          <span className="chip">30d: ${total30.toFixed(4)}</span>
+          <span className="chip">90d: ${total90.toFixed(4)}</span>
+        </div>
+      )}
+
+      {q.isLoading ? (
+        <p className="hint">Loading…</p>
+      ) : !visibleDays.length ? (
+        <p className="hint">No spend recorded yet.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {visibleDays.map((d) => (
+            <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ width: 90, fontSize: 12.5, color: 'var(--muted)', flexShrink: 0 }}>{d.date === istToday() ? `${d.date} (today)` : d.date}</span>
+              <span className="mono" style={{ fontWeight: 650, fontSize: 13 }}>${d.total.toFixed(4)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function SettingsPage() {
@@ -184,6 +246,8 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
+
+      <ExpensesCard />
     </div>
   )
 }
