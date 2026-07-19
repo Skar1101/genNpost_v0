@@ -105,6 +105,31 @@
 .run-trigger.telegram  { background: rgba(29,111,164,.12); color: #1D6FA4; }
 .run-trigger.manual    { background: var(--warn-soft); color: var(--warn); }
 .run-time { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+/* ── Titto activity feed ──────────────────────────────────────────────────────── */
+.activity-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+.activity-row + .activity-row { margin-top: 8px; }
+.activity-row .body { flex: 1; min-width: 0; }
+.activity-row .body .main { font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-row .body .sub { font-size: 11px; color: var(--faint); margin-top: 1px; }
+.activity-row .time { font-size: 11px; color: var(--faint); white-space: nowrap; min-width: 56px; text-align: right; }
+
+.agent-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap; flex: none; }
+.agent-badge.raven   { background: var(--good-soft); color: var(--good); }
+.agent-badge.quill   { background: #DB27771A; color: #DB2777; }
+.agent-badge.koel    { background: var(--warn-soft); color: var(--warn); }
+.agent-badge.article { background: #0EA5E91A; color: #0EA5E9; }
+.agent-badge.tools   { background: rgba(29,111,164,.12); color: #1D6FA4; }
+.agent-badge.insights{ background: var(--accent-soft); color: var(--accent); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .agent-badge.quill    { background: rgba(244,114,182,.16); color: #F472B6; }
+  :root:not([data-theme="light"]) .agent-badge.article  { background: rgba(56,189,248,.16); color: #7FD4F5; }
+  :root:not([data-theme="light"]) .agent-badge.tools    { background: rgba(29,111,164,.2); color: #7FBBEA; }
+}
+:root[data-theme="dark"] .agent-badge.quill   { background: rgba(244,114,182,.16); color: #F472B6; }
+:root[data-theme="dark"] .agent-badge.article { background: rgba(56,189,248,.16); color: #7FD4F5; }
+:root[data-theme="dark"] .agent-badge.tools   { background: rgba(29,111,164,.2); color: #7FBBEA; }
 .run-latest { font-size: 10px; padding: 1px 7px; border-radius: 99px; background: var(--good-soft); color: var(--good); font-weight: 700; flex: none; }
 .run-count { font-size: 11px; color: var(--faint); margin-left: auto; flex: none; }
 .run-arrow { font-size: 11px; color: var(--faint); flex: none; }
