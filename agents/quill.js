@@ -18,6 +18,7 @@ const articlesStore = require('../state/articlesStore')
 const articleIdeasStore = require('../state/articleIdeasStore')
 const models = require('../config/models')
 const costTracker = require('../utils/costTracker')
+const memory = require('../state/memory')
 const fs = require('fs')
 const path = require('path')
 const logger = require('../utils/logger')
@@ -228,14 +229,29 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
 // ── Value-add quote-reposts ─────────────────────────────────────────────────────
 // Picks the top viral X posts already in the latest research (no new search) and drafts a
 // value-add quote-repost comment for each. Draft-only; delivered to Telegram with action buttons.
-async function runReposts({ research = null, count = null, broadcast = null, telegramSend = null, telegramSendDraft = null, triggerLabel = '🖱 Manual' } = {}) {
+// A watchlist entry can be a bare handle ("garyvee") or a full profile link
+// ("https://x.com/garyvee") — normalize both down to a lowercase bare handle for matching.
+function normalizeHandle(v) {
+  if (!v) return ''
+  const s = String(v).trim()
+  const m = s.match(/(?:twitter|x)\.com\/([A-Za-z0-9_]+)/i)
+  return (m ? m[1] : s.replace(/^@/, '')).toLowerCase()
+}
+
+async function runReposts({ research = null, count = null, account = null, broadcast = null, telegramSend = null, telegramSendDraft = null, triggerLabel = '🖱 Manual' } = {}) {
   const n = count || contentVolume.reposts.perDay
   const results = (research && research.results) || (readLatest() && readLatest().results) || []
-  // Viral X posts from the research (twitter source), most engaged first.
-  const viral = results
-    .filter(r => r.source === 'twitter' && r.url)
-    .sort((a, b) => (b.engagement || 0) - (a.engagement || 0))
-    .slice(0, n)
+  const acct = account || memory.accounts.getActiveAccount()
+  const watchlist = new Set((memory.getProfile(acct)?.watchlist || []).map(normalizeHandle).filter(Boolean))
+
+  // Viral X posts from the research (twitter source) — watchlist authors first, then most engaged.
+  const candidates = results.filter(r => r.source === 'twitter' && r.url)
+  const isWatched = r => watchlist.has(normalizeHandle(r.publisher))
+  const byEngagement = (a, b) => (b.engagement || 0) - (a.engagement || 0)
+  const viral = [
+    ...candidates.filter(isWatched).sort(byEngagement),
+    ...candidates.filter(r => !isWatched(r)).sort(byEngagement),
+  ].slice(0, n)
   if (!viral.length) {
     await tgSend(telegramSend, '⚠️ No viral X posts in the latest research to repost. Run /research first.')
     return { drafts: [], draftRecords: [] }

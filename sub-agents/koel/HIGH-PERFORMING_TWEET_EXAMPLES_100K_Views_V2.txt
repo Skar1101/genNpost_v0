@@ -58,19 +58,19 @@ Here is how I did it and how you can do the same: https://t.co/332uEKTMWO
 ➡-
 
 
-this guy has been selling AI agents for the last 18 months.
+This guy has been selling AI agents for the last 18 months.
 
 
-His biggest takeaway: businesses don't need fancy ai agents.
+His biggest takeaway: businesses don't need fancy AI agents.
 
 
-they need boring AI automations.
+They need boring AI automations.
 
 
 $500 workflows that replace $50K employees.
 
 
-that's the alpha right now https://t.co/XC4Nsi9hjr
+That's the alpha right now https://t.co/XC4Nsi9hjr
 
 
 ➡
@@ -100,16 +100,16 @@ Here's my EXACT conversation with ChatGPT to make these Veo 3 prompts 👇🏼 h
 ➡
 
 
-the creator who's banking $47K monthly from TikTok asked me not to share this automation...
+The creator who's banking $47K monthly from TikTok asked me not to share this automation...
 
 
-these brain-rot style videos are pulling 10M+ views consistently on TikTok and YouTube Shorts
+These brain-rot style videos are pulling 10M+ views consistently on TikTok and YouTube Shorts
 
 
-faceless channels are banking $15K-$50K monthly from this exact format
+Faceless channels are banking $15K-$50K monthly from this exact format
 
 
-here's what my n8n workflow does automatically:
+Here's what my n8n workflow does automatically:
 
 
 - generates viral Peter Griffin & Stewie conversations
@@ -119,13 +119,13 @@ here's what my n8n workflow does automatically:
 - renders complete videos ready to upload
 
 
-these videos exploit dopamine triggers
+These videos exploit dopamine triggers
 
 
-the background gameplay keeps viewers glued while the AI-generated dialogue delivers the actual content
+The background gameplay keeps viewers glued while the AI-generated dialogue delivers the actual content
 
 
-it's psychological manipulation at its finest
+It's psychological manipulation at its finest
 
 
 I spent 40+ hours perfecting this:
@@ -137,44 +137,44 @@ I spent 40+ hours perfecting this:
 - testing render quality and timing
 
 
-the results speak for themselves
+The results speak for themselves
 
 
-channels using this format are going from 0 to 100K followers in weeks
+Channels using this format are going from 0 to 100K followers in weeks
 
 
-some are hitting 50M+ monthly views with zero effort after setup
+Some are hitting 50M+ monthly views with zero effort after setup
 
 
-the workflow handles everything:
+The workflow handles everything:
 
 
--content ideation
--script generation
--voice synthesis
+- content ideation
+- script generation
+- voice synthesis
 - video composition
 - final rendering
 
 
-you literally press one button and get viral-ready content
+You literally press one button and get viral-ready content
 
 
-while everyone's still manually editing videos, smart creators are scaling with automation like this
+While everyone's still manually editing videos, smart creators are scaling with automation like this
 
 
-the opportunity window is MASSIVE right now
+The opportunity window is MASSIVE right now
 
 
-these formats are exploding across all platforms
+These formats are exploding across all platforms
 
 
 Comment "VIDEO" + repost this + follow me (MUST DO ALL) and I'll send you the complete JSON file plus setup guide
 
 
-a lot of people will ingore this and last yet another occasion to finally make it
+A lot of people will ignore this and miss yet another occasion to finally make it
 
 
-don't sleep on it.
+Don't sleep on it.
 
 
 ➡-
@@ -270,10 +270,10 @@ You can make $2k per client with this n8n workflow...
 It finds local businesses, identifies whether their site is ugly and builds a lead list automatically
 
 
-just load it into SmartLead to send cold emails and start getting clients
+Just load it into SmartLead to send cold emails and start getting clients
 
 
-follow & comment "UGLY" and I'll send you the complete workflow (must be following)
+Follow & comment "UGLY" and I'll send you the complete workflow (must be following)
 
 
 ➡-
@@ -294,29 +294,29 @@ Here are 3 hidden AI websites you need to know:↓ https://t.co/RdnTqshjbz
 I used this n8n workflow to scrape X for top-performing posts in my niche (it's a big part of how I went from 600 → 6k followers in 13 days)
 
 
-most creators scroll for hours to find content ideas that work...
+Most creators scroll for hours to find content ideas that work...
 
 
-whereas I just run this flow and get a full swipe file in minutes - organized by likes, comments, shares and URLs.
+Whereas I just run this flow and get a full swipe file in minutes - organized by likes, comments, shares and URLs.
 
 
-here's what it does:
+Here's what it does:
 - drop in a keyword
 - scrapes X for top posts
 - pulls engagement data + content
 - auto-sorts it all into a Google Sheet
 
 
-now you've got data-backed insights ready to plug into your tweets, ads, or even video scripts.
+Now you've got data-backed insights ready to plug into your tweets, ads, or even video scripts.
 
 
-workflow takes 5 minutes to set up
+Workflow takes 5 minutes to set up
 
 
-want the full JSON?
+Want the full JSON?
 
 
-comment "SWIPE", follow, + repost and I'll send it over (must be following so I can DM)
+Comment "SWIPE", follow, + repost and I'll send it over (must be following so I can DM)
 
 
 ➡-
@@ -334,10 +334,10 @@ Here are my 3 simple steps to do it ↓ https://t.co/Hh3GmvVROF
 ➡-
 
 
-nobody likes building out an n8n workflow from scratch...
+Nobody likes building out an n8n workflow from scratch...
 
 
-that's why I turned Claude into my personal n8n builder
+That's why I turned Claude into my personal n8n builder
 
 
 I just tell it what kind of flow I want (or drop a screenshot) and it:
@@ -346,10 +346,10 @@ I just tell it what kind of flow I want (or drop a screenshot) and it:
 ✅ leaves sticky notes explaining each node
 
 
-want the Claude prompt + cheat sheets to set this up?
+Want the Claude prompt + cheat sheets to set this up?
 
 
-like + comment "claude" and I'll send it over (must be following so I can DM)
+Like + comment "claude" and I'll send it over (must be following so I can DM)
 
 
 ➡-
@@ -495,7 +495,7 @@ Anthropic is where other product teams will be in a year or two, so it's importa
 ➡-
 
 
-omg.. Hollywood is over
+Omg.. Hollywood is over
 
 
 You can now make anyone say anything with camera and emotion control, VFX, and even SFX
@@ -504,7 +504,7 @@ You can now make anyone say anything with camera and emotion control, VFX, and e
 Higgsfield Speak is literally wiping out the need for actors, gears and big film crews
 
 
-new era of AI filmmaking begins
+New era of AI filmmaking begins
 
 
 10 examples:

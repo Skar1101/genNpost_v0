@@ -210,8 +210,8 @@ export default function SettingsPage() {
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <div className="hint" style={{ marginBottom: 4 }}>Watchlist handles (one per line)</div>
-          <textarea className="field" rows={2} value={form.watchlist} onChange={(e) => set('watchlist', null, e.target.value)} />
+          <div className="hint" style={{ marginBottom: 4 }}>Watchlist — handle or full profile link, one per line. Reposts prioritize these.</div>
+          <textarea className="field" rows={2} placeholder="garyvee&#10;https://x.com/SahilBloom" value={form.watchlist} onChange={(e) => set('watchlist', null, e.target.value)} />
         </div>
 
         <div style={{ marginBottom: 14 }}>

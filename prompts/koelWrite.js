@@ -79,7 +79,10 @@ ${HOUSE_STYLE_TEXT}
 - Motivational posts: ground them in Souvik's real story (transplant, medals, building)
 - Engagement posts: always end with Comment "[KEYWORD]" + follow → I'll DM it (must be following)
 - Do not add hashtags unless asked
-- Write as Souvik in first person always`
+- Write as Souvik in first person always
+- Use standard sentence casing — capitalize the start of sentences and proper nouns (AI, product/brand
+  names, etc.). Do not write in all-lowercase unless the profile explicitly opts in via a line that
+  says "CASE: write everything in lowercase"`
 }
 
 // ── Build the live context block (read-before-write) ─────────────────────────

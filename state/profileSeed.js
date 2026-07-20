@@ -21,7 +21,7 @@ function defaultProfile() {
       avgImpressions: null,       // ← onboarding
     },
     voice: {
-      description: 'Direct, specific, lowercase-friendly. Real numbers and lived experience over vague claims. Practical, not a hero arc.',
+      description: 'Direct, specific, plain language. Real numbers and lived experience over vague claims. Practical, not a hero arc. Standard sentence casing — capitalize sentence starts and proper nouns.',
       doRules: [
         'Lead with a specific event, number, or outcome',
         'Back claims with a real number when possible',
