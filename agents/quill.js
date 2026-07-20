@@ -72,7 +72,7 @@ async function assignTopics(researchResults) {
   const top = (researchResults || []).slice(0, 15)
   const topList = top.map((r, i) => `${i + 1}. [${r.source}] ${r.title}`).join('\n')
 
-  const n = contentVolume.posts.perSection   // items per section (configurable)
+  const n = contentVolume.posts.perFormat   // items per format bucket (configurable)
   const example = k => `[${Array.from({ length: n }, (_, i) => `"${k} ${i + 1}"`).join(', ')}]`
 
   const prompt = `You are a content strategist for Souvik — Indian engineer, kidney transplant survivor, 5 medals for India, AI/SaaS builder.
@@ -80,19 +80,19 @@ async function assignTopics(researchResults) {
 Today's top ranked content:
 ${topList}
 
-Assign topics for today's X posts. Return ONLY valid JSON — exactly ${n} items in EACH of the 3 sections:
+Pick topics for today's X posts — one set to write as long-form posts, one set to write as short-form
+posts. Return ONLY valid JSON — exactly ${n} items in EACH of the 2 sections:
 
 {
-  "motivational": ${example('prompt')},
-  "domain": ${example('story')},
-  "trending": ${example('topic')}
+  "long": ${example('story')},
+  "short": ${example('topic')}
 }
 
 Rules:
-- motivational: exactly ${n} prompts, original freetext (NOT copied from list), philosophy/self-help/resilience angle
-- domain: exactly ${n} items from the list, span DIFFERENT domains (AI, startup, dev, wellness) — no overlap with trending
-- trending: exactly ${n} most time-sensitive/viral items, different from domain
-- Balance: domain and trending should NOT all be AI — include startup, tech, wellness, dev`
+- Both sections: pick items from the list above, span DIFFERENT domains (AI, startup, dev, wellness) — no overlap between the two sections
+- Balance: should NOT all be AI — include startup, tech, wellness, dev
+- long: pick items substantial enough to support 400-900 characters of depth
+- short: pick items that land in one punchy, single-idea hit`
 
   const response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
     { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 900 },
@@ -138,18 +138,10 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
     assignments = await assignTopics(results)
   } catch (err) {
     log.error('Topic assignment failed — using fallback', err)
-    const n = contentVolume.posts.perSection
-    const motivationalPool = [
-      'What a kidney transplant taught me about urgency and not wasting time',
-      'Most people give up right before it gets good — how to tell the difference',
-      'Stoicism: control what you can, release what you cannot — in practice',
-      'High performance is unglamorous: the quiet accumulation of small daily acts',
-      'Constraint as a forcing function — why finite energy makes you ship',
-    ]
+    const n = contentVolume.posts.perFormat
     assignments = {
-      motivational: motivationalPool.slice(0, n),
-      domain: results.slice(0, n).map(r => r.title),
-      trending: results.slice(n, n * 2).map(r => r.title),
+      long: results.slice(0, n).map(r => r.title),
+      short: results.slice(n, n * 2).map(r => r.title),
     }
   }
 
@@ -178,20 +170,22 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
       const topic = topics[i]
       if (!topic) continue
       const fmt = formatFor ? formatFor(i) : 'short'
-      // Research provenance (domain/trending come from research items; motivational is original).
-      const item = section === 'motivational' ? null : matchResearchItem(topic, results)
+      const item = matchResearchItem(topic, results)
       const provenance = item
         ? { researchUrl: item.url, researchSource: item.source, researchRank: item.rank, researchRunId: research?.runId }
         : {}
       try {
         const result = await koel.write({
-          format: fmt, input: topic, inputType: section === 'motivational' ? 'freetext' : 'topic', count: 1,
+          format: fmt, input: topic, inputType: 'topic', count: 1,
           origin: 'quill', meta: { section, ...provenance },
-          extraInstructions: section === 'motivational' ? 'Write as a short crisp X post (max 260 chars). Personal, punchy, no hashtags.' : '',
         })
         const draft = result.drafts[0]
         const rec = result.draftRecords && result.draftRecords[0]
-        if (rec) batch.push({ id: rec.id, text: draft, format: fmt })
+        // Flag (don't block) short-form drafts that slipped past the 280-char target — surfaced only
+        // in the Telegram message header line (auto-stripped by telegram.js's stripHeader for
+        // Copy/Approve/Edit), never in the stored draft text.
+        const warn = fmt === 'short' && draft.length > 280 ? `⚠️ ${draft.length}/280` : undefined
+        if (rec) batch.push({ id: rec.id, text: draft, format: fmt, warn })
         allDrafts.push({ section, label: `${header} ${i + 1}`, format: fmt, topic: String(topic).slice(0, 100), text: draft, generatedAt: new Date().toISOString() })
       } catch (err) { log.error(`${header} ${i + 1} failed`, err) }
     }
@@ -203,10 +197,9 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
     return batch.length
   }
 
-  // 3 batches × 5 drafts: motivational, domain, trending
-  await runBatchSection({ topics: assignments.motivational, section: 'motivational', header: 'Motivational', emoji: '✍️' })
-  await runBatchSection({ topics: assignments.domain, section: 'domain', header: 'Domain', emoji: '🌐', formatFor: i => (i % 2 === 0 ? 'short' : 'longform') })
-  await runBatchSection({ topics: assignments.trending, section: 'trending', header: 'Trending', emoji: '🔥' })
+  // 2 batches × 2 drafts: long-form, short-form
+  await runBatchSection({ topics: assignments.long, section: 'long', header: 'Long-form', emoji: '📄', formatFor: () => 'longform' })
+  await runBatchSection({ topics: assignments.short, section: 'short', header: 'Short-form', emoji: '✍️', formatFor: () => 'short' })
 
   // Top sources + viral X links are kept in the run output (web dashboard) but NOT spammed to Telegram.
 
@@ -224,7 +217,7 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
   if (broadcast) broadcast({ type: 'quill_complete', data: output })
   activityStore.recordAndBroadcast(broadcast, {
     agent: 'quill', action: 'daily_batch', triggerLabel,
-    summary: `${allDrafts.length} drafts (3 batches)`,
+    summary: `${allDrafts.length} drafts (2 batches)`,
     ref: { kind: 'quill' },
   })
   log.info(`runDaily complete — ${allDrafts.length} drafts`)

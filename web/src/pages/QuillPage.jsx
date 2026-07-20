@@ -9,7 +9,12 @@ import { useWSEvent } from '../lib/ws.js'
 import { openWithPrefill } from '../lib/tittoDockStore.js'
 import { SOURCE_META, scoreClass } from '../lib/sourceMeta.js'
 
-const SECTION_LABEL = { motivational: 'Motivational', domain: 'Domain', trending: 'Trending' }
+// 'long'/'short' are the current buckets; the other 3 are kept so older quill-history.json entries
+// (from before the 4-4-4 restructure) still render with a proper label instead of a raw string.
+const SECTION_LABEL = {
+  long: 'Long-form', short: 'Short-form',
+  motivational: 'Motivational', domain: 'Domain', trending: 'Trending',
+}
 
 function istDay(iso) {
   return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
@@ -83,7 +88,7 @@ function DaySection({ day, defaultOpen }) {
                 {it.kind === 'daily' ? (
                   <>
                     <span className="chip">{SECTION_LABEL[it.section] || it.section}</span>
-                    <span className={`type-badge type-${it.format}`}>{it.format}</span>
+                    <span className={`type-badge type-${it.format === 'longform' ? 'long' : it.format}`}>{it.format}</span>
                   </>
                 ) : (
                   <>

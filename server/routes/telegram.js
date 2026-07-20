@@ -53,13 +53,15 @@ function init(app, broadcast) {
   }
 
   // Push drafts to Telegram with one-tap Approve / Reject / Edit buttons.
-  // drafts: [{ id, text, format }] (from koel result.draftRecords + format)
+  // drafts: [{ id, text, format, warn? }] (from koel result.draftRecords + format; optional `warn`
+  // — e.g. "⚠️ 314/280" — rides in the header line so stripHeader() removes it automatically for
+  // Copy/Approve/Edit, keeping the underlying draft text clean.)
   const sendDrafts = async (drafts, opts = {}) => {
     if (!chatId || !bot || !Array.isArray(drafts)) return
     if (opts.header) { try { await bot.sendMessage(chatId, opts.header) } catch (_) {} }
     for (const d of drafts) {
       if (!d || !d.id) continue
-      const body = `📝 Draft (${d.format || 'short'})\n\n${d.text}`
+      const body = `📝 Draft (${d.format || 'short'})${d.warn ? ` ${d.warn}` : ''}\n\n${d.text}`
       try {
         await bot.sendMessage(chatId, body, { reply_markup: actionKeyboard(d.id) })
       } catch (e) { console.warn('[Telegram] sendDraft failed:', e.message) }

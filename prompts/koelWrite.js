@@ -153,7 +153,9 @@ function buildKoelUserPrompt({ format, input, inputType, count = 3, extraInstruc
 
   let formatGuide = ''
   if (format === 'short') {
-    formatGuide = `Write ${count} SHORT FORM tweets (single tweet each, max 280 chars). Follow this skeleton (do NOT print the labels): hook (stop the scroll) → insight (the non-obvious point) → translation (what it means for the reader) → POV (Souvik's take). The ${count} drafts must each take a DISTINCT angle — not ${count === 1 ? 'a reworded rehash of a single' : 'rewordings of the same'} idea.`
+    formatGuide = count === 1
+      ? `Write ONE short-form tweet — max 280 chars, aim for 150-220 to leave safety margin. 2-3 short lines with a line break between them. Open with a hook that stops the scroll, land ONE clear point. No preamble, no filler, no meta-commentary.`
+      : `Write ${count} SHORT FORM tweets — single tweet each, max 280 chars, aim for 150-220 to leave safety margin. 2-3 short lines each, line break between them. Each opens with a hook, lands ONE clear point. The ${count} drafts must each take a DISTINCT angle — not rewordings of the same idea.`
   } else if (format === 'thread') {
     formatGuide = 'Write a THREAD, 5-8 tweets max (fewer, sharper wins). Tweet 1 is a hook that promises a SPECIFIC payoff. Number each: "Tweet 1/" "Tweet 2/" etc. Every tweet must stand alone — it should make sense if read out of order or screenshotted by itself. Exactly ONE call-to-action, and only in the final tweet. No CTA mid-thread.'
   } else if (format === 'longform') {
