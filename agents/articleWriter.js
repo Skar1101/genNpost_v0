@@ -8,6 +8,7 @@ const memory = require('../state/memory')
 const { ensureProfile } = require('../state/profileSeed')
 const { buildContextBlock } = require('../prompts/koelWrite')
 const { buildArticlePrompt } = require('../prompts/quillArticle')
+const { buildSubstackArticlePrompt } = require('../prompts/heronArticle')
 const logger = require('../utils/logger')
 const log = logger.source('article-writer')
 
@@ -17,21 +18,30 @@ const log = logger.source('article-writer')
 // toward punchy tweet style. Article structure/anti-slop/citation rules come from buildArticlePrompt.
 const KOEL_DIR = path.join(__dirname, '..', 'sub-agents', 'koel')
 const QUILL_DIR = path.join(__dirname, '..', 'sub-agents', 'quill')
+const HERON_DIR = path.join(__dirname, '..', 'sub-agents', 'heron')
 
 function readFileSafe(p) { try { return fs.readFileSync(p, 'utf8') } catch (_) { return '' } }
 
-function loadArticleTemplate() {
+// `platform`: 'x' (default, unchanged behavior) | 'substack' (Heron).
+function loadArticleTemplate(platform = 'x') {
+  if (platform === 'substack') return readFileSafe(path.join(HERON_DIR, 'SUBSTACK_ARTICLE_TEMPLATE.md'))
   const primary = path.join(QUILL_DIR, 'ARTICLE_TEMPLATE.md')
   const fallback = path.join(KOEL_DIR, 'Viral_long_form_template.txt')
   return readFileSafe(primary) || readFileSafe(fallback)
 }
 
-let _sys = null
-function buildArticleSystemPrompt() {
-  if (_sys) return _sys
+let _sys = {}
+function buildArticleSystemPrompt(platform = 'x') {
+  if (_sys[platform]) return _sys[platform]
   const identity = readFileSafe(path.join(KOEL_DIR, 'IDENTITY.md'))
   const principles = readFileSafe(path.join(KOEL_DIR, 'writing_principles_context.txt'))
-  _sys = `You are a professional long-form writer producing X Articles AS Souvik (first person, his voice).
+  const framing = platform === 'substack'
+    ? 'You are a professional long-form writer producing Substack newsletter posts AS Souvik (first person, his voice).'
+    : 'You are a professional long-form writer producing X Articles AS Souvik (first person, his voice).'
+  const outputNote = platform === 'substack'
+    ? ' Output ONLY the article, including the SUBJECT:/PREVIEW:/SUBTITLE: header lines and the trailing ===IMAGE PROMPT=== block exactly as specified in the user message.'
+    : ' Output ONLY the article.'
+  _sys[platform] = `${framing}
 Your job: sharp, substantive, well-structured articles a discerning reader finishes — never AI slop.
 
 ${identity}
@@ -42,14 +52,37 @@ ${principles}
 
 ---
 ## OUTPUT RULES
-- Output ONLY the article. No preamble, no "here is your article", no meta-commentary, no DRAFT separators.
+-${outputNote} No preamble, no "here is your article", no meta-commentary, no DRAFT separators.
 - Follow the article template, structure rules, and citation rules given in the user message exactly.
 - Write in Markdown: a title line, blank lines between paragraphs, **bold** subheaders, [anchor](url) inline links.
 - Never invent statistics or sources. Cite only URLs provided in the brief/related research.`
-  return _sys
+  return _sys[platform]
 }
 
-function reload() { _sys = null }
+function reload() { _sys = {} }
+
+// Pulls the SUBJECT:/PREVIEW:/SUBTITLE: header lines and a trailing ===IMAGE PROMPT=== block off a
+// Substack-mode generation, returning the clean article body separately from the metadata. No-op-safe
+// (missing markers just leave the corresponding field null) — never throws on malformed output.
+function parseSubstackOutput(text) {
+  let body = String(text || '')
+  let subject = null, previewText = null, subtitle = null, imagePrompt = null
+
+  const subjectMatch = body.match(/^SUBJECT:\s*(.+)$/m)
+  if (subjectMatch) { subject = subjectMatch[1].trim(); body = body.replace(subjectMatch[0], '') }
+
+  const previewMatch = body.match(/^PREVIEW:\s*(.+)$/m)
+  if (previewMatch) { previewText = previewMatch[1].trim(); body = body.replace(previewMatch[0], '') }
+
+  const subtitleMatch = body.match(/^SUBTITLE:\s*(.+)$/m)
+  if (subtitleMatch) { subtitle = subtitleMatch[1].trim(); body = body.replace(subtitleMatch[0], '') }
+
+  const imageMatch = body.match(/===\s*IMAGE PROMPT\s*===\s*([\s\S]*)$/i)
+  if (imageMatch) { imagePrompt = imageMatch[1].trim(); body = body.slice(0, imageMatch.index) }
+
+  body = body.replace(/^\s+/, '').replace(/\n{3,}/g, '\n\n').trimEnd()
+  return { text: body, subject, previewText, subtitle, imagePrompt }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function slugify(s) {
@@ -77,8 +110,9 @@ function extractSources(text, relatedItems) {
 }
 
 // ── Generate a fresh article ──────────────────────────────────────────────────
-// Returns { text, title, sources, usage, cost, modelUsed, modelId }.
-async function generate({ topic, model = models.articleDefaultModel(), account = null, onToken = null, doResearch = true, relatedItems = null } = {}) {
+// Returns { text, title, sources, usage, cost, modelUsed, modelId } — plus, when platform==='substack',
+// { subtitle, subject, previewText, imagePrompt } (all null for platform 'x').
+async function generate({ topic, model = models.articleDefaultModel(), account = null, onToken = null, doResearch = true, relatedItems = null, platform = 'x' } = {}) {
   if (!topic?.trim()) throw new Error('articleWriter.generate: topic required')
   const acct = account || memory.accounts.getActiveAccount()
   ensureProfile(acct)
@@ -109,17 +143,33 @@ async function generate({ topic, model = models.articleDefaultModel(), account =
 
   // 2. Build the prompt: system (identity + principles) + voice block + article brief (template + rules + research).
   const suggestion = { title: topic, angle: topic, snippet: '', url: '' }
-  const template = loadArticleTemplate()
-  const articleBrief = buildArticlePrompt({ suggestion, template, userOverride: '', relatedItems })
+  const template = loadArticleTemplate(platform)
+  const buildBrief = platform === 'substack' ? buildSubstackArticlePrompt : buildArticlePrompt
+  const articleBrief = buildBrief({ suggestion, template, userOverride: '', relatedItems })
   const contextBlock = buildContextBlock(memory.loadContext(acct))
 
-  const messages = [{ role: 'system', content: buildArticleSystemPrompt() }]
+  const messages = [{ role: 'system', content: buildArticleSystemPrompt(platform) }]
   if (contextBlock) messages.push({ role: 'system', content: contextBlock })
   messages.push({ role: 'user', content: articleBrief })
 
   // 3. Write (stream if a token callback was given, else one-shot).
   const opts = { modelId, messages, temperature: 0.8, maxTokens: 4000 }
   const res = onToken ? await llm.stream({ ...opts, onToken }) : await llm.complete(opts)
+
+  if (platform === 'substack') {
+    const parsed = parseSubstackOutput(res.text)
+    const sources = extractSources(parsed.text, relatedItems)
+    return {
+      text: parsed.text,
+      title: titleFromText(parsed.text, topic),
+      subtitle: parsed.subtitle, subject: parsed.subject, previewText: parsed.previewText, imagePrompt: parsed.imagePrompt,
+      sources,
+      usage: res.usage,
+      cost: models.costFor(modelId, res.usage),
+      modelUsed: res.modelUsed,
+      modelId,
+    }
+  }
 
   const sources = extractSources(res.text, relatedItems)
   return {
@@ -134,8 +184,9 @@ async function generate({ topic, model = models.articleDefaultModel(), account =
 }
 
 // ── Refine an existing article conversationally ───────────────────────────────
-// Returns { text, sources, usage, cost, modelUsed, modelId }.
-async function refine({ currentText, instruction, model = models.DEFAULT_MODEL_ID, account = null, sources = [], onToken = null } = {}) {
+// Returns { text, sources, usage, cost, modelUsed, modelId } — plus, when platform==='substack',
+// { subtitle, subject, previewText, imagePrompt }, regenerated fresh to fit the rewritten piece.
+async function refine({ currentText, instruction, model = models.DEFAULT_MODEL_ID, account = null, sources = [], onToken = null, platform = 'x' } = {}) {
   if (!currentText?.trim()) throw new Error('articleWriter.refine: currentText required')
   if (!instruction?.trim()) throw new Error('articleWriter.refine: instruction required')
   const acct = account || memory.accounts.getActiveAccount()
@@ -143,7 +194,11 @@ async function refine({ currentText, instruction, model = models.DEFAULT_MODEL_I
   const modelId = models.byId(model) ? model : models.DEFAULT_MODEL_ID
 
   const contextBlock = buildContextBlock(memory.loadContext(acct))
-  const userMsg = `Rewrite the article below per this instruction, keeping it a professional long-form X Article in Souvik's voice. Keep valid existing citations; do not invent new stats or URLs.
+  const platformLabel = platform === 'substack' ? 'Substack newsletter post' : 'long-form X Article'
+  const formatNote = platform === 'substack'
+    ? ' Regenerate the SUBJECT:/PREVIEW:/SUBTITLE: header lines and the trailing ===IMAGE PROMPT=== block fresh, to fit the rewritten piece.'
+    : ''
+  const userMsg = `Rewrite the article below per this instruction, keeping it a professional ${platformLabel} in Souvik's voice. Keep valid existing citations; do not invent new stats or URLs.${formatNote}
 
 INSTRUCTION:
 ${instruction}
@@ -153,12 +208,26 @@ ${currentText}
 
 Output ONLY the rewritten article — no preamble, no explanation.`
 
-  const messages = [{ role: 'system', content: buildArticleSystemPrompt() }]
+  const messages = [{ role: 'system', content: buildArticleSystemPrompt(platform) }]
   if (contextBlock) messages.push({ role: 'system', content: contextBlock })
   messages.push({ role: 'user', content: userMsg })
 
   const opts = { modelId, messages, temperature: 0.7, maxTokens: 4000 }
   const res = onToken ? await llm.stream({ ...opts, onToken }) : await llm.complete(opts)
+
+  if (platform === 'substack') {
+    const parsed = parseSubstackOutput(res.text)
+    const merged = extractSources(parsed.text, sources)
+    return {
+      text: parsed.text,
+      subtitle: parsed.subtitle, subject: parsed.subject, previewText: parsed.previewText, imagePrompt: parsed.imagePrompt,
+      sources: merged,
+      usage: res.usage,
+      cost: models.costFor(modelId, res.usage),
+      modelUsed: res.modelUsed,
+      modelId,
+    }
+  }
 
   const merged = extractSources(res.text, sources)
   return {
@@ -171,4 +240,4 @@ Output ONLY the rewritten article — no preamble, no explanation.`
   }
 }
 
-module.exports = { generate, refine, reload, titleFromText, slugify }
+module.exports = { generate, refine, reload, titleFromText, slugify, parseSubstackOutput }

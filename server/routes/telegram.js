@@ -4,70 +4,85 @@ const memory = require('../../state/memory')
 const koel = require('../../agents/koel')
 const quill = require('../../agents/quill')
 const replyTargetsStore = require('../../state/replyTargetsStore')
+const articlesStore = require('../../state/articlesStore')
+const { REASONS, actionKeyboard, reasonKeyboard, escapeHtml, stripHeader } = require('./telegramCore')
 
 let bot = null
 let _sendDrafts = null
 let _sendReplyTargets = null
 let _sendArticleIdeas = null
-
-const REASONS = { hook: 'weak hook', voice: 'off-voice', topic: 'wrong topic', seen: 'seen before', other: 'other' }
-
-// One-tap action keyboards (callback_data stays well under Telegram's 64-byte limit)
-function actionKeyboard(id) {
-  return { inline_keyboard: [
-    [
-      { text: '✅ Approve', callback_data: `d|a|${id}` },
-      { text: '❌ Reject', callback_data: `d|r|${id}` },
-      { text: '✏️ Edit', callback_data: `d|e|${id}` },
-    ],
-    [{ text: '📋 Copy', callback_data: `d|c|${id}` }],
-  ] }
-}
-const escapeHtml = (t) => (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-function reasonKeyboard(id) {
-  return { inline_keyboard: [
-    [{ text: 'weak hook', callback_data: `d|rr|${id}|hook` }, { text: 'off-voice', callback_data: `d|rr|${id}|voice` }],
-    [{ text: 'wrong topic', callback_data: `d|rr|${id}|topic` }, { text: 'seen before', callback_data: `d|rr|${id}|seen` }],
-    [{ text: '↩ back', callback_data: `d|b|${id}` }],
-  ] }
-}
-const stripHeader = (t) => (t || '').replace(/^📝[^\n]*\n\n/, '')
+// Only set when Heron is configured in "same bot, second chat" mode (HERON_TELEGRAM_CHAT_ID set,
+// HERON_TELEGRAM_BOT_TOKEN left empty) — see heronTelegram.js for the fully-separate-bot mode instead.
+let _sendHeronDraft = null
+let _sendHeronHandoff = null
 
 function init(app, broadcast) {
   const token = process.env.TELEGRAM_BOT_TOKEN
   const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL
   const chatId = process.env.TELEGRAM_CHAT_ID
+  const heronChatId = process.env.HERON_TELEGRAM_CHAT_ID
+  // "Same bot, second chat" mode: Heron has a chat id but no separate bot token of its own — this
+  // bot instance handles Heron delivery + inbound too, instead of heronTelegram.js booting a second
+  // polling loop against the same token (which Telegram's API doesn't allow — only one active
+  // long-poll per token at a time).
+  const heronSameBot = !process.env.HERON_TELEGRAM_BOT_TOKEN && !!heronChatId
 
   if (!token) {
     console.warn('[Telegram] No TELEGRAM_BOT_TOKEN — Telegram disabled')
     return null
   }
 
-  const sendToUser = async (text) => {
-    if (!chatId || !bot) return
+  const sendToChat = async (targetChatId, text) => {
+    if (!targetChatId || !bot) return
     try {
-      await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' })
+      await bot.sendMessage(targetChatId, text, { parse_mode: 'Markdown' })
     } catch (err) {
-      try { await bot.sendMessage(chatId, text) } catch (e) { console.warn('[Telegram] Send failed:', e.message) }
+      try { await bot.sendMessage(targetChatId, text) } catch (e) { console.warn('[Telegram] Send failed:', e.message) }
     }
   }
+  const sendToUser = (text) => sendToChat(chatId, text)
 
-  // Push drafts to Telegram with one-tap Approve / Reject / Edit buttons.
+  // Push drafts to a given chat with one-tap Approve / Reject / Edit buttons.
   // drafts: [{ id, text, format, warn? }] (from koel result.draftRecords + format; optional `warn`
   // — e.g. "⚠️ 314/280" — rides in the header line so stripHeader() removes it automatically for
   // Copy/Approve/Edit, keeping the underlying draft text clean.)
-  const sendDrafts = async (drafts, opts = {}) => {
-    if (!chatId || !bot || !Array.isArray(drafts)) return
-    if (opts.header) { try { await bot.sendMessage(chatId, opts.header) } catch (_) {} }
+  const sendDraftsToChat = async (targetChatId, drafts, opts = {}) => {
+    if (!targetChatId || !bot || !Array.isArray(drafts)) return
+    if (opts.header) { try { await bot.sendMessage(targetChatId, opts.header) } catch (_) {} }
     for (const d of drafts) {
       if (!d || !d.id) continue
       const body = `📝 Draft (${d.format || 'short'})${d.warn ? ` ${d.warn}` : ''}\n\n${d.text}`
       try {
-        await bot.sendMessage(chatId, body, { reply_markup: actionKeyboard(d.id) })
+        await bot.sendMessage(targetChatId, body, { reply_markup: actionKeyboard(d.id) })
       } catch (e) { console.warn('[Telegram] sendDraft failed:', e.message) }
     }
   }
+  const sendDrafts = (drafts, opts) => sendDraftsToChat(chatId, drafts, opts)
   _sendDrafts = sendDrafts
+
+  // Heron delivery in same-bot mode — draft cards to the Heron chat, plus a short hand-off ping on
+  // Approve. Articles: one line only (the full text/image prompt live in the Heron dashboard — no
+  // more multi-message content dump into Telegram). Notes: already short, sent as-is.
+  const sendHeronDraft = (drafts, opts) => sendDraftsToChat(heronChatId, drafts, opts)
+  const sendHeronHandoff = async (draft) => {
+    if (!heronChatId || !bot || !draft || draft.platform !== 'substack') return
+    try {
+      if (draft.meta?.kind === 'article' && draft.meta?.articleId) {
+        const record = articlesStore.get(draft.meta.articleId)
+        const title = record?.title || 'your article'
+        await bot.sendMessage(heronChatId, `🦢 "${title}" approved — ready to publish. Open the Heron page in the dashboard for the full text + image prompt.`).catch(() => {})
+      } else {
+        await bot.sendMessage(heronChatId, `🦢 Ready to post as a Substack Note:\n\n${draft.text || ''}`).catch(() => {})
+      }
+    } catch (e) {
+      console.warn('[Telegram] sendHeronHandoff failed:', e.message)
+    }
+  }
+  if (heronSameBot) {
+    _sendHeronDraft = sendHeronDraft
+    _sendHeronHandoff = sendHeronHandoff
+    console.log(`[Telegram] Heron same-bot mode active — routing Heron content to chat ${heronChatId}`)
+  }
 
   // Send reply targets, each with a "💬 Draft reply" button (rd|<idx> = index into the saved qualified list).
   // targets: [{ idx, title, impressions, i2c, ageMinutes, url }]
@@ -130,23 +145,39 @@ function init(app, broadcast) {
     const incomingChatId = String(msg.chat.id)
     const text = msg.text || ''
     console.log(`[Telegram] Message from ${incomingChatId}: ${text}`)
-    if (chatId && incomingChatId !== String(chatId)) {
+
+    // /chatid works from ANY chat this bot is a member of, even ones not yet configured — this is
+    // how you discover a new group/channel's id to paste into TELEGRAM_CHAT_ID or
+    // HERON_TELEGRAM_CHAT_ID. Deliberately answered before the chat-allowlist gate below.
+    if (text.trim().toLowerCase() === '/chatid') {
+      await bot.sendMessage(incomingChatId, `This chat's id is: ${incomingChatId}`).catch(() => {})
+      return
+    }
+
+    const isHeronChat = heronSameBot && incomingChatId === String(heronChatId)
+    const isMainChat = !!chatId && incomingChatId === String(chatId)
+    if (chatId && !isMainChat && !isHeronChat) {
       console.warn('[Telegram] Message from unknown chat, ignoring')
       return
     }
 
-    // If awaiting an edit, treat this (non-command) message as the edited draft.
+    // If awaiting an edit, treat this (non-command) message as the edited draft — reply in whichever
+    // chat sent it (main or Heron).
     if (pendingEdit[incomingChatId] && text && !text.startsWith('/')) {
       const { id } = pendingEdit[incomingChatId]
       delete pendingEdit[incomingChatId]
       try {
         memory.transition(memory.accounts.getActiveAccount(), id, 'edited', { editedText: text })
-        await sendToUser('✅ Saved your edited version — Koel will learn from it.')
+        await sendToChat(incomingChatId, '✅ Saved your edited version — Koel will learn from it.')
       } catch (e) {
-        await sendToUser('Could not save the edit: ' + e.message)
+        await sendToChat(incomingChatId, 'Could not save the edit: ' + e.message)
       }
       return
     }
+
+    // The Heron chat is Heron-only — no Titto command routing there (matches heronTelegram.js's
+    // fully-separate-bot mode, which never wires Titto in at all).
+    if (isHeronChat) return
 
     try {
       const result = await titto.handleMessage({
@@ -171,7 +202,9 @@ function init(app, broadcast) {
     const ack = (text) => bot.answerCallbackQuery(q.id, text ? { text } : undefined).catch(() => {})
     try {
       const chat = String(q.message?.chat?.id)
-      if (chatId && chat !== String(chatId)) return ack()
+      const isHeronChat = heronSameBot && chat === String(heronChatId)
+      const isMainChat = !!chatId && chat === String(chatId)
+      if (chatId && !isMainChat && !isHeronChat) return ack()
       const parts = (q.data || '').split('|')
 
       // 💬 Draft reply for a saved reply target (rd|<idx>)
@@ -219,8 +252,9 @@ function init(app, broadcast) {
       const bodyText = stripHeader(q.message.text)
 
       if (action === 'a') {
-        memory.transition(acct, id, 'queued')
+        const updated = memory.transition(acct, id, 'queued')
         await bot.editMessageText(`✅ Approved\n\n${bodyText}`, { chat_id: chat, message_id: msgId }).catch(() => {})
+        if (isHeronChat && updated?.platform === 'substack') await sendHeronHandoff(updated)
         return ack('Approved — added to your queue')
       }
       if (action === 'r') {
@@ -243,6 +277,12 @@ function init(app, broadcast) {
         return ack('Copy-ready text sent below 👇')
       }
       if (action === 'e') {
+        if (isHeronChat) {
+          const rec = memory.getDraft(acct, id)
+          if (rec?.platform === 'substack' && rec?.meta?.kind === 'article') {
+            return ack('Articles are too long to edit here — open the Heron page in the dashboard to refine it.')
+          }
+        }
         pendingEdit[chat] = { id, at: Date.now() }
         return ack('Reply with your edited version')
       }
@@ -293,4 +333,18 @@ function getArticleIdeaSender() {
   return _sendArticleIdeas
 }
 
-module.exports = { init, getSendFn, getDraftSender, getReplyTargetSender, getArticleIdeaSender }
+// Returns the Heron draft sender / hand-off sender, but ONLY when this bot owns Heron delivery
+// (same-bot mode — HERON_TELEGRAM_CHAT_ID set, HERON_TELEGRAM_BOT_TOKEN empty). Null otherwise, so
+// server/index.js can tell this module isn't the one responsible (a separate bot is, or Heron isn't
+// configured at all).
+function getHeronDraftSender() {
+  return _sendHeronDraft
+}
+function getHeronHandoffSender() {
+  return _sendHeronHandoff
+}
+
+module.exports = {
+  init, getSendFn, getDraftSender, getReplyTargetSender, getArticleIdeaSender,
+  getHeronDraftSender, getHeronHandoffSender,
+}

@@ -56,7 +56,7 @@ function parseDrafts(text) {
  * @param {string} options.extraInstructions — optional rider from Titto or user
  * @param {function} options.broadcast — WebSocket broadcast fn (optional)
  */
-async function write({ format = 'short', input, inputType = 'freetext', count = 3, extraInstructions = '', broadcast = null, account = null, origin = 'koel', meta = {}, register = true, triggerLabel = '🖱 Manual' } = {}) {
+async function write({ format = 'short', input, inputType = 'freetext', count = 3, extraInstructions = '', broadcast = null, account = null, origin = 'koel', platform = 'x', meta = {}, register = true, triggerLabel = '🖱 Manual' } = {}) {
   if (!input?.trim()) throw new Error('Koel needs an input topic, URL, or instruction')
 
   log.info(`Writing ${format} post — inputType: ${inputType}, input: "${input.slice(0, 60)}…"`)
@@ -115,6 +115,7 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
         text,
         format,
         origin,
+        platform,
         meta: { ...meta, input: input.slice(0, 200), inputType },
       })
       return { id: rec.id, text }
@@ -139,7 +140,7 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
   // 'quill' (batch) and 'reply' record their own single activity entry in their caller — skip here.
   if (origin !== 'quill' && origin !== 'reply' && origin !== 'repost') {
     activityStore.recordAndBroadcast(broadcast, {
-      agent: 'koel', action: 'write', triggerLabel,
+      agent: origin, action: 'write', triggerLabel,
       summary: `${drafts.length} ${format} draft${drafts.length === 1 ? '' : 's'}`,
       ref: { kind: 'koel' },
     })

@@ -5,14 +5,20 @@ const quill = require('../agents/quill')
 const raven = require('../agents/raven')
 const analyst = require('../agents/analyst')
 const { readLatest } = require('../state/researchStore')
-const { isEnabled, getLastDrop, setLastDrop } = require('../state/schedulerStore')
+const { isEnabled, getLastDrop, setLastDrop, getTimes } = require('../state/schedulerStore')
 
 // IST wall-clock helpers (shift UTC by +5:30, then read UTC fields).
 function istNow() { return new Date(Date.now() + (5 * 60 + 30) * 60 * 1000) }
 function istToday() { return istNow().toISOString().slice(0, 10) }
 function istMinutes() { const d = istNow(); return d.getUTCHours() * 60 + d.getUTCMinutes() }
 function istDateOf(ts) { return ts ? new Date(new Date(ts).getTime() + (5 * 60 + 30) * 60 * 1000).toISOString().slice(0, 10) : null }
-const DROP_IST_MIN = 15 * 60 + 45   // 3:45 PM IST
+
+// Reads the user-configured drop time fresh each call (Schedules page can change this without a
+// server restart) instead of a fixed constant.
+function getDropIstMin() {
+  const [h, m] = getTimes().dailyDrop.split(':').map(Number)
+  return h * 60 + m
+}
 
 // Return today's research, running ONE fresh Raven search if the latest run isn't from today (IST).
 async function ensureTodaysResearch({ broadcast = null, telegramSend = null, triggerLabel = '' } = {}) {
@@ -55,7 +61,7 @@ async function runDailyDrop({ broadcast = null, telegramSend = null, telegramSen
 async function maybeCatchUp(opts = {}) {
   try {
     if (!isEnabled()) return { ran: false, reason: 'disabled' }
-    if (istMinutes() < DROP_IST_MIN) return { ran: false, reason: 'before-drop-time' }   // let the scheduled fire handle it
+    if (istMinutes() < getDropIstMin()) return { ran: false, reason: 'before-drop-time' }   // let the scheduled fire handle it
     if (getLastDrop() === istToday()) return { ran: false, reason: 'already-ran' }
     console.log('[Drop] Catching up missed daily drop (past 3:45 PM IST, none yet today)')
     await runDailyDrop({ ...opts, triggerLabel: '⏰ Catch-up drop' })
@@ -63,4 +69,4 @@ async function maybeCatchUp(opts = {}) {
   } catch (e) { console.warn('[Drop] catch-up failed:', e.message); return { ran: false, reason: 'error' } }
 }
 
-module.exports = { runDailyDrop, maybeCatchUp, ensureTodaysResearch, istToday, istMinutes, istDateOf, DROP_IST_MIN }
+module.exports = { runDailyDrop, maybeCatchUp, ensureTodaysResearch, istToday, istMinutes, istDateOf, getDropIstMin }

@@ -9,10 +9,10 @@ import { useWSEvent } from '../lib/ws.js'
 import { openWithPrefill } from '../lib/tittoDockStore.js'
 import { SOURCE_META, scoreClass } from '../lib/sourceMeta.js'
 
-// 'long'/'short' are the current buckets; the other 3 are kept so older quill-history.json entries
-// (from before the 4-4-4 restructure) still render with a proper label instead of a raw string.
+// 'punch' is the current bucket; the other 4 are kept so older quill-history.json entries (from
+// before the long-form drop / 4-4-4 restructures) still render with a proper label instead of a raw string.
 const SECTION_LABEL = {
-  long: 'Long-form', short: 'Short-form',
+  punch: 'Punch', long: 'Long-form', short: 'Short-form',
   motivational: 'Motivational', domain: 'Domain', trending: 'Trending',
 }
 

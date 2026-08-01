@@ -27,7 +27,10 @@ function slugify(s) {
 }
 
 // Create a new article with its first version. Returns the full record.
-function create({ topic, title, text, model, sources = [], usage = null, cost = null } = {}) {
+// `platform`: 'x' (default) | 'substack'. subtitle/subject/previewText/imagePrompt are Substack-only
+// fields — always absent/null for X articles, so every existing X-article file on disk keeps parsing
+// and displaying exactly as before (no migration needed).
+function create({ topic, title, text, model, sources = [], usage = null, cost = null, platform = 'x', subtitle = null, subject = null, previewText = null, imagePrompt = null } = {}) {
   ensureDirs()
   const now = new Date().toISOString()
   const id = 'a-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
@@ -37,8 +40,9 @@ function create({ topic, title, text, model, sources = [], usage = null, cost = 
     slug: slugify(title || topic),
     topic: topic || '',
     model: model || null,
+    platform,
     sources: sources || [],
-    versions: [{ v: 1, text: text || '', instruction: null, model: model || null, usage, cost, createdAt: now }],
+    versions: [{ v: 1, text: text || '', instruction: null, model: model || null, usage, cost, subtitle, subject, previewText, imagePrompt, createdAt: now }],
     createdAt: now,
     updatedAt: now,
   }
@@ -53,11 +57,11 @@ function get(id) {
 }
 
 // Append a new version (from a refine). Returns the updated record.
-function addVersion(id, { text, instruction = null, model = null, sources = null, usage = null, cost = null } = {}) {
+function addVersion(id, { text, instruction = null, model = null, sources = null, usage = null, cost = null, subtitle = null, subject = null, previewText = null, imagePrompt = null } = {}) {
   const record = get(id)
   if (!record) return null
   const v = record.versions.length + 1
-  record.versions.push({ v, text: text || '', instruction, model, usage, cost, createdAt: new Date().toISOString() })
+  record.versions.push({ v, text: text || '', instruction, model, usage, cost, subtitle, subject, previewText, imagePrompt, createdAt: new Date().toISOString() })
   if (sources) record.sources = sources
   if (model) record.model = model
   record.updatedAt = new Date().toISOString()
@@ -67,7 +71,7 @@ function addVersion(id, { text, instruction = null, model = null, sources = null
 
 // Fill in / patch the latest version (used to finalize a streamed generate or refine that was created
 // with placeholder text). Also lets the final title/slug/sources be set once the text is known.
-function updateLatestVersion(id, { text, usage = null, cost = null, sources = null, model = null, title = null } = {}) {
+function updateLatestVersion(id, { text, usage = null, cost = null, sources = null, model = null, title = null, subtitle = null, subject = null, previewText = null, imagePrompt = null } = {}) {
   const record = get(id)
   if (!record?.versions?.length) return null
   const ver = record.versions[record.versions.length - 1]
@@ -75,6 +79,10 @@ function updateLatestVersion(id, { text, usage = null, cost = null, sources = nu
   if (usage != null) ver.usage = usage
   if (cost != null) ver.cost = cost
   if (model) ver.model = model
+  if (subtitle != null) ver.subtitle = subtitle
+  if (subject != null) ver.subject = subject
+  if (previewText != null) ver.previewText = previewText
+  if (imagePrompt != null) ver.imagePrompt = imagePrompt
   if (sources) record.sources = sources
   if (model) record.model = model
   if (title) { record.title = title; record.slug = slugify(title) }
@@ -98,7 +106,7 @@ function list(limit = 50) {
     try {
       const r = JSON.parse(fs.readFileSync(path.join(ARTICLES_DIR, f), 'utf8'))
       items.push({
-        id: r.id, title: r.title, slug: r.slug, topic: r.topic, model: r.model,
+        id: r.id, title: r.title, slug: r.slug, topic: r.topic, model: r.model, platform: r.platform || 'x',
         versionCount: r.versions?.length || 0, createdAt: r.createdAt, updatedAt: r.updatedAt,
       })
     } catch (_) {}
@@ -120,7 +128,7 @@ function listCostEntries() {
       for (const v of r.versions || []) {
         if (v.cost == null) continue
         entries.push({
-          ts: v.createdAt, agent: 'article', action: 'write', model: v.model || r.model,
+          ts: v.createdAt, agent: r.platform === 'substack' ? 'heron' : 'article', action: 'write', model: v.model || r.model,
           cost: v.cost, promptTokens: v.usage?.prompt_tokens ?? null, completionTokens: v.usage?.completion_tokens ?? null,
         })
       }
@@ -134,21 +142,25 @@ function exportMarkdown(id) {
   const record = get(id)
   if (!record) return null
   ensureDirs()
+  const ver = record.versions?.[record.versions.length - 1] || {}
   const text = latestText(record)
   const date = (record.updatedAt || new Date().toISOString()).slice(0, 10)
   const filename = `${date}-${record.slug}.md`
   const srcLines = (record.sources || []).map(s => `  - ${s.url}`).join('\n')
-  const fm = [
+  const fmLines = [
     '---',
     `title: "${(record.title || '').replace(/"/g, "'")}"`,
     `model: ${record.model || 'unknown'}`,
     `createdAt: ${record.createdAt}`,
     `updatedAt: ${record.updatedAt}`,
-    'sources:' + (srcLines ? `\n${srcLines}` : ' []'),
-    '---',
-    '',
-  ].join('\n')
-  const markdown = fm + text + '\n'
+  ]
+  if (ver.subtitle) fmLines.push(`subtitle: "${ver.subtitle.replace(/"/g, "'")}"`)
+  if (ver.subject) fmLines.push(`subject: "${ver.subject.replace(/"/g, "'")}"`)
+  if (ver.previewText) fmLines.push(`previewText: "${ver.previewText.replace(/"/g, "'")}"`)
+  fmLines.push('sources:' + (srcLines ? `\n${srcLines}` : ' []'), '---', '')
+  const fm = fmLines.join('\n')
+  const imageSection = ver.imagePrompt ? `\n\n## Image prompt\n${ver.imagePrompt}\n` : ''
+  const markdown = fm + text + imageSection + '\n'
   const file = path.join(FILES_DIR, filename)
   writeAtomic(file, markdown)
   return { file, filename, markdown }

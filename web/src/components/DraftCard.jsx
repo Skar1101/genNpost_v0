@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTransition } from '../lib/queries.js'
 
 const CheckIcon = () => (
@@ -26,6 +27,9 @@ function describeOrigin(draft) {
   if (origin === 'repost') return 'Quill · quote-repost'
   if (origin === 'quill' && meta.section) return `Quill · ${meta.section}`
   if (origin === 'quill') return 'Quill · daily drop'
+  if (origin === 'heron' && meta.kind === 'article') return 'Heron · article'
+  if (origin === 'heron' && meta.kind === 'note') return 'Heron · Note'
+  if (origin === 'heron') return 'Heron · direct'
   return 'Koel · direct'
 }
 
@@ -35,6 +39,8 @@ export default function DraftCard({ draft }) {
   const [editText, setEditText] = useState(draft.editedText || draft.text)
   const [copied, setCopied] = useState(false)
   const transition = useTransition()
+  const navigate = useNavigate()
+  const isHeronArticle = draft.origin === 'heron' && draft.meta?.kind === 'article' && draft.meta?.articleId
 
   const text = draft.editedText || draft.text
 
@@ -67,6 +73,14 @@ export default function DraftCard({ draft }) {
         </span>
         <span className="fmt">{draft.format}</span>
         <span className="via">{describeOrigin(draft)}</span>
+        {isHeronArticle && (
+          <button
+            className="act" style={{ marginLeft: 'auto' }}
+            onClick={() => navigate('/agent/heron', { state: { articleId: draft.meta.articleId } })}
+          >
+            ↗ Open in Heron
+          </button>
+        )}
       </div>
 
       {mode === 'edit' ? (
@@ -89,7 +103,7 @@ export default function DraftCard({ draft }) {
           <button className="act reject" onClick={() => setMode('reject')} disabled={transition.isPending}>
             <XIcon /> Reject
           </button>
-          <button className="act" onClick={() => setMode('edit')}>Edit</button>
+          {!isHeronArticle && <button className="act" onClick={() => setMode('edit')}>Edit</button>}
           <button className="act" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
         </div>
       )}

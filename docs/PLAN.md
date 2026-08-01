@@ -24,7 +24,7 @@ Titto — Chief of Staff  (orchestrates the team; the chat you talk to)
 ├─ PLATFORM AGENTS   (each owns: trend sources · schedule · platform strategy)
 │   ├─ Raven · X        research + X-shaped drafts   (today's engine, renamed)
 │   ├─ Parrot · LinkedIn LinkedIn trends + posts     (data source TBD)
-│   └─ Heron · Substack  Substack trends + newsletters (data source TBD)
+│   └─ Heron · Substack  articles + Notes, built ✅  (data source: Raven's research, filtered)
 │
 └─ SHARED SERVICES   (platform-agnostic; reused by every platform agent)
     ├─ Koel           the writer — drafts any platform's posts, format-aware
@@ -81,6 +81,18 @@ when LinkedIn/Substack land, the shared fetch/rank logic moves to `core/research
 platform agent = engine + its `platforms/*.js` config (sources, trend prompt, format guide, persona,
 schedule). Personas (Raven/Parrot/Heron) are metadata on the config, so the Control Center lists them
 as agents automatically.
+
+**Built-vs-planned note (Heron, shipped):** when Heron actually got built, the `platforms/` registry +
+`core/researchEngine.js` abstraction above turned out to be premature for a single second platform — it
+was deferred (per the "reduce complexity" principle already used for the v1 X-only build). Heron
+shipped instead as a plain `agents/heron.js` (same one-file-per-agent shape as every other agent),
+which orchestrates by adding a `platform` param to the existing shared pieces: `articleWriter.js`
+(`platform:'substack'` branches the template/prompt/output-parsing) and `koel.js` (`platform` threaded
+through to the draft record; a `note` format added for Substack Notes). No new fetch/rank engine was
+needed — Heron reuses Raven's existing research output (`postPotential`/`trendingScore` fields),
+filtered for long-form-worthy items, via a new `state/heronTopicsStore.js`. If/when Parrot·LinkedIn is
+built next, revisit then whether two platform agents justify extracting the registry — don't build it
+speculatively for a third.
 
 ### Data model
 - **Draft** gains `platform` (default `'x'`) + `sourceDraftId` (repurpose lineage). Lifecycle
@@ -188,9 +200,18 @@ Approve / Reject(reason) / Edit / Copy / **Repurpose →**.
   Analyst/Article-Writer views, Insights, Activity, Schedules, Settings — full parity with the current dashboard.
 
 **Phase 3 — Platform agents (LinkedIn + Substack)**
-- Extract `core/researchEngine.js`; add `platforms/linkedin.js` (Parrot) + `substack.js` (Heron) with
-  chosen trend sources; **repurpose** flow (approved X draft/article → LinkedIn); **newsletter assembly**
-  (week's material → Substack draft). Telegram reaches parity. Each new agent appears in the Control Center.
+- **Substack · Heron — done.** Shipped as `agents/heron.js` (see the "Built-vs-planned note" above for
+  why this skipped the `platforms/`+`core/researchEngine.js` abstraction). Topic search reuses Raven's
+  research (no new trend source); writes full Substack articles (subject/preview/subtitle/body +
+  a text image-generation prompt) and short Notes tied to content pillars. **No auto-posting** — Substack
+  has no official publishing API, so approving on Telegram hands off everything (formatted article,
+  image prompt, or Note) ready to paste — the final "hit publish" click on Substack's own site stays
+  manual, same draft-only hard stop as X. Each draft gets the normal approve/reject/edit card on
+  generation; hand-off fires as a second, separate Telegram delivery the moment it's approved.
+- **LinkedIn · Parrot — not started.** Deliberately deferred until Heron proved out the platform-agent
+  pattern. When picked up: extract `core/researchEngine.js` only if a `platforms/*.js` registry is
+  actually justified by then; **repurpose** flow (approved X draft/article → LinkedIn). Telegram reaches
+  parity. Appears in the Control Center once real.
 
 **Phase 4 — Production**
 - Build frontend → served by Express; deploy to VPS (HOST/API_TOKEN, PM2); daily `state/data/` backups;
@@ -204,6 +225,11 @@ Approve / Reject(reason) / Edit / Copy / **Repurpose →**.
 ## 5. Verification per phase
 - P1: old dashboard + Telegram unchanged; `/api/agents` + `/api/schedules` return parity data; Raven rename complete (grep: no `chitrag`); React shell loads authed.
 - P2: every current action reproducible in React; Control Center shows live agent status via WS; schedules toggle.
-- P3: Parrot/Heron appear as agents with runs; `/linkedin <topic>` + Repurpose produce platform-tagged drafts; newsletter `.md` pastes into Substack; X drop unchanged.
+- P3: Heron appears as a real agent with runs — real topic search, a real Substack article (word count,
+  subject/preview/subtitle/image-prompt all present, markers stripped from the stored body), a real
+  Note, both showing up as `platform:'substack'` in the Queue; approving one exercises the Telegram
+  hand-off path without throwing; a parallel real X-article generation confirms zero regression. Parrot
+  (once built): appears as an agent with runs; `/linkedin <topic>` + Repurpose produce platform-tagged
+  drafts; X drop unchanged.
 - P4: boots on VPS via PM2; dashboard reachable with token / 401 without; backup restores; `/health` green.
 - Regression each phase: server boots clean, hard-stop intact (no publish path anywhere).

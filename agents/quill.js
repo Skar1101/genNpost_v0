@@ -2,6 +2,7 @@ require('dotenv').config()
 const OpenAI = require('openai')
 const koel = require('./koel')
 const raven = require('./raven')
+const analyst = require('./analyst')
 const { appendRun } = require('../state/quillStore')
 const activityStore = require('../state/activityStore')
 const guard = require('../utils/llmGuard')
@@ -73,30 +74,25 @@ async function assignTopics(researchResults) {
   const top = (researchResults || []).slice(0, 15)
   const topList = top.map((r, i) => `${i + 1}. [${r.source}] ${r.title}`).join('\n')
 
-  const n = contentVolume.posts.perFormat   // items per format bucket (configurable)
-  const example = k => `[${Array.from({ length: n }, (_, i) => `"${k} ${i + 1}"`).join(', ')}]`
+  const n = contentVolume.posts.count   // number of punch posts for today's batch (configurable)
+  const example = `[${Array.from({ length: n }, (_, i) => `"topic ${i + 1}"`).join(', ')}]`
 
   const prompt = `You are a content strategist for Souvik — Indian engineer, kidney transplant survivor, 5 medals for India, AI/SaaS builder.
 
 Today's top ranked content:
 ${topList}
 
-Pick topics for today's X posts — one set to write as long-form posts, one set to write as short-form
-posts. Return ONLY valid JSON — exactly ${n} items in EACH of the 2 sections:
+Pick ${n} topics for today's X posts — each will become a short, punchy, viral one-liner (not a
+personal story, not long-form). Return ONLY valid JSON:
 
-{
-  "long": ${example('story')},
-  "short": ${example('topic')}
-}
+{ "topics": ${example} }
 
 Rules:
-- Both sections: pick items from the list above, span DIFFERENT domains (AI, startup, dev, wellness) — no overlap between the two sections
-- Balance: should NOT all be AI — include startup, tech, wellness, dev
-- long: pick items substantial enough to support 400-900 characters of depth
-- short: pick items that land in one punchy, single-idea hit`
+- Pick items from the list above, span DIFFERENT domains (AI, startup, dev, wellness) — should NOT all be AI
+- Pick items that land in ONE punchy, single-idea hit — a sharp take or contrarian angle works better than a story`
 
   const response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 900 },
+    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 600 },
     { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
   ))
   costTracker.priceAndRecord({ agent: 'quill', action: 'assign_topics', modelId: 'openai/gpt-4o-mini', usage: response.usage })
@@ -139,11 +135,8 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
     assignments = await assignTopics(results)
   } catch (err) {
     log.error('Topic assignment failed — using fallback', err)
-    const n = contentVolume.posts.perFormat
-    assignments = {
-      long: results.slice(0, n).map(r => r.title),
-      short: results.slice(n, n * 2).map(r => r.title),
-    }
+    const n = contentVolume.posts.count
+    assignments = { topics: results.slice(0, n).map(r => r.title) }
   }
 
   // Step 2: Build sources section (top 8 ranked items with links)
@@ -185,7 +178,7 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
         // Flag (don't block) short-form drafts that slipped past the 280-char target — surfaced only
         // in the Telegram message header line (auto-stripped by telegram.js's stripHeader for
         // Copy/Approve/Edit), never in the stored draft text.
-        const warn = fmt === 'short' && draft.length > 280 ? `⚠️ ${draft.length}/280` : undefined
+        const warn = (fmt === 'short' || fmt === 'punch') && draft.length > 280 ? `⚠️ ${draft.length}/280` : undefined
         if (rec) batch.push({ id: rec.id, text: draft, format: fmt, warn })
         allDrafts.push({ section, label: `${header} ${i + 1}`, format: fmt, topic: String(topic).slice(0, 100), text: draft, generatedAt: new Date().toISOString() })
       } catch (err) { log.error(`${header} ${i + 1} failed`, err) }
@@ -198,9 +191,9 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
     return batch.length
   }
 
-  // 2 batches × 2 drafts: long-form, short-form
-  await runBatchSection({ topics: assignments.long, section: 'long', header: 'Long-form', emoji: '📄', formatFor: () => 'longform' })
-  await runBatchSection({ topics: assignments.short, section: 'short', header: 'Short-form', emoji: '✍️', formatFor: () => 'short' })
+  // Single batch: 4 punch posts (raw, hook-driven one-liners). Long-form dropped from the automated
+  // drop — still available on-demand via the Koel page / Quill planner.
+  await runBatchSection({ topics: assignments.topics, section: 'punch', header: 'Punch posts', emoji: '⚡', formatFor: () => 'punch' })
 
   // Top sources + viral X links are kept in the run output (web dashboard) but NOT spammed to Telegram.
 
@@ -218,7 +211,7 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
   if (broadcast) broadcast({ type: 'quill_complete', data: output })
   activityStore.recordAndBroadcast(broadcast, {
     agent: 'quill', action: 'daily_batch', triggerLabel,
-    summary: `${allDrafts.length} drafts (2 batches)`,
+    summary: `${allDrafts.length} punch drafts`,
     ref: { kind: 'quill' },
   })
   log.info(`runDaily complete — ${allDrafts.length} drafts`)
@@ -465,6 +458,13 @@ Return ONLY JSON:
       await sendChunked(telegramSend, `🐙 *GitHub Weekly Wrap*\n\n${result.drafts[0]}`)
     } catch (err) { log.error('GitHub wrap failed', err) }
   }
+
+  // Refresh learned insights from the week's approvals/rejections + any pasted performance, then nudge
+  // Souvik to feed this week's numbers so the loop keeps sharpening. Was previously only wired up when
+  // this ran on the (now-deactivated) automatic Sunday schedule — moved here so it fires the same way
+  // whether triggered by a schedule or manually (POST /api/quill/weekly).
+  try { await analyst.analyze({ broadcast }) } catch (e) { log.error('weekly analyze failed', e) }
+  await tgSend(telegramSend, '📊 *Weekly performance loop*\nPaste your top 3 and bottom 3 tweets from this week (text + impressions/likes/replies) with:\n`/perf <paste here>`\nThen run `/learned` to see what I picked up.')
 
   if (broadcast) broadcast({ type: 'quill_weekly_complete', data: { ideas, generatedAt: runAt } })
   activityStore.recordAndBroadcast(broadcast, {

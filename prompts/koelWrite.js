@@ -37,6 +37,10 @@ const FORMAT_META = {
   longform:    { label: 'Long Form',          desc: 'Single detailed post, 500–900 chars' },
   motivational:{ label: 'Motivational',       desc: 'Personal story or resilience post, emotional + universal' },
   engagement:  { label: 'Engagement Farming', desc: 'DM giveaway post with CTA keyword' },
+  note:        { label: 'Substack Note',      desc: '1–2 lines, punchy, tied to your niche/pillars' },
+  // Daily-drop only — not a manually-selectable format (kept out of KoelPage.jsx's format list on
+  // purpose). Raw, hook-driven, punchline-length; no forced personal-story framing.
+  punch:       { label: 'Punch',              desc: '1–2 lines, raw hook, built to go viral — daily drop only' },
 }
 
 // ── Build the system prompt from cached knowledge ────────────────────────────
@@ -167,6 +171,27 @@ function buildKoelUserPrompt({ format, input, inputType, count = 3, extraInstruc
     formatGuide = `Write ${count} MOTIVATIONAL posts. Ground each in Souvik's real story (transplant comeback, medals, building). Universal lesson at end. Emotional but not cringey.`
   } else if (format === 'engagement') {
     formatGuide = `Write ${count} ENGAGEMENT FARMING posts. Each has: hook → what you're giving away → 3 bullet benefits → CTA with a keyword (must be following). Make the keyword relevant and punchy.`
+  } else if (format === 'note') {
+    formatGuide = count === 1
+      ? `Write ONE Substack Note — 1-2 short lines, punchy, a single sharp point tied to Souvik's niche/pillars. No hashtags, no thread numbering. Aim under ~400 characters — this is a quick aside, not a mini-essay.`
+      : `Write ${count} Substack Notes — 1-2 short lines each, punchy, a single sharp point tied to Souvik's niche/pillars. No hashtags, no thread numbering. Aim under ~400 characters each. The ${count} drafts must each take a DISTINCT angle.`
+  } else if (format === 'punch') {
+    const rules = `Rules:
+- 1 line, MAX 2. If it needs a 3rd line, it's not tight enough — cut it.
+- Do NOT open with "I" / frame it through Souvik's personal journey or story unless the topic is
+  directly about resilience, health, or building (transplant, medals) — most punch posts are a general
+  sharp take, observation, or contrarian angle, not "in my journey..." framing.
+- The FIRST clause has to stop the scroll: a bold claim, a contrarian take, a curiosity gap, or a sharp
+  question. No throat-clearing, no setup, no soft opener.
+- Built to be shared and replied to, not just read. Say the thing most people are thinking but won't say,
+  or the thing that sounds obvious once said but nobody's saying it.
+- Raw and direct. No hedging ("I think", "maybe", "perhaps"). State it like it's true.
+- No hashtags. No generic engagement-bait tics ("Thoughts?", "Agree?", "Unpopular opinion:", "RT if...")
+  unless the line is genuinely built around that mechanic, not tacked on.
+- No em dashes, no filler, no AI-slop phrasing (see HOUSE STYLE above — this format is held to it strictly).`
+    formatGuide = count === 1
+      ? `Write ONE punch post — a raw, direct, scroll-stopping one-liner (occasionally two lines, never more). This is NOT a mini-essay and NOT a personal story post.\n\n${rules}`
+      : `Write ${count} punch posts — each a raw, direct, scroll-stopping one-liner (occasionally two lines, never more). The ${count} drafts must each take a DISTINCT angle.\n\n${rules}`
   }
 
   // Titto's instructions always take highest priority — placed first so the LLM sees them before format defaults

@@ -12,18 +12,22 @@ const { readHistory: readKoelHistory } = require('../../state/koelStore')
 const { readLatest: readQuillLatest, readHistory: readQuillHistory } = require('../../state/quillStore')
 const { listPillars, setPillars } = require('../../state/quillPillarsStore')
 const quillSessions = require('../../state/quillSessionsStore')
-const { getStatus: getSchedulerStatus, setEnabled: setSchedulerEnabled } = require('../../state/schedulerStore')
+const { getStatus: getSchedulerStatus, setEnabled: setSchedulerEnabled, setHeronEnabled, setTimes: setSchedulerTimes } = require('../../state/schedulerStore')
 const replyDomainsStore = require('../../state/replyDomainsStore')
 const { readLatest: readRepliesLatest } = require('../../state/replyTargetsStore')
 const activityStore = require('../../state/activityStore')
 const articleWriter = require('../../agents/articleWriter')
 const articlesStore = require('../../state/articlesStore')
+const heron = require('../../agents/heron')
+const heronTopicsStore = require('../../state/heronTopicsStore')
 const analyst = require('../../agents/analyst')
 const costStore = require('../../state/costStore')
 const modelsConfig = require('../../config/models')
 const memory = require('../../state/memory')
 const { ensureProfile } = require('../../state/profileSeed')
 const dailyDrop = require('../../scheduler/dailyDrop')
+const heronDrop = require('../../scheduler/heronDrop')
+const cron = require('../../scheduler/cron')
 
 // GET /api/research/latest
 router.get('/research/latest', (req, res) => {
@@ -249,6 +253,134 @@ router.post('/article/refine', async (req, res) => {
   }
 })
 
+// ── Heron · Substack ──────────────────────────────────────────────────────────
+// Article list/detail/revert/export are reused as-is from the routes above (already
+// platform-agnostic). Only generation/refine/topics/notes need Substack-specific handling.
+
+// GET /api/heron/topics → latest saved article-topic candidates
+router.get('/heron/topics', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  const data = heronTopicsStore.readLatest(account)
+  res.json(data || { topics: [], message: 'No topics yet. Use POST /api/heron/topics/search.' })
+})
+
+// POST /api/heron/topics/search  body: { query?, count? } — targeted search if query given, else
+// reuses the latest research (filtered to long-form-worthy items).
+router.post('/heron/topics/search', async (req, res) => {
+  const { query = null, count } = req.body || {}
+  const { broadcast } = req.app.locals
+  const account = memory.accounts.getActiveAccount()
+  try {
+    const result = await heron.searchTopics({ query, count, account, broadcast, triggerLabel: '🖱 Heron' })
+    res.json(result)
+  } catch (err) {
+    logger.error('[API] Heron topic search failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/heron/article/generate  { idx?, topic?, model }  → creates a Substack article record,
+// streams tokens over the SAME article_* WS events the X Article Writer uses, then registers a
+// short-preview draft and fires the normal Telegram approve/reject/edit card.
+router.post('/heron/article/generate', async (req, res) => {
+  const { idx = null, topic: topicBody = null, model } = req.body || {}
+  const { broadcast, telegramSendHeronDraft: telegramSendDraft } = req.app.locals
+  const account = memory.accounts.getActiveAccount()
+
+  let topic = topicBody
+  if (!topic?.trim() && idx != null) {
+    const t = heronTopicsStore.getTopic(account, idx)
+    if (!t) return res.status(400).json({ error: 'No topic at that index — run /api/heron/topics/search first.' })
+    topic = t.title || t.angle || t.snippet
+  }
+  if (!topic?.trim()) return res.status(400).json({ error: 'topic or idx required' })
+
+  const modelId = modelsConfig.byId(model) ? model : modelsConfig.DEFAULT_MODEL_ID
+  const record = articlesStore.create({ topic, title: topic, text: '', model: modelId, platform: 'substack' })
+  res.json({ id: record.id, model: modelId })
+
+  if (broadcast) broadcast({ type: 'article_start', data: { id: record.id, title: topic, mode: 'generate' } })
+  try {
+    const result = await articleWriter.generate({
+      topic, model: modelId, platform: 'substack',
+      onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id: record.id, delta } }) : null,
+    })
+    articlesStore.updateLatestVersion(record.id, {
+      text: result.text, usage: result.usage, cost: result.cost, sources: result.sources, model: result.modelId, title: result.title,
+      subtitle: result.subtitle, subject: result.subject, previewText: result.previewText, imagePrompt: result.imagePrompt,
+    })
+    if (broadcast) broadcast({ type: 'article_done', data: {
+      id: record.id, version: 1, title: result.title, text: result.text,
+      sources: result.sources, usage: result.usage, cost: result.cost, model: result.modelId,
+      subtitle: result.subtitle, subject: result.subject, previewText: result.previewText, imagePrompt: result.imagePrompt,
+    } })
+    const updatedRecord = articlesStore.get(record.id)
+    await heron.registerArticleDraft({ record: updatedRecord, account, broadcast, telegramSendDraft, triggerLabel: '🖱 Heron' })
+  } catch (err) {
+    logger.error('[API] Heron article generate failed', err)
+    if (broadcast) broadcast({ type: 'article_error', data: { id: record.id, message: err.message } })
+  }
+})
+
+// POST /api/heron/article/refine  { id, instruction, model }  → streams a new version over WS.
+// Does not re-register a draft — the approve card already went out on the initial generate.
+router.post('/heron/article/refine', async (req, res) => {
+  const { id, instruction, model } = req.body || {}
+  const record = articlesStore.get(id)
+  if (!record) return res.status(404).json({ error: 'article not found' })
+  if (record.platform !== 'substack') return res.status(400).json({ error: 'not a Substack article' })
+  if (!instruction?.trim()) return res.status(400).json({ error: 'instruction required' })
+  const { broadcast } = req.app.locals
+  const modelId = modelsConfig.byId(model) ? model : (record.model || modelsConfig.DEFAULT_MODEL_ID)
+  const currentText = articlesStore.latestText(record)
+
+  const withPlaceholder = articlesStore.addVersion(id, { text: '', instruction, model: modelId })
+  const newVersion = withPlaceholder.versions.length
+  res.json({ id, version: newVersion, model: modelId })
+
+  if (broadcast) broadcast({ type: 'article_start', data: { id, version: newVersion, mode: 'refine' } })
+  try {
+    const result = await articleWriter.refine({
+      currentText, instruction, model: modelId, sources: record.sources, platform: 'substack',
+      onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id, delta } }) : null,
+    })
+    articlesStore.updateLatestVersion(id, {
+      text: result.text, usage: result.usage, cost: result.cost, sources: result.sources, model: result.modelId,
+      subtitle: result.subtitle, subject: result.subject, previewText: result.previewText, imagePrompt: result.imagePrompt,
+    })
+    if (broadcast) broadcast({ type: 'article_done', data: {
+      id, version: newVersion, text: result.text, sources: result.sources,
+      usage: result.usage, cost: result.cost, model: result.modelId,
+      subtitle: result.subtitle, subject: result.subject, previewText: result.previewText, imagePrompt: result.imagePrompt,
+    } })
+    const words = result.text.split(/\s+/).filter(Boolean).length
+    activityStore.recordAndBroadcast(broadcast, {
+      agent: 'heron', action: 'refine', triggerLabel: '🖱 Heron',
+      summary: `v${newVersion} · ${words} words${result.cost != null ? ' · $' + result.cost.toFixed(4) : ''}`,
+      ref: { kind: 'article', id },
+    })
+  } catch (err) {
+    logger.error('[API] Heron article refine failed', err)
+    if (broadcast) broadcast({ type: 'article_error', data: { id, message: err.message } })
+  }
+})
+
+// POST /api/heron/note/write  body: { topic, count? }  → Substack Notes, registered + sent to
+// Telegram exactly like every other draft (approve/reject/edit card).
+router.post('/heron/note/write', async (req, res) => {
+  const { topic, count = 1 } = req.body || {}
+  if (!topic?.trim()) return res.status(400).json({ error: 'topic required' })
+  const { broadcast, telegramSendHeronDraft: telegramSendDraft } = req.app.locals
+  const account = memory.accounts.getActiveAccount()
+  try {
+    const result = await heron.writeNote({ topic, count, account, broadcast, telegramSendDraft, triggerLabel: '🖱 Heron' })
+    res.json(result)
+  } catch (err) {
+    logger.error('[API] Heron note write failed', err)
+    res.status(500).json({ error: 'Heron hit an error: ' + err.message })
+  }
+})
+
 // ── Activity feed (Titto control tower) ───────────────────────────────────────
 
 // GET /api/activity?limit=100  → newest-first log of every agent run
@@ -304,13 +436,34 @@ router.get('/expenses', (req, res) => {
 // Pure read-only aggregator over existing stores — no new agent logic, no new state.
 // 'raven' and legacy 'chitrag' activity entries are treated as the same agent (pre-rename history).
 
-const DAILY_SLOT_MINUTES = {
-  raven: [{ label: '3:00 PM', minutes: 900 }, { label: '6:00 PM', minutes: 1080 }],
-  'quill-x': [{ label: '3:45 PM', minutes: 945 }],
+// "HH:mm" (24h) -> "3:45 PM" style label + minutes-since-midnight, for the roster's nextRun display.
+function hhmmToLabel(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number)
+  return minutesToLabel(h * 60 + m)
+}
+// minutes-since-midnight -> "3:45 PM" style label + the (wrapped) minutes value.
+function minutesToLabel(totalMin) {
+  const wrapped = ((totalMin % 1440) + 1440) % 1440
+  const h = Math.floor(wrapped / 60), m = wrapped % 60
+  const period = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return { label: `${h12}:${String(m).padStart(2, '0')} ${period}`, minutes: wrapped }
+}
+
+// Raven/Quill's slots are user-editable (state/schedulerStore.js); Heron tracks 10 min after the
+// daily drop (scheduler/heronDrop.js's getHeronIstMin()), not independently editable. Evening
+// research + the weekly wrap are deactivated (manual-only) — no nextRun slot for either.
+function getDailySlotMinutes() {
+  const t = getSchedulerStatus().times
+  return {
+    raven: [hhmmToLabel(t.morningResearch)],
+    'quill-x': [hhmmToLabel(t.dailyDrop)],
+    heron: [minutesToLabel(heronDrop.getHeronIstMin())],
+  }
 }
 
 function nextDailyLabel(agentId) {
-  const slots = DAILY_SLOT_MINUTES[agentId]
+  const slots = getDailySlotMinutes()[agentId]
   if (!slots) return null
   const nowMin = dailyDrop.istMinutes()
   const upcoming = slots.filter(s => s.minutes > nowMin).sort((a, b) => a.minutes - b.minutes)
@@ -372,38 +525,72 @@ router.get('/agents', (req, res) => {
     nextRun: 'Sun 6:00 AM',
   }
 
-  // Not built yet (v2) — always present so the Control Center can show them, never with fake data.
+  // Not built yet (v2) — always present so the Control Center can show it, never with fake data.
   const parrot = { id: 'parrot', name: 'Parrot', role: 'manager · LinkedIn', kind: 'platform', platform: 'linkedin', status: 'not-built', summary: 'No trend source connected yet.' }
-  const heron = { id: 'heron', name: 'Heron', role: 'manager · Substack', kind: 'platform', platform: 'substack', status: 'not-built', summary: 'No trend source connected yet.' }
 
-  res.json({ agents: [raven, quillX, parrot, heron, koel, article, analystCard] })
+  const heronArticles = articlesStore.list(50).filter(a => a.platform === 'substack')
+  const heronActivity = latestActivity(['heron'])
+  const heronTopicsLatest = heronTopicsStore.readLatest(account)
+  const heronCard = {
+    id: 'heron', name: 'Heron', role: 'manager · Substack', kind: 'platform', platform: 'substack',
+    status: 'idle',
+    lastRun: heronArticles[0]?.updatedAt || heronActivity?.ts || null,
+    summary: heronArticles[0]
+      ? `Last: "${heronArticles[0].title || heronArticles[0].topic}"`
+      : (heronActivity?.summary || (heronTopicsLatest?.topics?.length ? `${heronTopicsLatest.topics.length} topics found` : 'No runs yet')),
+    nextRun: getSchedulerStatus().heronEnabled ? nextDailyLabel('heron') : null,
+  }
+
+  res.json({ agents: [raven, quillX, parrot, heronCard, koel, article, analystCard] })
 })
 
 // ── Scheduler control ─────────────────────────────────────────────────────────
 
-// Fixed IST cron slots (scheduler/cron.js). Display-only — no scheduling logic here.
-const SCHEDULE_SLOTS = [
-  { id: 'morning-research', time: '3:00 PM', what: 'Research + briefing', agent: 'raven' },
-  { id: 'daily-drop', time: '3:45 PM', what: 'Daily drop', agent: 'quill-x' },
-  { id: 'evening-research', time: '6:00 PM', what: 'Fresh research', agent: 'raven' },
-  { id: 'weekly-wrap', time: 'Sun 6:00 AM', what: 'Weekly wrap + perf nudge', agent: 'quill-x' },
-]
+// IST cron slots (scheduler/cron.js). Display-only here (no scheduling logic in this file) — the
+// first 2 read live from schedulerStore (user-editable, see PUT below); Heron tracks 10 min after the
+// daily drop (not independently editable). Evening research + the weekly wrap are deactivated —
+// listed as manual-only so they don't just silently disappear from the page.
+function getScheduleSlots() {
+  const t = getSchedulerStatus().times
+  return [
+    { id: 'morning-research', time: hhmmToLabel(t.morningResearch).label, what: 'Research + briefing', agent: 'raven', editable: true, hhmm: t.morningResearch },
+    { id: 'daily-drop', time: hhmmToLabel(t.dailyDrop).label, what: 'Daily drop', agent: 'quill-x', editable: true, hhmm: t.dailyDrop },
+    { id: 'heron-drop', time: minutesToLabel(heronDrop.getHeronIstMin()).label, what: 'Heron drop — article + Notes (10 min after the daily drop)', agent: 'heron', editable: false },
+    { id: 'evening-research', time: 'Manual only', what: 'Fresh research — deactivated; use /research or the dashboard', agent: 'raven', editable: false },
+    { id: 'weekly-wrap', time: 'Manual only', what: 'Weekly wrap + perf nudge — deactivated; use the Quill page', agent: 'quill-x', editable: false },
+  ]
+}
 
-// GET /api/scheduler  →  { enabled: bool, updatedAt?, slots: [...] }
+// GET /api/scheduler  →  { enabled: bool, heronEnabled: bool, times: {...}, updatedAt?, slots: [...] }
 router.get('/scheduler', (req, res) => {
-  res.json({ ...getSchedulerStatus(), slots: SCHEDULE_SLOTS })
+  res.json({ ...getSchedulerStatus(), slots: getScheduleSlots() })
 })
 
-// PUT /api/scheduler  body: { enabled: bool }
+// PUT /api/scheduler  body: { enabled?, heronEnabled?, times?: { morningResearch?, dailyDrop?, eveningResearch? } }
+// Any subset — each field is independent. `times` values are "HH:mm" 24h IST; a change re-arms the
+// live cron jobs immediately, no server restart needed.
 router.put('/scheduler', (req, res) => {
-  const enabled = !!req.body?.enabled
   try {
-    const saved = setSchedulerEnabled(enabled)
-    logger.info(`[API] Scheduler ${enabled ? 'ENABLED' : 'DISABLED'} by user`)
-    res.json(saved)
+    if (req.body?.enabled !== undefined) {
+      const enabled = !!req.body.enabled
+      setSchedulerEnabled(enabled)
+      logger.info(`[API] Scheduler ${enabled ? 'ENABLED' : 'DISABLED'} by user`)
+    }
+    if (req.body?.heronEnabled !== undefined) {
+      const heronEnabled = !!req.body.heronEnabled
+      setHeronEnabled(heronEnabled)
+      logger.info(`[API] Heron auto-runs ${heronEnabled ? 'ENABLED' : 'DISABLED'} by user`)
+    }
+    if (req.body?.times && typeof req.body.times === 'object') {
+      const updated = setSchedulerTimes(req.body.times)
+      cron.rescheduleDynamic()
+      logger.info(`[API] Schedule times updated by user: ${JSON.stringify(req.body.times)}`)
+      return res.json({ ...getSchedulerStatus(), times: updated, slots: getScheduleSlots() })
+    }
+    res.json({ ...getSchedulerStatus(), slots: getScheduleSlots() })
   } catch (err) {
-    logger.error('[API] Scheduler toggle failed', err)
-    res.status(500).json({ error: err.message })
+    logger.error('[API] Scheduler update failed', err)
+    res.status(400).json({ error: err.message })
   }
 })
 
@@ -593,13 +780,21 @@ router.get('/queue', (req, res) => {
 
 // POST /api/draft/:id/transition  body: { state, reason?, editedText?, performance? }
 // Drives the lifecycle; mirrors the meaningful transitions into memory (approve/reject/edit/measure).
-router.post('/draft/:id/transition', (req, res) => {
+router.post('/draft/:id/transition', async (req, res) => {
   const { state, reason, editedText, performance } = req.body || {}
   if (!memory.STATES.includes(state)) return res.status(400).json({ error: `state must be one of ${memory.STATES.join(', ')}` })
   const account = memory.accounts.getActiveAccount()
   const updated = memory.transition(account, req.params.id, state, { reason, editedText, performance })
   if (!updated) return res.status(404).json({ error: 'draft not found' })
   res.json({ account, draft: updated })
+  // Approving a Substack draft from the web Queue page hands it off to Telegram too — same moment
+  // as tapping Approve there, just triggered from the other client.
+  if (state === 'queued' && updated.platform === 'substack') {
+    const { telegramSendHeronHandoff } = req.app.locals
+    if (telegramSendHeronHandoff) {
+      try { await telegramSendHeronHandoff(updated) } catch (err) { logger.error('[API] Heron hand-off failed', err) }
+    }
+  }
 })
 
 // GET /api/memory → summary of what the loop has learned (for the dashboard)

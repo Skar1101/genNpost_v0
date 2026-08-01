@@ -70,13 +70,46 @@ proper app — that rebuild is most of what's "in progress" below.
 - **Live `/drop` test confirmed** — triggered from Telegram, works correctly. The one remaining
   question from Phase 6 (live WebSocket updates) is now closed.
 
+**Dashboard restoration + refinement pass (2026-07-19 → 2026-07-20):**
+- Fixed a top-bar bug where every page literally showed placeholder/fake text instead of real data.
+- Raven gained back its Logs view and a click-to-open result-detail modal (parity with the old dashboard).
+- Quill gained back Generate Today, Weekly Run, a Write Article shortcut, a Latest Search card, and
+  Previous Plans history — all wired to backend endpoints that already existed but had no UI.
+- Koel gained a Reload Files button, an adjustable draft-count input (was hardcoded to 3), and an
+  Analyst "what's working" summary link.
+- Titto's activity page and Article Writer's control panel were rebuilt to match the old dashboard,
+  including two real bugs found and fixed (References not rendering; a layout wrap bug).
+- Found and fixed a real content-quality bug: every AI-written draft was coming out **all-lowercase** —
+  traced to leftover template text in the voice profile plus lowercase examples in Koel's reference
+  file. Both fixed, plus a standing casing rule added so it can't silently regress.
+- The repost feature now **prioritizes your watchlist handles** (Settings) — previously that field was
+  purely decorative and nothing read it. Works with a bare handle or a full profile link.
+- The daily Telegram drop was restructured from 3 topic-buckets (6 posts/day) to a **"4-4-4" shape**:
+  2 long-form + 2 short-form posts, 4 reposts (up from 2), 4 article ideas — plus a length-safety flag
+  so an over-280-character short post is visibly marked instead of silently sent broken.
+- Added an **Expenses** tab (Settings) — every agent's LLM spend is now actually tracked and shown
+  day-by-day; before this only the Article Writer's cost was ever recorded.
+
 ## 🔲 What's left, in order
 1. **Switch over**: once you've used the new dashboard a bit and I'm confident nothing's missing, make
    it the only dashboard (retire the old single-file one).
 2. **Put it on a server**: right now it only runs while your laptop is on. `DEPLOY.md` has a ready,
    free hosting plan (Oracle Cloud) — this makes it run 24/7 regardless of your laptop.
-3. *(Later, not started)* Add LinkedIn and Substack as additional platforms the team can research and
-   write for — deliberately deferred until the above is solid.
+3. **Heron · Substack — built and verified live** (see Phase 8, 8b, and 8c below): search article
+   topics, write Substack-format articles + an image prompt, write short Substack Notes, hand off a
+   ready-to-paste post the moment you approve it, now with its own independent automation schedule/
+   toggle (off by default). Still no auto-posting — Substack has no official API for it, and the last
+   manual click always stays yours (this was re-confirmed after you asked about a RapidAPI-based
+   auto-post — no such key-based option actually exists, see Phase 8b for the full reasoning). **Needs
+   from you**: you already have a chat id for Heron's channel — since you kept the same bot (no second
+   BotFather bot), just drop `HERON_TELEGRAM_CHAT_ID` into `.env` and leave `HERON_TELEGRAM_BOT_TOKEN`
+   empty (see Phase 8c) — Heron's Telegram delivery stays off until then (drafts still land in the web
+   Queue either way); flip "Heron auto-runs" on in Schedules once you're ready for it to run itself
+   Tue/Fri. One quality item to look at: Heron's test article came in short (485 words vs. the 900-2200
+   target) — everything else about it was right, just undershot length; worth a prompt tweak. Manual
+   queue (paste your own
+   post, Heron still preps an image prompt) is designed but not built yet — next up.
+4. *(Later, not started)* Parrot · LinkedIn — deliberately deferred until Heron is solid.
 
 ## 🙋 Things needed from you
 - **Restart the server** so it picks up everything built recently — it doesn't update itself while running.
@@ -105,6 +138,15 @@ for reference. If you just want to know where things stand, the section above is
 | 4 | Weekly performance loop + tweet analysis | ✅ done |
 | 5 | Craft upgrades (interview-first, reactive skeleton, thread rules) | ✅ done |
 | — | Security hardening | ✅ done |
+| — | Professional React dashboard v1 | ✅ done |
+| — | Dashboard restoration + refinement pass | ✅ done |
+| 8 | Heron · Substack integration | ✅ done (1 quality follow-up flagged: article length) |
+| 8b | Heron · dedicated bot + independent automation | ✅ done (manual queue deferred to next) |
+| 8c | Heron Telegram · same-bot, second-chat mode | ✅ done |
+| 9 | Editable schedule times (Raven/Quill daily slots) | ✅ done |
+| 10 | Daily-drop content quality pass + Heron daily + Heron 1-liner hand-off | ✅ done |
+| 11 | /chatid helper + Heron Telegram delivery diagnosis | ✅ done |
+| 12 | Deactivate evening research + weekly wrap; Heron tracks Quill's drop time | ✅ done |
 
 ---
 
@@ -364,6 +406,460 @@ explicitly retired (not done yet).
 - **`DEPLOY.md`'s Oracle Cloud plan is otherwise unchanged and ready** — Always-Free ARM VM, pm2,
   GitHub-push auto-deploy via `scripts/update.sh`, Telegram polling (no public ports), dashboard via
   SSH tunnel. Not yet executed against a live VM this session.
+
+---
+
+## Dashboard restoration + refinement pass ✅ (2026-07-19 → 2026-07-20, verified live)
+Follow-up after the first React dashboard pass — the user reviewed it against the old
+`public/index.html` and found real functionality gaps, plus asked for content-quality and daily-drop
+shape changes. Everything below was verified against real backend data on isolated test instances
+(Telegram disabled, scratch ports), then cleaned up; nothing committed automatically per the standing
+autonomy rule.
+- [x] **Top-bar crumb fix** — every ported page literally read "existing page — same layout, reskinned"
+  (leftover placeholder text) and Control Center/Queue showed hardcoded fake numbers. Now pull real,
+  live data (`web/src/lib/nav.js`, `TopBar.jsx`).
+- [x] **Raven** — Logs sub-view (Today/Errors/per-source scrape logs) + a click-to-open result-detail
+  modal (source/type/score/publisher badges, snippet, "why it matters", Ask Titto/Open Article) —
+  restores parity with the old dashboard's modal.
+- [x] **Quill** — Generate Today, Weekly Run, a Write Article shortcut, a Latest Search card (mirrors
+  Raven's top items), and Previous Plans (collapsible history) — all wired to endpoints that already
+  existed but had no UI.
+- [x] **Koel** — Reload Files button; **draft-count input** (was hardcoded to 3 — found and fixed a real
+  bug where the backend's own "produce N drafts" instruction was contradicted by a hardcoded "3" baked
+  into every format's prompt text, so requesting e.g. 2 drafts silently produced 1; also loosened
+  `parseDrafts()` to accept a bare `---` separator, not just `--- DRAFT N ---`, since the model
+  sometimes drops the label); Analyst "what's working" summary chip + link.
+- [x] **Titto activity page + Article Writer** rebuilt to match the old dashboard (colored per-agent
+  badges, trigger badges, "Open →" deep-linking; Article Writer's right-side Model/Actions/Versions/
+  cost panel). Two real bugs found + fixed: article References never rendered (reading the wrong
+  field — sources live at the article-record level, not per-version), and the Past Articles dropdown
+  had no width cap and wrapped onto its own row.
+- [x] **Content-quality bug: all-lowercase drafts** — traced to two real causes: the creator profile's
+  Voice description literally contained "lowercase-friendly" (unedited leftover template text, fed
+  into every prompt), and Koel's high-performing-tweet reference file had several all-lowercase
+  example passages reinforcing it by few-shot mimicry. Fixed both, plus added a standing casing rule
+  to Koel's OUTPUT RULES so it can't silently regress.
+- [x] **Watchlist-priority reposts** — `profile.watchlist` (Settings) was previously 100% inert, never
+  read by anything. `runReposts()` now prioritizes posts from watchlist handles (matches a bare handle
+  or a full profile link) into the repost batch, even when they're not the day's top-engagement post.
+- [x] **Daily drop restructured — "4-4-4"** — replaced the 3 topic-buckets (motivational/domain/
+  trending, 6 posts/day) with 2 format-buckets: **2 long-form + 2 short-form**, reposts **2 → 4**,
+  article ideas unchanged at 4. Added a length-safety flag (`⚠️ N/280`) on any short-form draft that
+  still slips past the character target, visible only in the Telegram hand-off text, never in the
+  stored draft. `config/contentVolume.js`'s `posts.perSection` renamed `posts.perFormat` to match.
+- [x] **Expenses tab (Settings)** — before this, only the Article Writer's LLM cost was ever tracked;
+  every other agent's calls were unpriced. Instrumented all 9 previously-untracked call sites
+  (`state/costStore.js`, `utils/costTracker.js`), merged with the Article Writer's existing per-article
+  cost data, day-by-day totals with a 7/30/90-day view.
+- [x] **`IMPLEMENTATION.md` consolidation** — per explicit instruction, all planning/status now lives in
+  this single file going forward; the short-lived `IMPLEMENTATION_STATUS.md`/`PLANS.md` companion files
+  were merged in here and removed.
+
+## Phase 8 — Heron · Substack integration ✅ BUILT + VERIFIED (2026-07-22 → 2026-07-27)
+First real Substack integration — "Heron" was named in the original architecture doc (`docs/PLAN.md`)
+but never built. Confirmed requirements: (1) search article topics, write Substack-format articles,
+generate a text image-prompt alongside each; (2) short "Notes" (1-2 liners) in the user's niche;
+(3) after Telegram approval, prepare everything up to publishing — but the final publish click stays
+manual.
+
+**Why not full auto-post, decided deliberately:** investigated before building anything. Substack has
+no official publishing API — their own Developer API Terms of Use (Jan 2026) cover read/discovery only;
+every "post to Substack" tool that exists is unofficial, reverse-engineered, session-cookie-
+authenticated against private endpoints, outside what Substack's terms permit. This codebase has never
+made an outbound "post to a platform" call — every existing integration is read-only research or
+Telegram (inbound-approved). And the project's own architecture doc already stated the draft-only
+principle platform-agnostically, twice, before Substack was ever requested. Given all that, the design
+is: **no Substack API calls, no stored credentials** — the system fully prepares content and hands it
+off as a ready-to-paste block on Approve; the last click stays the user's.
+
+**Design (build complete, verification pending):**
+- [x] `agents/heron.js` (new) — orchestration: topic search (reuses Raven's research, filtered for
+  long-form-worthy items via `postPotential`), article writing + refine (wraps `articleWriter.js`),
+  image-prompt generation (bundled into the same generation call, no second LLM call), Notes writing
+  (via `koel.write({format:'note'})`).
+- [x] `agents/articleWriter.js` — optional `platform` param (default `'x'`, zero behavior change),
+  branches template/prompt/system-prompt for Substack: `sub-agents/heron/SUBSTACK_ARTICLE_TEMPLATE.md`
+  (new, 900-2200 words vs. X's 1500-3500 *characters*) + `prompts/heronArticle.js` (new, kept fully
+  separate from `prompts/quillArticle.js` so the tested X prompt can't regress) + a `parseSubstackOutput()`
+  helper that pulls SUBJECT/PREVIEW/SUBTITLE header lines and a trailing image-prompt block out of the
+  stream.
+- [x] `state/articlesStore.js` — additive schema fields only (`platform`/`subtitle`/`subject`/
+  `previewText`/`imagePrompt`), every existing X-article file on disk keeps working unchanged.
+- [x] `agents/koel.js` / `prompts/koelWrite.js` — Notes as one more `format` branch (like short/thread/
+  longform/motivational/engagement already are), reusing all voice/context/retry machinery for free.
+- [x] **Hand-off delivery** — on Approve, `sendHeronHandoff()` fetches the full article fresh from
+  `articlesStore` (never the short preview stored on the draft) and sends it as clean copy-paste blocks
+  — header, body (chunked at paragraph boundaries, since full articles exceed Telegram's 4096-char
+  message cap), image prompt. Notes send as a single copy block. **Superseded by Phase 8b below** — this
+  logic now lives in Heron's own dedicated bot (`server/routes/heronTelegram.js`), not the main one.
+- [x] New `/api/heron/*` routes (topic search, article generate/refine, note write) — X's `/api/article/*`
+  routes untouched, reused as-is for list/detail/revert/export since they're already platform-agnostic.
+- [x] `web/src/pages/HeronPage.jsx` (new, replaces the `PortedPage` placeholder at `/agent/heron`) —
+  Articles section (near-copy of `ArticleWriterPage.jsx`'s layout + a topic-search button + an
+  image-prompt card) and a minimal Notes section.
+- **Verification: done (2026-07-27), real LLM calls.** Real topic search (6 candidates, none tagged
+  `short`), a real Substack article (all fields present — subject/subtitle/previewText/imagePrompt —
+  markers correctly stripped from the stored body), a real X-article generated in parallel to confirm
+  zero regression (1912 chars, no Substack fields/markers), 2 real Notes (under ~400 chars, no
+  hashtags), both draft kinds confirmed landing in the queue as `platform:'substack'`,
+  `chunkForTelegram()` unit-tested on a 6498-char sample (2 chunks, both ≤3500, rejoins byte-for-byte).
+  All test data cleaned up afterward.
+  **One real finding, not yet fixed**: the article came in at **485 words**, well under the
+  900-2200-word target in `SUBSTACK_ARTICLE_TEMPLATE.md` — everything else about it was correct (voice,
+  structure, citations), the model just undershot length. Worth a follow-up prompt tweak (e.g. a
+  stronger minimum-length instruction, or a length check + one automatic re-ask) — flagging here rather
+  than fixing unprompted since it's a quality tweak, not part of what was asked this round.
+
+---
+
+## Phase 8b — Heron: dedicated Telegram bot + independent automation ✅ BUILT + VERIFIED (2026-07-27)
+Follow-up to Phase 8, after using it for a bit. Three asks: (1) automate actual Substack *posting* —
+asked specifically about a RapidAPI key; (2) have Heron run automatically the way Quill does; (3) give
+Heron its own Telegram channel; (4) a manual queue for human-written posts. **Scope note: the manual
+queue (4) was explicitly pulled out of this pass** — "stop the manual section, go ahead other section,
+we will do manual section update next" — it's designed (see the plan file) but not built; comes back as
+its own follow-up.
+
+**On auto-posting (1) — researched, then parked by explicit choice.** No stable, ToS-safe, API-key-based
+Substack publish endpoint exists anywhere, including RapidAPI — every RapidAPI Substack listing is a
+read-only scraper (profile/post/comment data), not a publisher. The only way to actually auto-publish is
+an unofficial, reverse-engineered client authenticated with the user's own Substack *session cookie*
+against private internal endpoints — not an API key, outside Substack's Terms of Use, liable to break or
+draw account action any time Substack changes something internally. Presented this plus the realistic
+options directly; **the user chose to park the actual auto-publish decision** and have everything else
+built now. The draft-only hard stop from Phase 8 is fully unchanged — no Substack credentials of any
+kind are stored anywhere in this codebase.
+
+**Locked decisions:** (1) auto-post/publish parked, no credentials stored; (2) image generation stays
+text-prompt-only (no DALL·E, no added cost); (3) Heron gets its **own independent cron schedule + its
+own on/off toggle**, decoupled from Raven/Quill's shared toggle; (4) Heron gets a **brand-new, separate
+Telegram bot** (own token/identity), not a second chat on the existing bot.
+
+**Design (build complete, verification pending):**
+- [x] `server/routes/telegramCore.js` (new) — extracted the closure-free helpers both bots need
+  identically (`actionKeyboard`, `reasonKeyboard`, `REASONS`, `escapeHtml`, `stripHeader`,
+  `chunkForTelegram`) out of `telegram.js`, so nothing is duplicated between the two bots.
+- [x] `server/routes/heronTelegram.js` (new) — Heron's own bot, boots from
+  `HERON_TELEGRAM_BOT_TOKEN`/`HERON_TELEGRAM_CHAT_ID` (same optional no-op guard as the main bot if
+  unset). Owns `sendDrafts()`, the full `d|a/d|r/d|rr/d|c/d|e/d|b` approve/reject/edit callback
+  dispatch, and `sendHeronHandoff()` (moved here from `telegram.js` — hand-off only ever concerns Heron
+  drafts). Edit stays Notes-only; articles still redirect to "open the Heron page."
+- [x] `server/routes/telegram.js` — stripped of all Heron-specific code (`sendHeronHandoff`, the
+  substack-platform branch in the Approve/Edit callback handlers); now imports its shared helpers from
+  `telegramCore.js` instead of defining them locally. Zero behavior change for X/Quill/Koel drafts.
+- [x] `server/index.js` — boots both bots; `app.locals.telegramSendHeronDraft` /
+  `telegramSendHeronHandoff` now come from `heronTelegram.js`.
+- [x] `server/routes/api.js` — the `/api/heron/article/generate` and `/api/heron/note/write` routes now
+  read `telegramSendHeronDraft` instead of the shared `telegramSendDraft`, so every Heron-originated
+  draft always reaches the Heron channel, never the main one. `POST /api/draft/:id/transition` (the web
+  Queue's Approve button) needed no change — it already read `telegramSendHeronHandoff` from
+  `app.locals` generically.
+- [x] `state/schedulerStore.js` — added `heronEnabled` (default **false**, opt-in — unlike the existing
+  default-on `enabled`) and `heronLastRun` (same idempotency-stamp shape as `lastDrop`), purely additive
+  via the existing merge-patch `writeRaw()`.
+- [x] `scheduler/heronDrop.js` (new) — mirrors `scheduler/dailyDrop.js`'s shape: `runHeronDrop()` reuses
+  `dailyDrop.ensureTodaysResearch()` (so it never redundantly re-searches when Raven already ran earlier
+  the same day), then `heron.searchTopics()` → `heron.writeArticle({idx:0})` → `heron.writeNote({count:2})`,
+  stamping `heronLastRun` on success. `maybeCatchUp()` mirrors the daily version, gated on both the
+  `heronEnabled` toggle and being a Heron day (Tue/Fri).
+- [x] `scheduler/cron.js` — new `cron.schedule('0 11 * * 2,5', ...)` (Tue & Fri 4:30 PM IST), gated on
+  `isHeronEnabled()` not the shared `isEnabled()`; Heron's catch-up wired alongside the existing one.
+- [x] `server/routes/api.js` — `/api/scheduler` GET/PUT extended with `heronEnabled` (independent of
+  `enabled` — either can be set alone in the PUT body); `SCHEDULE_SLOTS`/`DAILY_SLOT_MINUTES` gained a
+  `heron` entry so the Heron agent card shows a real `nextRun` once its toggle is on.
+- [x] `web/src/pages/SchedulesPage.jsx` — second, independent "Heron auto-runs: ON/OFF" toggle + its own
+  slot row, alongside the existing Raven/Quill toggle (unchanged).
+- **Deferred (not built this pass)**: the manual queue (`heron.attachImagePrompt()`,
+  `heron.queueManual()`, `POST /api/heron/queue/manual`, a manual-queue panel on `HeronPage.jsx`) — design
+  is sound (see the plan file `cozy-doodling-widget.md`) and ready to build next.
+- **Verification: done (2026-07-27).** `node -c` + dry-require every changed/new file — clean. Scratch-
+  port boot with both bot tokens unset — both log "disabled" cleanly (`[HeronTelegram] No
+  HERON_TELEGRAM_BOT_TOKEN...`), cron log confirms Heron's Tue/Fri 4:30 PM slot armed. `PUT
+  /api/scheduler` with `heronEnabled` round-trips independently of `enabled` (toggling one never flips
+  the other, confirmed via live HTTP calls). Approved a real Heron Note draft via
+  `POST /api/draft/:id/transition` — exercised the `app.locals.telegramSendHeronHandoff` wiring cleanly
+  with no throw (no-ops correctly since the bot token is unset). `heronDrop.maybeCatchUp()` gating
+  logic unit-tested directly: correctly skips with `reason:'disabled'` when off, and
+  `reason:'not-a-heron-day'` on a non-Tue/Fri day. `runHeronDrop()`'s three constituent calls
+  (`searchTopics`/`writeArticle`/`writeNote`) were each proven working individually in Phase 8's
+  verification above, so the full orchestration wasn't re-run separately (would've been a redundant
+  real LLM cost for no new signal). `npm run build:web` clean. All test data cleaned up, `scheduler.json`
+  restored to its prior state. No commit/push.
+
+---
+
+## Phase 8c — Heron Telegram: "same bot, second chat" mode ✅ BUILT + VERIFIED (2026-07-29)
+Setting up Heron's Telegram delivery for real surfaced a gap in Phase 8b's design: it assumed a fully
+**separate** bot (its own BotFather token). In practice, the user got a chat id for the new Heron
+channel but kept the **same bot** — no second bot was created. That matters technically, not just
+cosmetically: if `HERON_TELEGRAM_BOT_TOKEN` were set to the same value as the main bot's token,
+`heronTelegram.js` would start a **second independent long-polling loop against the same token** —
+Telegram's API only allows one active `getUpdates` poll per token at a time, so the two would conflict
+(repeated `409 Conflict` errors, or approve/reject/edit taps randomly failing depending on which poller
+happened to grab that update). Sending isn't affected by this (`bot.sendMessage` has no such conflict),
+only the inbound polling loop does.
+
+**Fix — behavior now driven cleanly by which of the two Heron env vars are actually set, no fragile
+token-string comparison:**
+1. `HERON_TELEGRAM_BOT_TOKEN` empty + `HERON_TELEGRAM_CHAT_ID` set → **same-bot mode** (the user's actual
+   setup). The existing main bot in `telegram.js` takes over Heron delivery itself — no second bot/
+   polling loop anywhere.
+2. Both empty → unchanged, no Heron Telegram delivery (web Queue only).
+3. Both set (a real second bot) → unchanged, `heronTelegram.js` boots its own separate bot exactly as
+   Phase 8b built — still supported if a genuinely separate bot is ever made.
+
+**Changes:**
+- [x] `server/routes/telegram.js` — computes `heronSameBot` at init time; widened the single-chat
+  inbound gates (message + callback handlers) to recognize either chat id; refactored `sendDrafts` into
+  a reusable `sendDraftsToChat(targetChatId, ...)`; re-added `sendHeronHandoff()` and the
+  articles-redirect-to-Heron-page Edit behavior, both gated on `heronSameBot`; the Heron chat is
+  explicitly excluded from Titto's command routing (matches how the separate-bot mode already worked);
+  new `getHeronDraftSender()`/`getHeronHandoffSender()` exports, non-null only in same-bot mode.
+- [x] `server/routes/heronTelegram.js` — no structural change (already no-ops correctly when its own
+  token env var is unset); softened its log line so it reads as "using the main bot instead" rather than
+  "disabled" when `HERON_TELEGRAM_CHAT_ID` is set without a separate token.
+- [x] `server/index.js` — resolves Heron's sender functions via
+  `telegram.getHeronDraftSender() || heronTelegram.getHeronDraftSender()` (same for hand-off) — whichever
+  module actually owns Heron delivery wins.
+- [x] `.env.example` — Heron block rewritten to explain both setups, same-bot first as the simplest/
+  default path.
+- **Verification**: fake-credential boot test confirmed exactly one `[Telegram] Polling mode started`
+  line (no second poller), `[Telegram] Heron same-bot mode active` logged correctly, `[HeronTelegram]`
+  correctly deferred without booting its own instance. Directly invoked the resolved
+  `getHeronDraftSender()`/`getHeronHandoffSender()` functions with a test draft each — both are real
+  functions, both ran their full logic without throwing (the fake token causes an internally-caught send
+  failure, not an unhandled error). Confirmed the main bot's own draft sender is unaffected. `node -c` +
+  full require-chain clean. No real Telegram credentials or chats were touched during this test.
+
+---
+
+## Phase 9 — Editable schedule times ✅ BUILT + VERIFIED (2026-07-31)
+Every scheduled run time (Raven's research, Quill's daily drop) was hardcoded directly into
+`node-cron` expressions — the Schedules page could only flip auto-runs on/off, not change *when* things
+fire. Confirmed scope with the user: only the 3 daily slots (Raven morning research, Quill daily drop,
+Raven evening research) needed to become editable; the weekly wrap (Sunday) and Heron's drop (Tue/Fri)
+stay on their fixed times/days — time-of-day only, no day-of-week editing.
+
+**Changes:**
+- [x] `state/schedulerStore.js` — new `times` object (`morningResearch`/`dailyDrop`/`eveningResearch`,
+  "HH:mm" 24h IST, defaults matching the old hardcoded values), `getTimes()`/`setTimes(patch)` with
+  regex validation (throws on a malformed value so the route layer can 400 instead of storing garbage).
+- [x] `scheduler/dailyDrop.js` — `DROP_IST_MIN` (a fixed constant) became `getDropIstMin()`, reading
+  the configured time fresh on every catch-up check instead of once at module load.
+- [x] `scheduler/cron.js` — the 3 daily jobs are now registered via a new `istTimeToUtcCron(hhmm)`
+  helper (converts IST "HH:mm" to a UTC cron expression, correctly rolling the UTC day back when the
+  IST time falls before 05:30) instead of hand-written cron strings. Their `node-cron` `ScheduledTask`
+  references are kept in a module-level map so a time change can `.stop()` the old task and create a
+  new one — no server restart needed. New exported `rescheduleDynamic()`, called by the API route below.
+  Weekly wrap + Heron's drop keep their original hardcoded `cron.schedule(...)` calls, untouched.
+- [x] `server/routes/api.js` — `SCHEDULE_SLOTS` (previously a static array) became `getScheduleSlots()`,
+  reading live times and formatting them as both a 12h display label and the raw "HH:mm" (`hhmm` field,
+  for the frontend's `<input type="time">`); each slot carries `editable: true/false`.
+  `DAILY_SLOT_MINUTES`/`nextDailyLabel()` (used by `/api/agents`'s roster `nextRun` display) similarly
+  became dynamic for `raven`/`quill-x` (Heron's stays fixed). `PUT /api/scheduler` now also accepts an
+  optional `times: { morningResearch?, dailyDrop?, eveningResearch? }` patch — any subset, validated,
+  persisted, and immediately calls `cron.rescheduleDynamic()` so the change takes effect live.
+- [x] `web/src/pages/SchedulesPage.jsx` — the 3 daily slot cards now render an `<input type="time">`
+  (editable slots) instead of plain text, with a "Save" button that appears only when the picked time
+  differs from the stored one; weekly-wrap/Heron cards stay read-only exactly as before.
+  `web/src/lib/queries.js` gained `useSetScheduleTimes()`.
+- **Verification**: unit-tested `istTimeToUtcCron`'s formula against all 3 original hardcoded values
+  (all matched exactly) plus IST-day-rollover edge cases (02:00, and the exact 05:30/05:29 boundary) —
+  all correct. `schedulerStore.setTimes()` round-trip + invalid-input rejection confirmed directly.
+  Scratch-port boot showed the correct initial arm log; live `PUT /api/scheduler` with a real time
+  change produced a fresh `[Scheduler] Daily jobs (re)armed` log line with the new time and updated the
+  `GET` response's `slots`/`hhmm` immediately; an invalid time (`"25:99"`) correctly 400'd without
+  touching stored state. `npm run build:web` clean. Test server killed via PowerShell `Stop-Process`
+  (confirmed gone, not just `pkill`-silent — see the earlier zombie-process incident). No commit/push.
+
+---
+
+## Phase 10 — Daily-drop content quality pass + Heron daily ✅ BUILT + VERIFIED (2026-07-31)
+User feedback on the actual Telegram output: long-form posts in the daily drop aren't useful (drop
+them), short-form posts lean too much on Souvik's personal story/"angle" instead of being raw, punchy,
+viral-hook-driven one-liners, reposts should lean harder into the watchlist, and Heron should run every
+day instead of twice a week. Two scope questions were asked and answered before writing this plan:
+
+1. **Repost sourcing**: stays watchlist-first-then-fallback (unchanged logic) — NOT watchlist-only. The
+   existing sort in `runReposts()` already puts watchlist authors first, most-engaged within each group;
+   as the user adds more watchlist entries, the mix naturally shifts toward them. **No code change
+   needed here** — confirming this is designed correctly already, not touching it.
+2. **New short-form style scope**: **daily-drop only**, not a global change to Koel's `short` format.
+   Manual writes (Koel dashboard page, Quill planner, replies) must keep today's style untouched — this
+   means the new style needs to be its own distinct format, not an edit to the existing `short` one.
+
+### 1. Drop long-form from the daily batch; single 4-post short/punch bucket
+- `config/contentVolume.js` — `posts: { perFormat: 2 }` (2 buckets × 2 = 2 long + 2 short) becomes
+  `posts: { count: 4 }` (one bucket, 4 posts, all the new punch format).
+- `agents/quill.js`'s `assignTopics()` — simplify the LLM call from two JSON sections (`long`/`short`)
+  to one (`topics: [...]`, 4 items spanning different domains); update the fallback (LLM failure) to
+  `results.slice(0, n)`.
+- `agents/quill.js`'s `runDaily()` — replace the two `runBatchSection()` calls (long-form + short-form)
+  with a single call over the new topic list, `formatFor: () => 'punch'` (new format, below). The
+  `⚠️ 314/280`-style length-flag logic in `runBatchSection` still applies (punch posts should be even
+  shorter, so the flag becomes more of a safety net than the norm).
+- Long-form itself is **not deleted** — still available on the Koel dashboard page and Quill's planner
+  ("Long-form" pillar option). Only removed from the automated Telegram batch.
+
+### 2. New Koel format `punch` — raw, hook-driven, punchline-length, daily-drop only
+- `prompts/koelWrite.js` — new `FORMAT_META.punch` entry + a new `buildKoelUserPrompt` branch:
+  - No forced personal "in my journey / my story" framing — a general sharp take, observation, or
+    contrarian angle. Personal-story framing only when the topic is genuinely about resilience/health/
+    building, not injected by default.
+  - Raw and direct — no hedging language ("I think", "maybe", soft openers).
+  - Built to go viral: a scroll-stopping hook in line 1 (bold claim, contrarian take, curiosity gap, or
+    a sharp question) — engineered for shares/replies, not just reads.
+  - **1–2 lines max** — a punchline, not the current 2–3 line short-form shape. Tighter than today's
+    150–220 char target.
+  - Explicit anti-AI-slop instruction, reusing `BANNED_PHRASES` from `prompts/styleRules.js` (the same
+    list `prompts/heronArticle.js` already uses) — plus a rule against generic engagement-bait tics
+    ("Thoughts?", "Agree?", "Unpopular opinion:") unless genuinely earned by the content.
+- **Deliberately not added** to `web/src/pages/KoelPage.jsx`'s hardcoded `FORMATS` array (confirmed
+  that file keeps its own list, separate from `koelWrite.js`'s `FORMAT_META`) — so this format is only
+  ever reachable via `quill.js`'s daily-batch call, never selectable from the Koel dashboard page. This
+  is what keeps the change scoped to the daily drop per the confirmed answer above.
+- `agents/quill.js`'s `runDaily()` calls `koel.write({ format: 'punch', ... })` for the posts bucket.
+
+### 3. Reposts — no code change (see scope note above)
+Confirmed the existing watchlist-first sort in `runReposts()` already does what was asked. Flagging
+here only so it's not mistaken for skipped work — it's a deliberate no-op.
+
+### 4. Article ideas / titles — no change (confirmed fine as-is)
+
+### 5. Heron — daily instead of Tue/Fri
+- `scheduler/cron.js` — Heron's cron expression changes from `'0 11 * * 2,5'` to `'0 11 * * *'` (same
+  4:30 PM IST time, every day instead of Tue/Fri only).
+- `scheduler/heronDrop.js` — `maybeCatchUp()`'s `HERON_IST_DAYS` day-of-week gate (`[2, 5]`) is removed
+  (or widened to all 7 days) since it's no longer restricted.
+- `server/routes/api.js` — Heron's slot label updates from `"Tue/Fri 4:30 PM"` to `"Daily 4:30 PM"` in
+  both `getScheduleSlots()` and `getDailySlotMinutes()`.
+- Heron's independent `heronEnabled` toggle (Schedules page, currently OFF by default) is **not**
+  flipped on by this change — daily cadence only takes effect once the user turns it on themselves,
+  same opt-in posture as before. `runHeronDrop()`'s actual logic (search topics → 1 article + 2 Notes)
+  is unchanged, just fires on a wider day pattern.
+
+### 6. Heron hand-off — 1-liner instead of a full content dump (added mid-implementation)
+Follow-up ask that came in alongside "implement it": Heron's Approve hand-off was sending the full
+article as a multi-message dump (header + chunked body + image prompt) into Telegram. Changed to a
+single line — the full text and image prompt already live in the Heron dashboard page, so Telegram's
+job is just to notify, not deliver. Applied identically to both delivery modes (same-bot and
+fully-separate-bot):
+- `server/routes/telegram.js` (same-bot mode) and `server/routes/heronTelegram.js` (separate-bot mode)
+  — `sendHeronHandoff()` in both now sends `🦢 "<title>" approved — ready to publish. Open the Heron
+  page in the dashboard for the full text + image prompt.` for articles (fetches just the title from
+  `articlesStore`, nothing else). Notes are unchanged — already short, sent as-is.
+- `chunkForTelegram` import dropped from both files (no longer used there; stays exported from
+  `telegramCore.js`, still a tested utility).
+
+### Files touched
+| File | Change |
+|---|---|
+| `config/contentVolume.js` | `posts.perFormat` → `posts.count` (4, single bucket) |
+| `agents/quill.js` | `assignTopics()` single-list JSON + fallback; `runDaily()` single `runBatchSection` call, format `punch`; length-flag also covers `punch` |
+| `prompts/koelWrite.js` | new `FORMAT_META.punch` + `buildKoelUserPrompt` branch |
+| `scheduler/cron.js` | Heron cron expression Tue/Fri → daily |
+| `scheduler/heronDrop.js` | `maybeCatchUp()` day gate removed |
+| `server/routes/api.js` | Heron slot label "Tue/Fri" → "Daily" |
+| `server/routes/telegram.js`, `server/routes/heronTelegram.js` | `sendHeronHandoff()` → 1-liner for articles |
+| `web/src/pages/QuillPage.jsx`, `public/index.html` | `SECTION_LABEL`/`QUILL_SECTION_META` gained `punch` |
+| `web/src/styles/globals.css` | new `.type-punch` badge color (light + dark) |
+
+### Verification — done, real LLM calls
+1. `node -c` + full dry-require chain — clean.
+2. Real `runDaily()` run (real research, no telegram functions passed) — **4 drafts, all
+   `format:'punch'`, none `longform`**. Sampled all 4: zero personal-story/"in my journey" framing (all
+   general sharp takes/contrarian angles/hooks), all exactly 1 line, no hashtags, no em dashes, no
+   AI-slop phrasing. Confirmed queue tagging (`origin:'quill'`, `format:'punch'`, `platform:'x'`).
+3. Confirmed `punch` does not appear in `KoelPage.jsx`'s format picker (only match was the unrelated
+   word "punchy" inside the Short Form description).
+4. Reposts — untouched (confirmed no code changed in that path; this was a deliberate no-op per the
+   scope decision).
+5. Heron cadence — `heronDrop.maybeCatchUp()` unit-tested directly: no longer returns
+   `reason:'not-a-heron-day'` on a non-Tue/Fri day (confirmed the day-gate is gone).
+6. Heron 1-liner hand-off — exercised `getHeronHandoffSender()` directly with fake credentials for both
+   an article (including a missing-record edge case, falls back to "your article") and a Note — both
+   sent cleanly with no throw.
+7. `npm run build:web` clean.
+8. Clean up: removed all 4 test drafts + the quill-history/activity-log/cost-log/koel-history entries
+   the verification run created. **One real mistake caught and fixed during testing**: a unit test for
+   Heron's day-gate briefly flipped the user's real `heronEnabled` flag (which was genuinely `true`,
+   set by the user earlier) to `false` — caught immediately by checking `scheduler.json` afterward and
+   restored to `true` before finishing. No commit/push.
+
+---
+
+## Phase 11 — /chatid helper + Heron delivery diagnosis ✅ BUILT + VERIFIED (2026-08-01)
+User asked again for Heron to send daily Telegram updates. Investigated (read-only) before touching
+anything: Heron's daily cadence and same-bot Telegram routing (Phase 10 / Phase 8c) were both already
+working correctly — `scheduler.json` showed `heronEnabled: true` and a real `heronLastRun` from the
+previous day, confirming Heron genuinely runs every day. **The actual gap was pure configuration**:
+`HERON_TELEGRAM_CHAT_ID` was still empty in `.env` (last modified 2026-07-18, before any Heron work),
+so every Heron draft was landing silently in the web Queue with zero Telegram delivery — working
+exactly as designed for the unconfigured case, just not yet configured. Asked the user whether they
+had the chat id ready to paste in or needed help obtaining one — they needed help.
+
+**Built**: a `/chatid` command, answered directly in `server/routes/telegram.js`'s (and
+`heronTelegram.js`'s) message handler, **before** the existing chat-allowlist gate — this is
+deliberate: the whole point is discovering a *new*, not-yet-configured chat's numeric id, so it has to
+work from any chat the bot is a member of, not just the already-recognized main/Heron chats. Replies
+with `This chat's id is: <id>`. No LLM call, no Titto routing involved — pure mechanical
+`bot.sendMessage(incomingChatId, ...)`, matching the pattern already used throughout both files.
+`.env.example`'s Heron block now mentions it.
+
+**How to use it**: add the bot to the target Telegram group/channel, send `/chatid` there, copy the
+number it replies with into `HERON_TELEGRAM_CHAT_ID`, then restart the server (the running `npm run
+dev` watcher does not reload `.env` on its own — only on watched JS file changes).
+
+**Verification**: `node -c` + dry-require both files clean; fake-credential scratch-port boot confirmed
+clean startup with the new code path registered (no errors, same-bot mode log still correct). A true
+end-to-end Telegram round-trip needs a real chat, which isn't available in an isolated test — the user
+verifies this step themselves by actually sending `/chatid`. No commit/push.
+
+---
+
+## Phase 12 — Deactivate evening research + weekly wrap; Heron tracks Quill's drop time ✅ BUILT + VERIFIED (2026-08-01)
+Two small scheduling changes: (1) turn off the automatic evening "fresh research" run and the Sunday
+weekly wrap — both stay fully usable manually, just no longer fire on their own; (2) Heron's daily slot
+should no longer be an independent fixed time — it should always run exactly 10 minutes after Quill's
+daily drop, same relationship Quill already has to Raven's morning research.
+
+**Changes:**
+- [x] `scheduler/cron.js` — removed the standalone `cron.schedule('0 1 * * 0', runWeekly)` and the
+  `eveningResearch` entry from the dynamic-jobs trio (now a duo: morningResearch + dailyDrop). Deleted
+  the now-unreachable `runEvening()`/`runWeekly()` wrapper functions and the unused `quill` import.
+  Heron moved from its own fixed `cron.schedule('0 11 * * *', ...)` into `registerDynamicJobs()` — its
+  cron expression is now computed as `dailyDrop time + 10 min` via a new `addMinutesToHHMM()` helper,
+  so it automatically re-arms to the new time whenever `dailyDrop` changes (same `rescheduleDynamic()`
+  path Phase 9 already built for time edits — no new wiring needed, Heron just joined the existing group).
+- [x] `scheduler/heronDrop.js` — `HERON_IST_MIN` (a fixed constant) became `getHeronIstMin()`, reading
+  `schedulerStore.getTimes().dailyDrop` + 10 fresh on every catch-up check (mirrors how Phase 9 already
+  made `dailyDrop.js`'s own drop-time check dynamic).
+- [x] `agents/quill.js` — `runWeekly()` gained the analyst-refresh + perf-nudge steps that used to only
+  fire when this ran on the (now-removed) automatic Sunday schedule; moved from `cron.js`'s wrapper into
+  `quill.js` itself so `POST /api/quill/weekly` (the existing manual route) gets the complete behavior
+  too, not a stripped-down version. Added `const analyst = require('./analyst')` (no circular dependency
+  — confirmed `analyst.js` doesn't require `quill.js`).
+- [x] `state/schedulerStore.js` — `DEFAULT_TIMES` dropped `eveningResearch` (down to morningResearch +
+  dailyDrop only). The already-stored `eveningResearch` value in existing `scheduler.json` files is left
+  in place untouched (harmless, simply unread by anything now) rather than actively stripped out.
+- [x] `server/routes/api.js` — `getDailySlotMinutes()`/`getScheduleSlots()` updated: Heron's entry now
+  computed via `heronDrop.getHeronIstMin()` (new `minutesToLabel()` helper, `hhmmToLabel()` now built on
+  top of it) instead of a hardcoded "4:30 PM"/"Daily 4:30 PM" string; evening-research and weekly-wrap
+  slots stay listed (not deleted from the response) but with `time: 'Manual only'` and `editable: false`,
+  so the Schedules page shows they were deliberately turned off rather than silently vanishing.
+- [x] `web/src/pages/SchedulesPage.jsx` — needed almost no changes; `ScheduleSlotCard` already renders
+  read-only vs. editable purely from the `slot.editable` flag, so the new "Manual only" slots render
+  correctly for free. Updated `SLOT_TIME_KEY` (dropped the now-invalid `eveningResearch` entry) and the
+  explanatory copy for both toolbars to describe the new behavior accurately.
+
+**Verification**: `node -c` + full dry-require chain clean. Scratch-port boot against the real
+`scheduler.json` (real user-configured times: `morningResearch: 09:00`, `dailyDrop: 09:15`) showed the
+correct armed log — `research 09:00 IST · drop 09:15 IST · Heron 09:25 IST (10 min after drop)` — and
+explicitly confirmed no weekly-wrap or evening-research cron registration happens anymore. Live `PUT
+/api/scheduler` changing `dailyDrop` to `10:00` correctly moved Heron's computed slot to `10:10` in the
+same response and re-armed the cron (confirmed via a fresh `[Scheduler] Daily jobs (re)armed` log line);
+reverted back to the real `09:15` value afterward, confirmed restored. `npm run build:web` clean. No
+commit/push.
 
 ---
 

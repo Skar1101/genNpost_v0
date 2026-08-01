@@ -80,14 +80,17 @@
 .type-thread { background: #F3F0FF; color: #6C5CE7; border-color: #D8CCF9; }
 .type-long   { background: #ECFDF5; color: #059669; border-color: #A7F3D0; }
 .type-short  { background: #FFFBEB; color: #D97706; border-color: #FDE68A; }
+.type-punch  { background: #FEF2F2; color: #DC2626; border-color: #FECACA; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .type-thread { background: rgba(139,127,242,.16); color: #B7A8F5; border-color: rgba(183,168,245,.3); }
   :root:not([data-theme="light"]) .type-long   { background: rgba(45,212,168,.14); color: #4FD8B5; border-color: rgba(79,216,181,.3); }
   :root:not([data-theme="light"]) .type-short  { background: rgba(245,159,0,.14); color: #F7B84F; border-color: rgba(247,184,79,.3); }
+  :root:not([data-theme="light"]) .type-punch  { background: rgba(240,97,107,.16); color: #F0616B; border-color: rgba(240,97,107,.3); }
 }
 :root[data-theme="dark"] .type-thread { background: rgba(139,127,242,.16); color: #B7A8F5; border-color: rgba(183,168,245,.3); }
 :root[data-theme="dark"] .type-long   { background: rgba(45,212,168,.14); color: #4FD8B5; border-color: rgba(79,216,181,.3); }
 :root[data-theme="dark"] .type-short  { background: rgba(245,159,0,.14); color: #F7B84F; border-color: rgba(247,184,79,.3); }
+:root[data-theme="dark"] .type-punch  { background: rgba(240,97,107,.16); color: #F0616B; border-color: rgba(240,97,107,.3); }
 
 .score-hi  { color: var(--good); }
 .score-mid { color: var(--warn); }

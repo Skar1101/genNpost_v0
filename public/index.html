@@ -2240,9 +2240,10 @@ function restoreFromHistory(input, format, inputType) {
 // ══════════════════ QUILL ══════════════════
 // ══════════════════ QUILL ══════════════════
 const QUILL_SECTION_META = {
+  punch:        { emoji: '⚡', label: 'Punch',                     color: '#dc2626', bg: 'rgba(220,38,38,.08)' },
+  // Kept so older quill-history.json entries (pre long-form-drop / 4-4-4 restructures) still render with a label.
   long:         { emoji: '📄', label: 'Long-form',                 color: '#059669', bg: 'rgba(5,150,105,.08)' },
   short:        { emoji: '✍️', label: 'Short-form',                color: '#d97706', bg: 'rgba(217,119,6,.08)' },
-  // Kept so older quill-history.json entries (pre 4-4-4 restructure) still render with a label.
   motivational: { emoji: '✍️', label: 'Motivational / Self-Help', color: '#7c3aed', bg: 'rgba(124,58,237,.08)' },
   domain:       { emoji: '🌐', label: 'Domain Posts',             color: '#0369a1', bg: 'rgba(3,105,161,.08)' },
   trending:     { emoji: '🔥', label: 'Trending on X',            color: '#db2777', bg: 'rgba(219,39,119,.08)' },
@@ -2783,7 +2784,7 @@ function renderQuillHistory(history) {
     }
 
     // Draft rows — compact row layout like Raven
-    const sectionsHtml = ['long', 'short', 'motivational', 'domain', 'trending'].map(sec => {
+    const sectionsHtml = ['punch', 'long', 'short', 'motivational', 'domain', 'trending'].map(sec => {
       const drafts = bySection[sec]
       if (!drafts?.length) return ''
       const meta = QUILL_SECTION_META[sec]

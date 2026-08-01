@@ -36,6 +36,24 @@ export function useSetScheduler() {
   })
 }
 
+// Heron's own auto-run toggle — independent of the Raven/Quill switch above.
+export function useSetHeronScheduler() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (heronEnabled) => api('/scheduler', { method: 'PUT', body: { heronEnabled } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['scheduler'] }),
+  })
+}
+
+// Edit the daily slot times — times: { morningResearch?, dailyDrop?, eveningResearch? }, "HH:mm" 24h.
+export function useSetScheduleTimes() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (times) => api('/scheduler', { method: 'PUT', body: { times } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['scheduler'] }),
+  })
+}
+
 // ── Titto chat ───────────────────────────────────────────────────────────────────
 
 export function useChat() {
@@ -189,6 +207,40 @@ export function useRevertArticle() {
   return useMutation({
     mutationFn: ({ id, version }) => api(`/article/${id}/revert`, { method: 'POST', body: { version } }),
     onSuccess: (_, { id }) => queryClient.invalidateQueries({ queryKey: ['article', id] }),
+  })
+}
+
+// ── Heron (Substack) ─────────────────────────────────────────────────────────────
+
+export function useHeronTopics() {
+  return useQuery({ queryKey: ['heron-topics'], queryFn: () => api('/heron/topics') })
+}
+
+export function useHeronSearchTopics() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ query = null, count } = {}) => api('/heron/topics/search', { method: 'POST', body: { query, count } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['heron-topics'] }),
+  })
+}
+
+export function useGenerateHeronArticle() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ idx, topic, model }) => api('/heron/article/generate', { method: 'POST', body: { idx, topic, model } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['articles'] }),
+  })
+}
+
+export function useRefineHeronArticle() {
+  return useMutation({
+    mutationFn: ({ id, instruction, model }) => api('/heron/article/refine', { method: 'POST', body: { id, instruction, model } }),
+  })
+}
+
+export function useHeronWriteNote() {
+  return useMutation({
+    mutationFn: ({ topic, count = 1 }) => api('/heron/note/write', { method: 'POST', body: { topic, count } }),
   })
 }
 

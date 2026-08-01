@@ -5,6 +5,7 @@ const path = require('path')
 const ws = require('./websocket')
 const apiRouter = require('./routes/api')
 const telegram = require('./routes/telegram')
+const heronTelegram = require('./routes/heronTelegram')
 const { initScheduler } = require('../scheduler/cron')
 
 const app = express()
@@ -41,7 +42,7 @@ if (API_TOKEN) {
 // Routes
 app.use('/api', apiRouter)
 
-// Init Telegram
+// Init Telegram (main bot)
 const telegramResult = telegram.init(app, ws.broadcast)
 const telegramSend = telegramResult ? telegram.getSendFn() : null
 const telegramSendDraft = telegramResult ? telegram.getDraftSender() : null
@@ -52,8 +53,17 @@ app.locals.telegramSendDraft = telegramSendDraft
 app.locals.telegramSendReplyTargets = telegramSendReplyTargets
 app.locals.telegramSendArticleIdeas = telegramSendArticleIdeas
 
+// Init Telegram (Heron delivery — either a fully separate bot, or the main bot in "same bot, second
+// chat" mode. heronTelegram.js only actually boots a second bot/polling loop when HERON_TELEGRAM_BOT_TOKEN
+// is set; otherwise it no-ops and telegram.js's own getters below resolve instead.)
+const heronTelegramResult = heronTelegram.init(app)
+const telegramSendHeronDraft = telegram.getHeronDraftSender() || (heronTelegramResult ? heronTelegram.getHeronDraftSender() : null)
+const telegramSendHeronHandoff = telegram.getHeronHandoffSender() || (heronTelegramResult ? heronTelegram.getHeronHandoffSender() : null)
+app.locals.telegramSendHeronDraft = telegramSendHeronDraft
+app.locals.telegramSendHeronHandoff = telegramSendHeronHandoff
+
 // Init scheduler
-initScheduler(ws.broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas)
+initScheduler(ws.broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft)
 
 // Catch-all → serve the React app's index.html (no-store so a new build is always picked up)
 app.get('*', (req, res) => {
