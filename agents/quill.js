@@ -88,7 +88,12 @@ personal story, not long-form). Return ONLY valid JSON:
 { "topics": ${example} }
 
 Rules:
-- Pick items from the list above, span DIFFERENT domains (AI, startup, dev, wellness) — should NOT all be AI
+- Span DIFFERENT domains — AI, startup, dev, wellness, AND self-help/personal-development. At least 1-2
+  of the ${n} topics must be self-help/personal-development (discipline, mindset, habits, growth) — raw,
+  striking, not soft self-care fluff. Should NOT all be AI.
+- If none of the items above are genuinely self-help/personal-development, you may propose one general
+  self-help/personal-development angle yourself (it doesn't need to tie back to the list) — this
+  category is required every day regardless of what's in today's research.
 - Pick items that land in ONE punchy, single-idea hit — a sharp take or contrarian angle works better than a story`
 
   const response = await guard.runGuarded(() => getOpenAI().chat.completions.create(

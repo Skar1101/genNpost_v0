@@ -90,26 +90,28 @@ proper app — that rebuild is most of what's "in progress" below.
 - Added an **Expenses** tab (Settings) — every agent's LLM spend is now actually tracked and shown
   day-by-day; before this only the Article Writer's cost was ever recorded.
 
+**Switch-over (2026-08-01):**
+- Confirmed the live server was already serving the React app exclusively — `server/index.js` has no
+  route to the old `public/index.html` at all (only `web/dist` is mounted), so the old file had been
+  unreachable dead weight in the repo, not an active fallback. Verified live: `/`, `/api/agents`,
+  `/api/queue` all 200, build up to date with `web/src`.
+- Retired it formally: moved `public/index.html` → `archive/legacy-dashboard.html` (kept, not deleted,
+  in case it's ever needed for reference) via `git mv`. No server/code changes needed since nothing
+  referenced it.
+
 ## 🔲 What's left, in order
-1. **Switch over**: once you've used the new dashboard a bit and I'm confident nothing's missing, make
-   it the only dashboard (retire the old single-file one).
-2. **Put it on a server**: right now it only runs while your laptop is on. `DEPLOY.md` has a ready,
+1. **Put it on a server**: right now it only runs while your laptop is on. `DEPLOY.md` has a ready,
    free hosting plan (Oracle Cloud) — this makes it run 24/7 regardless of your laptop.
-3. **Heron · Substack — built and verified live** (see Phase 8, 8b, and 8c below): search article
-   topics, write Substack-format articles + an image prompt, write short Substack Notes, hand off a
-   ready-to-paste post the moment you approve it, now with its own independent automation schedule/
-   toggle (off by default). Still no auto-posting — Substack has no official API for it, and the last
-   manual click always stays yours (this was re-confirmed after you asked about a RapidAPI-based
-   auto-post — no such key-based option actually exists, see Phase 8b for the full reasoning). **Needs
-   from you**: you already have a chat id for Heron's channel — since you kept the same bot (no second
-   BotFather bot), just drop `HERON_TELEGRAM_CHAT_ID` into `.env` and leave `HERON_TELEGRAM_BOT_TOKEN`
-   empty (see Phase 8c) — Heron's Telegram delivery stays off until then (drafts still land in the web
-   Queue either way); flip "Heron auto-runs" on in Schedules once you're ready for it to run itself
-   Tue/Fri. One quality item to look at: Heron's test article came in short (485 words vs. the 900-2200
-   target) — everything else about it was right, just undershot length; worth a prompt tweak. Manual
-   queue (paste your own
-   post, Heron still preps an image prompt) is designed but not built yet — next up.
-4. *(Later, not started)* Parrot · LinkedIn — deliberately deferred until Heron is solid.
+2. **Heron · Substack — fully live** (see Phase 8, 8b, 8c, and 13 below): Telegram delivery confirmed
+   working (a real, genuinely separate bot — `@TS_Heron_Substack_bot` — currently posting into the same
+   chat as the main bot; flagging once more that this is a choice, not a bug — a truly separate
+   chat/channel is one `/chatid` message away if you'd rather split them), "Heron auto-runs" is ON in
+   Schedules and already ran a real automated drop. The article-length undershoot is fixed (Phase 13 —
+   was landing at 485-875 words against a 900-2200 target; now enforced with an automatic expand pass,
+   verified live at 1095 words). Still no auto-posting — Substack has no official API for it, the last
+   manual click always stays yours. **Only thing left**: the **manual queue** (paste your own
+   already-written post, Heron still preps an image prompt for it) — designed but not built yet.
+3. *(Later, not started)* Parrot · LinkedIn — deliberately deferred until Heron is solid.
 
 ## 🙋 Things needed from you
 - **Restart the server** so it picks up everything built recently — it doesn't update itself while running.
@@ -147,6 +149,8 @@ for reference. If you just want to know where things stand, the section above is
 | 10 | Daily-drop content quality pass + Heron daily + Heron 1-liner hand-off | ✅ done |
 | 11 | /chatid helper + Heron Telegram delivery diagnosis | ✅ done |
 | 12 | Deactivate evening research + weekly wrap; Heron tracks Quill's drop time | ✅ done |
+| 13 | Heron delivery re-verified live + article-length fix (expand-pass) + repost length/substance | ✅ done |
+| 14 | Punch self-help mix, repost reverted to neutral highlight, Heron shape changed to 4 short + 2 mid | ✅ done |
 
 ---
 
@@ -863,6 +867,128 @@ commit/push.
 
 ---
 
+## Phase 13 — Heron delivery re-verified live + article-length fix + repost length/substance ✅ BUILT + VERIFIED (2026-08-01)
+Follow-up pass on the Heron backlog plus one unrelated Quill tweak requested in the same session.
+
+**1. Re-verified Heron Telegram delivery end-to-end, live.** `.env` now has a genuinely separate bot
+(`HERON_TELEGRAM_BOT_TOKEN` set, real token) with `HERON_TELEGRAM_CHAT_ID` pointed at the same chat as
+the main bot (not a second bot on the same token — confirmed no `409 Conflict` risk, since the two bots
+have distinct tokens; the "same chat" part is a deliberate-or-not choice, flagged again, not fixed).
+Confirmed via read-only Bot API calls (`getMe` on both tokens, `getWebhookInfo` on Heron's) that both
+bots are valid, distinct (`@skar_agent_test_bot` / `@TS_Heron_Substack_bot`), and Heron's is actively
+polling (`pending_update_count: 0`). Confirmed via `/api/scheduler` that `heronEnabled: true` and via
+`/api/activity` that a real automated Heron drop already ran (`⏰ Catch-up · Heron` — 6 topics found, 1
+article drafted, 2 notes drafted) — this backlog item was already effectively done, just not verified
+since the last `.env` fix.
+
+**2. Fixed the article-length undershoot** (flagged since Phase 8, unfixed until now). Root cause,
+confirmed by testing rather than guessed: `SUBSTACK_ARTICLE_TEMPLATE.md`'s structure rules gave ranges
+("4-7 sections, 2-5 paragraphs, 2-4 sentences") with no reinforced floor — the model was satisficing
+near the *low* end of every range, compounding down to ~480-500 words against the 900-2200 target.
+- [x] `sub-agents/heron/SUBSTACK_ARTICLE_TEMPLATE.md` + `prompts/heronArticle.js` — tightened ranges
+  (5-7 sections, 3-5 paragraphs each, ~150-300 words/section) and added explicit "900 is a hard floor,
+  not a suggestion" language in both the template and the actual prompt sent every call (the template
+  file's own words aren't guaranteed to be read the same way twice — the prompt builder needed the same
+  reinforcement directly).
+- [x] `agents/articleWriter.js` — bumped `maxTokens` to 5500 for `platform:'substack'` (was 4000,
+  shared with X) so token-cap truncation is never a contributing cause, confirmed separately from the
+  prompt-adherence issue.
+- [x] **Real fix, not just prompt-begging**: prompt tightening alone wasn't sufficient — a live test
+  after the prompt change still landed at 875 words (better than 485, still under floor). Added a
+  deterministic **automatic expand pass** in `articleWriter.generate()`: after generation, if the
+  Substack article is under 900 words, one (up to two) follow-up completion call(s) explicitly told the
+  word gap and asked to expand by that much via new sections/deeper existing ones — not streamed to the
+  live UI (plain `llm.complete()`, no `onToken`) so a rare re-ask doesn't double-print what's on screen;
+  `article_done` always carries the final authoritative text regardless. Usage/cost from all passes
+  summed correctly into the final `cost` figure.
+- **Verified live, real LLM calls, no test-data cleanup needed** (`articleWriter.generate()` doesn't
+  persist anything itself — only the API route does): first real sample landed at 524 words, one expand
+  pass got a *different* topic to 858 (still short — informed the "up to 2 passes" design), a third
+  sample needed both passes (634 → 850 → 1095 words, final cost ~$0.009) and cleared the floor. One
+  real end-to-end sample also run through the actual `/api/heron/article/generate` route (topic:
+  "How did you fund your startup without VC?") — 875 words pre-fix-completion timing, registered as a
+  real draft in the queue and sent to the real Heron Telegram channel; left in place, it's genuine
+  content, not test junk.
+
+**3. Quill reposts — lengthened + substance requirement** (separate, smaller ask in the same session).
+`prompts/koelRepost.js`'s repost-comment rules previously capped at 280 chars / a single punchy line,
+which was producing reactions rather than real takes. Changed to a 3-6 line / ~400-700 char target with
+an explicit instruction to explain *why* something matters, add a concrete example, or push back with a
+sharper angle — not just summarize or agree with the quoted post. No length-safety-flag interaction
+(that flag only applies to `short`/`punch` formats, confirmed — reposts were never flagged).
+
+**Also, same session**: confirmed the dashboard switch-over (see the note above, under "Done") — the
+live server had already been serving only the React app; `public/index.html` moved to
+`archive/legacy-dashboard.html`.
+
+**No commit/push** (standing rule — stays yours). Server re-verified healthy (`/`, `/api/agents` both
+200) after every edit in this pass, since changes were made directly against the live dev server
+(`node --watch`), not an isolated scratch instance.
+
+---
+
+## Phase 14 — Punch self-help mix, repost reverted to neutral, Heron reshaped to 4 short + 2 mid ✅ BUILT + VERIFIED (2026-08-01)
+Direct feedback after seeing real Telegram output from Quill and Heron. Three changes, confirmed via a
+clarifying round before building:
+
+**1. Quill punch posts now include self-help/personal-development.** `agents/quill.js`'s
+`assignTopics()` prompt updated: domain list now explicitly includes self-help/personal-development
+(discipline, mindset, habits, growth) alongside AI/startup/dev/wellness, with "at least 1-2 of the 4
+topics must be self-help." **Real finding while verifying**: today's actual top-15 research was 100%
+tech/AI (the self-improvement Reddit source is currently 429-rate-limited — confirmed in yesterday's
+error log — so zero self-help candidates existed in the source data that day). Fixed by explicitly
+allowing the LLM to propose a freetext self-help angle when the research list has no genuine candidate
+("this category is required every day regardless of what's in today's research") — re-verified, now
+correctly returns a real self-help/mindset topic even with an all-tech research pool.
+
+**2. Reposts reverted from "add your own take" to "neutral highlight."** This directly undoes a change
+made earlier in this same session — the user's real Telegram output showed reposts injecting Souvik's
+personal opinion, which isn't what they wanted. `prompts/koelRepost.js` rewritten: no first-person
+opinion language, present the post's own idea and why it's worth reading, still 3-6 lines/400-700 chars
+(the "can be lengthier" part of the feedback stays). **Real bug found + fixed during verification**:
+`agents/koel.js`'s `draftRepost()` was reusing `format:'short'` (280-char cap baked into that format's
+own guide) for repost generation — even with the repost's 400-700 char instruction marked "highest
+priority," a live test showed output landing at 281 chars, right at `short`'s boundary, not honoring the
+override (same class of bug as Koel's earlier hardcoded-count issue). Fixed by giving reposts their own
+dedicated format, `repost` (`prompts/koelWrite.js`'s `FORMAT_META` + a formatGuide branch stating the
+400-700 char target directly, no competing number anywhere) — re-verified, real output landed at 525
+chars, neutral/curatorial tone, no first-person language.
+
+**3. Heron's daily automation reshaped**: was 1 full article + 2 Notes, now **4 short (Note-length)
+posts + 2 mid-size posts (~100 words)**, spanning self-help / achievement / AI-updates — no article in
+the automated daily drop (article-writing stays available on-demand on the Heron page, untouched).
+- [x] New Koel format `heronMid` (`prompts/koelWrite.js`) — ~80-120 words, one developed thought.
+  Verified live: real sample landed at 105 words.
+- [x] `agents/heron.js` — new `assignDailyTopics()` (one LLM call, mirrors Quill's `assignTopics()`
+  shape, returns `{short:[4], mid:[2]}` each tagged `category: self-help|achievement|ai`; achievement is
+  freetext — Souvik's own journey, no research link needed; falls back to a plain research-slice split
+  if the LLM call fails) and `writeMidPost()` (mirrors `writeNote()`'s shape exactly). Verified live:
+  real call returned 2 self-help + 1 achievement + 1 ai (short) and 1 achievement + 1 ai (mid) — correct
+  category spread.
+- [x] `scheduler/heronDrop.js`'s `runHeronDrop()` — removed the unconditional `heron.writeArticle()`
+  call; now calls `assignDailyTopics()` then loops the 4 short + 2 mid topics through `writeNote()`/
+  `writeMidPost()` individually (each topic is distinct, so one `koel.write()` call per topic), batching
+  each bucket into a single Telegram send (one header per bucket, matching Quill's daily-batch delivery
+  style) rather than one message per topic. Dropped the old `searchTopics()`-based "no long-form-worthy
+  topics" guard — no longer relevant since nothing here requires article-worthy material.
+- **Verification**: `node -c` on every changed file, live dry-`require()` of `heronDrop.js`/`heron.js`
+  confirming exports intact, server (`node --watch`) restarted clean after every edit. Real LLM calls
+  for `assignDailyTopics()`, `writeMidPost()`, and `writeNote()` individually (no test-data cleanup
+  needed — none of these persist to a store on their own outside the full route/drop path). Did not run
+  a full real `runHeronDrop()` end-to-end (would send 2 real Telegram batches + register 6 real drafts
+  for no additional verification signal beyond what the individual-piece tests already confirmed) — next
+  real scheduled/catch-up run will exercise the full path naturally.
+
+**Files touched**: `agents/quill.js` (`assignTopics()` prompt), `prompts/koelRepost.js` (full rewrite),
+`agents/koel.js` (`draftRepost()` now uses `format:'repost'`), `prompts/koelWrite.js` (new `heronMid`
+and `repost` formats), `agents/heron.js` (`assignDailyTopics()`, `writeMidPost()`, new requires for the
+LLM call), `scheduler/heronDrop.js` (`runHeronDrop()` rewritten).
+
+No commit/push (standing rule). No test-data left in the real queue/store beyond what earlier
+verification passes already created (Phase 13's real article + drafts remain, unaffected by this pass).
+
+---
+
 ## Sage's 9 systems → our coverage
 | Sage system | Status | Note |
 |---|---|---|
@@ -902,6 +1028,6 @@ commit/push.
 - Tools: `tools/{fetchTwitter,fetchReddit,fetchArxiv,fetchGitHub,fetchHackerNews,fetchYouTube,fetchReplyTargets}.js`, `tools/sources.config.js`, `tools/replyDomains.config.js`
 - Prompts: `prompts/{koelWrite,rankResults,tittoReason,quillPlan,...}.js`
 - Server: `server/index.js`, `server/routes/{api,telegram}.js`, `scheduler/cron.js`
-- UI (legacy, still live): `public/index.html`
-- UI (new, in progress): `web/` — React app; `web/src/pages/*` (one per agent), `web/src/lib/{api,queries,ws,nav}.js`
+- UI (legacy, retired 2026-08-01): `archive/legacy-dashboard.html` (was `public/index.html`)
+- UI (live): `web/` — React app; `web/src/pages/*` (one per agent), `web/src/lib/{api,queries,ws,nav}.js`
 - Docs: `USE.md` (operator guide), `DEPLOY.md` (Oracle Cloud deploy), `IMPLEMENTATION.md` (this tracker)

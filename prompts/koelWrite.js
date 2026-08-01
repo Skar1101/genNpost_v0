@@ -41,6 +41,13 @@ const FORMAT_META = {
   // Daily-drop only — not a manually-selectable format (kept out of KoelPage.jsx's format list on
   // purpose). Raw, hook-driven, punchline-length; no forced personal-story framing.
   punch:       { label: 'Punch',              desc: '1–2 lines, raw hook, built to go viral — daily drop only' },
+  // Heron daily-drop only (kept out of KoelPage.jsx's format list) — a step up from a Substack Note:
+  // enough room to develop one thought with a concrete detail, still well short of an article.
+  heronMid:    { label: 'Heron Mid-Post',     desc: '~80–120 words, one developed thought — Heron daily drop only' },
+  // Quote-repost comment (Quill's repost pipeline only) — own format so its 400-700 char target
+  // doesn't compete with the 'short' format's own 280-char cap (they were conflicting when reposts
+  // reused 'short' + an extraInstructions override alone).
+  repost:      { label: 'Quote-Repost',       desc: 'Neutral highlight of the quoted post, 400-700 chars — reposts only' },
 }
 
 // ── Build the system prompt from cached knowledge ────────────────────────────
@@ -192,6 +199,22 @@ function buildKoelUserPrompt({ format, input, inputType, count = 3, extraInstruc
     formatGuide = count === 1
       ? `Write ONE punch post — a raw, direct, scroll-stopping one-liner (occasionally two lines, never more). This is NOT a mini-essay and NOT a personal story post.\n\n${rules}`
       : `Write ${count} punch posts — each a raw, direct, scroll-stopping one-liner (occasionally two lines, never more). The ${count} drafts must each take a DISTINCT angle.\n\n${rules}`
+  } else if (format === 'heronMid') {
+    const midRules = `Rules:
+- Target 80-120 words — one short paragraph, occasionally two. More room than a Note to develop a
+  single thought with a concrete detail or example, but this is NOT a mini-article — one idea, not several.
+- Open with a real hook (a claim, a number, a specific moment) — no throat-clearing or setup.
+- Land on one clear takeaway by the end. Don't trail off or leave it open-ended.
+- No hashtags, no thread numbering, no subheaders.
+- No em dashes, no filler, no AI-slop phrasing (see HOUSE STYLE above).`
+    formatGuide = count === 1
+      ? `Write ONE mid-length Substack post — ${midRules}`
+      : `Write ${count} mid-length Substack posts, each a DISTINCT angle. ${midRules}`
+  } else if (format === 'repost') {
+    formatGuide = `Write the quote-repost comment. Length: 3-6 lines, roughly 400-700 characters — long
+enough to properly convey the quoted post's substance, not a short reaction. Present the post's own
+idea clearly and engagingly, and why it's worth a read — this is a highlight/curation, NOT personal
+opinion. No first-person opinion language ("I think", "in my experience"). No hashtags, no em dashes.`
   }
 
   // Titto's instructions always take highest priority — placed first so the LLM sees them before format defaults

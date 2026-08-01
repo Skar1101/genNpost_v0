@@ -35,6 +35,10 @@ ${related}
 ═════════════════════════════════════════════════════════════════════════════════
 
 ══ HARD STRUCTURE RULES (NON-NEGOTIABLE) ═══════════════════════════════════════
+- **Length: 900-2200 words, 900 is a HARD FLOOR.** A short-but-polished draft still fails this task.
+  Write 5-7 body sections, each 3-5 paragraphs (~150-300 words) — do not stop at the minimum of every
+  range or you will land far under 900. If you're unsure you've written enough, add another section,
+  example, or counterpoint before closing.
 - **Paragraphs:** 2–4 sentences each. NEVER one-sentence-per-line wall-of-text. Blank line between paragraphs.
 - **Transitions:** Each new section's opening line should briefly reference or build on the previous section. NO abrupt jumps between subheaders.
 - **Subheaders:** Bold markdown only (\`**Subheader**\`). No ALL CAPS, no underlines, no emoji-decorated headers.
@@ -78,7 +82,7 @@ SUBTITLE: <one-sentence dek shown under the title>
 
 <Title line>
 
-<article body — 900-2200 words, Markdown: **bold** subheaders, [anchor](url) inline links, blank lines between paragraphs, no hashtags>
+<article body — 900-2200 words (900 is a hard floor — 5-7 sections of 3-5 paragraphs each), Markdown: **bold** subheaders, [anchor](url) inline links, blank lines between paragraphs, no hashtags>
 
 ===IMAGE PROMPT===
 <one detailed text-to-image prompt for a header image — concrete visual details, no text/words in the image>

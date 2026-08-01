@@ -11,8 +11,11 @@ article weaves them in as inline Markdown links, same as X Articles.
 ---
 
 ## Length
-**900–2200 words total.** Real newsletter depth — this is meaningfully longer than an X Article
-(1500-3500 *characters*). Aim for ~1400 words for a solid weekly-read piece.
+**900–2200 words total — 900 is a hard floor, not a suggestion.** Real newsletter depth — this is
+meaningfully longer than an X Article (1500-3500 *characters*). Target ~1400 words for a solid
+weekly-read piece. If you're unsure whether you've written enough, you haven't — add another body
+section, a concrete example, or a counterpoint rather than closing early. A 500-word piece fails this
+task regardless of how good the prose is.
 
 ## Output contract (exact format Heron expects — do not deviate)
 Produce, in this exact order:
@@ -37,8 +40,10 @@ structure (no "Here's your article", no extra commentary).
 ## Structure
 1. **Title** — one strong line. No clickbait, no "the surprising truth about…".
 2. **Hook paragraph** — 2–4 sentences. Open with a real number, a specific moment, or a tension.
-3. **4–7 body sections** with bold subheaders. Each section has 2–5 paragraphs — this is a proper read,
-   not a tight X Article; let ideas breathe and build on each other section to section.
+3. **5–7 body sections** with bold subheaders. Each section is **3–5 paragraphs (roughly 150–300
+   words)** — this is a proper read, not a tight X Article; let ideas breathe and build on each other
+   section to section. Five thin sections is not enough on its own — check your running word count as
+   you write and keep going past 900.
 4. **Closing** — a soft subscribe/reply nudge ("reply and tell me X", "if this was useful, subscribe for
    more like it"). Not a sales pitch, not corporate.
 

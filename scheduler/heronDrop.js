@@ -1,8 +1,10 @@
-// Heron's own scheduled drop (topic search + one article + a couple of Notes), independent of
-// Quill's daily drop — own toggle, own idempotency stamp. Mirrors scheduler/dailyDrop.js's shape,
-// reusing its `ensureTodaysResearch()` so Heron never runs a redundant fresh search when Raven already
-// ran earlier the same day. Timing: runs exactly 10 minutes after Quill's dailyDrop time (tracks it —
-// change dailyDrop in Schedules and Heron's slot follows automatically), not an independent time.
+// Heron's own scheduled drop (4 short Notes + 2 mid-posts, spanning self-help/achievement/AI-updates),
+// independent of Quill's daily drop — own toggle, own idempotency stamp. No article in the automated
+// drop (article-writing stays available on-demand on the Heron page). Mirrors scheduler/dailyDrop.js's
+// shape, reusing its `ensureTodaysResearch()` so Heron never runs a redundant fresh search when Raven
+// already ran earlier the same day. Timing: runs exactly 10 minutes after Quill's dailyDrop time
+// (tracks it — change dailyDrop in Schedules and Heron's slot follows automatically), not an
+// independent time.
 const heron = require('../agents/heron')
 const dailyDrop = require('./dailyDrop')
 const { isHeronEnabled, getLastHeronRun, setLastHeronRun, getTimes } = require('../state/schedulerStore')
@@ -25,23 +27,38 @@ async function runHeronDrop({ broadcast = null, telegramSend = null, telegramSen
     return { ok: false, reason: 'no-research' }
   }
 
-  const topics = await heron.searchTopics({ broadcast, triggerLabel })
-  if (!topics?.topics?.length) {
-    console.warn('[HeronDrop] skipped — no long-form-worthy topics in today\'s research')
-    return { ok: false, reason: 'no-topics' }
+  const assignments = await heron.assignDailyTopics()
+
+  // 4 short (Note-length) posts — each a distinct topic, so one koel.write() call per topic. Batched
+  // into a single Telegram message (one header, all drafts) rather than sending per-topic, matching
+  // Quill's daily-batch delivery style.
+  const shortBatch = []
+  for (const { topic } of assignments.short) {
+    try {
+      const result = await heron.writeNote({ topic, count: 1, triggerLabel: triggerLabel + ' · notes' })
+      const rec = result.draftRecords?.[0]
+      if (rec) shortBatch.push({ id: rec.id, text: result.drafts[0] })
+    } catch (e) { console.warn('[HeronDrop] note write failed:', e.message) }
+  }
+  if (telegramSendDraft && shortBatch.length) {
+    await telegramSendDraft(shortBatch, { header: `🦢 Substack Notes — ${shortBatch.length} drafts` })
   }
 
-  try {
-    await heron.writeArticle({ idx: 0, broadcast, telegramSendDraft, triggerLabel })
-  } catch (e) { console.warn('[HeronDrop] article write failed:', e.message) }
-
-  try {
-    const pillarTopic = topics.topics[0]?.title || 'something worth a quick take, in your own words'
-    await heron.writeNote({ topic: pillarTopic, count: 2, broadcast, telegramSendDraft, triggerLabel: triggerLabel + ' · notes' })
-  } catch (e) { console.warn('[HeronDrop] note write failed:', e.message) }
+  // 2 mid-posts (~100 words each), same per-topic + batched-send pattern.
+  const midBatch = []
+  for (const { topic } of assignments.mid) {
+    try {
+      const result = await heron.writeMidPost({ topic, count: 1, triggerLabel: triggerLabel + ' · mid' })
+      const rec = result.draftRecords?.[0]
+      if (rec) midBatch.push({ id: rec.id, text: result.drafts[0] })
+    } catch (e) { console.warn('[HeronDrop] mid-post write failed:', e.message) }
+  }
+  if (telegramSendDraft && midBatch.length) {
+    await telegramSendDraft(midBatch, { header: `🦢 Substack mid-posts — ${midBatch.length} drafts` })
+  }
 
   setLastHeronRun(istToday())
-  return { ok: true }
+  return { ok: true, notes: shortBatch.length, midPosts: midBatch.length }
 }
 
 // Startup catch-up: if it's past Heron's slot and today's drop hasn't run, run it once now

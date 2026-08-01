@@ -153,19 +153,54 @@ async function generate({ topic, model = models.articleDefaultModel(), account =
   messages.push({ role: 'user', content: articleBrief })
 
   // 3. Write (stream if a token callback was given, else one-shot).
-  const opts = { modelId, messages, temperature: 0.8, maxTokens: 4000 }
+  // Substack articles run up to 2200 words (~2900 tokens) + header/image-prompt overhead — extra
+  // headroom vs X's 4000 cap so token truncation is never why an article comes in short.
+  const opts = { modelId, messages, temperature: 0.8, maxTokens: platform === 'substack' ? 5500 : 4000 }
   const res = onToken ? await llm.stream({ ...opts, onToken }) : await llm.complete(opts)
 
   if (platform === 'substack') {
-    const parsed = parseSubstackOutput(res.text)
+    let parsed = parseSubstackOutput(res.text)
+    let usage = res.usage
+    const wordCount = parsed.text.trim().split(/\s+/).filter(Boolean).length
+
+    // Automatic expand passes (up to 2) if the model undershot the 900-word floor — the prompt alone
+    // can't guarantee it (confirmed via real samples landing at 875 and 524 despite an explicit
+    // hard-floor instruction), so this is deterministic insurance rather than more prompt-begging. Not
+    // streamed (plain complete, no onToken) so a re-ask doesn't double-print in the live UI —
+    // article_done always carries the final authoritative text regardless.
+    let attempts = 0
+    let lastText = res.text
+    let count = wordCount
+    while (count > 0 && count < 900 && attempts < 2) {
+      attempts++
+      const short = 900 - count + 150
+      log.warn(`Substack article came in at ${count} words (floor 900) — expand pass ${attempts}`)
+      try {
+        const expandMessages = [...messages, { role: 'assistant', content: lastText }, { role: 'user', content:
+          `Your draft above is only ${count} words — this task requires at least 900, ideally closer to 1400. Expand it by at least ${short} more words: add 1-2 more body sections (a concrete example, a counterpoint, or a deeper dive on an existing point) and flesh out thin paragraphs — don't just pad sentences. Keep the SUBJECT:/PREVIEW:/SUBTITLE: header lines, the title, and the ===IMAGE PROMPT=== block exactly as before — only grow the body. Output the FULL updated article again in the exact same format, starting with SUBJECT:.` }]
+        const res2 = await llm.complete({ modelId, messages: expandMessages, temperature: 0.7, maxTokens: 5500 })
+        const parsedTry = parseSubstackOutput(res2.text)
+        const newCount = parsedTry.text.trim().split(/\s+/).filter(Boolean).length
+        usage = {
+          prompt_tokens: (usage?.prompt_tokens || 0) + (res2.usage?.prompt_tokens || 0),
+          completion_tokens: (usage?.completion_tokens || 0) + (res2.usage?.completion_tokens || 0),
+        }
+        if (newCount > count) { parsed = parsedTry; lastText = res2.text; count = newCount }
+        else break // didn't help — stop rather than burn another call
+      } catch (err) {
+        log.warn(`Expand pass failed (keeping ${count}-word draft): ${err.message}`)
+        break
+      }
+    }
+
     const sources = extractSources(parsed.text, relatedItems)
     return {
       text: parsed.text,
       title: titleFromText(parsed.text, topic),
       subtitle: parsed.subtitle, subject: parsed.subject, previewText: parsed.previewText, imagePrompt: parsed.imagePrompt,
       sources,
-      usage: res.usage,
-      cost: models.costFor(modelId, res.usage),
+      usage,
+      cost: models.costFor(modelId, usage),
       modelUsed: res.modelUsed,
       modelId,
     }
@@ -212,7 +247,7 @@ Output ONLY the rewritten article — no preamble, no explanation.`
   if (contextBlock) messages.push({ role: 'system', content: contextBlock })
   messages.push({ role: 'user', content: userMsg })
 
-  const opts = { modelId, messages, temperature: 0.7, maxTokens: 4000 }
+  const opts = { modelId, messages, temperature: 0.7, maxTokens: platform === 'substack' ? 5500 : 4000 }
   const res = onToken ? await llm.stream({ ...opts, onToken }) : await llm.complete(opts)
 
   if (platform === 'substack') {

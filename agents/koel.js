@@ -176,8 +176,11 @@ async function draftRepost({ sourceText, author = '', url = '', extra = '', acco
   const acct = account || memory.accounts.getActiveAccount()
   const extraInstructions = buildRepostPrompt({ sourceText, author, extra })
   // Generate the comment only (register:false); we compose the final quote-tweet ourselves.
+  // format:'repost' (not 'short') — 'short''s own 280-char cap was conflicting with the 400-700 char
+  // target here even with extraInstructions given "highest priority" (confirmed via a real test: output
+  // landed at 281 chars, right at 'short''s boundary, ignoring the override).
   const inner = await write({
-    format: 'short',
+    format: 'repost',
     input: `(Quote-repost brief + the viral post are in the instructions above. Write Souvik's value-add comment.)`,
     inputType: 'freetext', count: 1, extraInstructions,
     origin: 'repost', account: acct, broadcast: null, register: false,
