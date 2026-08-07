@@ -180,6 +180,9 @@ function init(app, broadcast) {
     if (isHeronChat) return
 
     try {
+      // Read lazily off app.locals (not captured at init time) — parrotTelegram.js's init() runs
+      // after this module's, so its sender only exists once the server has finished booting, by
+      // which point any real incoming message arrives well after.
       const result = await titto.handleMessage({
         text,
         sessionId: `telegram-${incomingChatId}`,
@@ -189,6 +192,7 @@ function init(app, broadcast) {
         telegramSendDraft: sendDrafts,
         telegramSendReplyTargets: sendReplyTargets,
         telegramSendArticleIdeas: sendArticleIdeas,
+        telegramSendParrotDraft: app.locals.telegramSendParrotDraft,
       })
       if (result.reply) await sendToUser(result.reply)
     } catch (err) {

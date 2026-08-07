@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { useScheduler, useSetScheduler, useSetHeronScheduler, useSetScheduleTimes } from '../lib/queries.js'
+import { useScheduler, useSetScheduler, useSetHeronScheduler, useSetParrotScheduler, useSetScheduleTimes } from '../lib/queries.js'
 
-const AGENT_LABEL = { raven: 'Raven', 'quill-x': 'Quill', heron: 'Heron' }
+const AGENT_LABEL = { raven: 'Raven', 'quill-x': 'Quill', heron: 'Heron', parrot: 'Parrot' }
 
 // id -> the key schedulerStore/api.js use in the `times` object. Only the still-automatic slots are
 // editable (evening research + the weekly wrap were deactivated — manual-only, not in this map).
-const SLOT_TIME_KEY = { 'morning-research': 'morningResearch', 'daily-drop': 'dailyDrop' }
+const SLOT_TIME_KEY = { 'morning-research': 'morningResearch', 'daily-drop': 'dailyDrop', 'linkedin-drop': 'linkedinDrop' }
 
 function ScheduleSlotCard({ slot, onSave, saving }) {
   const [time, setTime] = useState(slot.hhmm || '')
@@ -38,15 +38,18 @@ export default function SchedulesPage() {
   const scheduler = useScheduler()
   const setScheduler = useSetScheduler()
   const setHeronScheduler = useSetHeronScheduler()
+  const setParrotScheduler = useSetParrotScheduler()
   const setScheduleTimes = useSetScheduleTimes()
 
   if (scheduler.isLoading) return <div className="content"><div className="card placeholder"><p>Loading schedule…</p></div></div>
 
   const enabled = !!scheduler.data?.enabled
   const heronEnabled = !!scheduler.data?.heronEnabled
+  const parrotEnabled = !!scheduler.data?.parrotEnabled
   const slots = scheduler.data?.slots || []
-  const mainSlots = slots.filter((s) => s.agent !== 'heron')
+  const mainSlots = slots.filter((s) => s.agent !== 'heron' && s.agent !== 'parrot')
   const heronSlots = slots.filter((s) => s.agent === 'heron')
+  const parrotSlots = slots.filter((s) => s.agent === 'parrot')
 
   function saveSlotTime(slotId, hhmm) {
     const key = SLOT_TIME_KEY[slotId]
@@ -96,6 +99,28 @@ export default function SchedulesPage() {
 
       <div className="drafts">
         {heronSlots.map((s) => (
+          <ScheduleSlotCard key={s.id} slot={s} onSave={saveSlotTime} saving={setScheduleTimes.isPending} />
+        ))}
+      </div>
+
+      <div className="toolbar" style={{ marginTop: 24 }}>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+          Parrot has its own time, editable below. Unlike every other toggle here, Approve on a Parrot
+          draft posts to LinkedIn immediately — off by default. The on-demand Parrot page always works
+          either way, and posting still requires a connected LinkedIn account regardless of this toggle.
+        </span>
+        <div className="spacer" />
+        <button
+          className="btn sm"
+          onClick={() => setParrotScheduler.mutate(!parrotEnabled)}
+          disabled={setParrotScheduler.isPending}
+        >
+          <span className={`sdot ${parrotEnabled ? 'good' : 'crit'}`} /> Parrot auto-runs: {parrotEnabled ? 'ON' : 'OFF'}
+        </button>
+      </div>
+
+      <div className="drafts">
+        {parrotSlots.map((s) => (
           <ScheduleSlotCard key={s.id} slot={s} onSave={saveSlotTime} saving={setScheduleTimes.isPending} />
         ))}
       </div>

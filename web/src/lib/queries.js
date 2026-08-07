@@ -244,6 +244,51 @@ export function useHeronWriteNote() {
   })
 }
 
+// ── Parrot (LinkedIn) — the only agent with a real posting path. Generation is on-demand here;
+// the actual LinkedIn post only happens on Approve (Telegram or the Queue page's Approve button). ──
+
+export function useParrotStatus() {
+  return useQuery({ queryKey: ['parrot-status'], queryFn: () => api('/parrot/status') })
+}
+
+export function useParrotWrite() {
+  return useMutation({
+    mutationFn: ({ topic, count = 1 }) => api('/parrot/write', { method: 'POST', body: { topic, count } }),
+  })
+}
+
+// Parrot's own auto-run toggle — independent of the Raven/Quill and Heron switches.
+export function useSetParrotScheduler() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (parrotEnabled) => api('/scheduler', { method: 'PUT', body: { parrotEnabled } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['scheduler'] }),
+  })
+}
+
+// "Plan LinkedIn Posts" — fresh-search + category-matched suggestions, same shape as Quill's plan flow.
+export function useParrotPlan() {
+  return useMutation({
+    mutationFn: ({ forceFresh = false } = {}) => api('/parrot/plan', { method: 'POST', body: { forceFresh } }),
+  })
+}
+
+export function useParrotDraftFromSuggestion() {
+  return useMutation({
+    mutationFn: ({ suggestion, sessionId }) =>
+      api('/parrot/draft', { method: 'POST', body: { suggestion, sessionId } }),
+  })
+}
+
+// Past planning sessions, newest first — powers Parrot's "Previous plans".
+export function useParrotSessions() {
+  return useQuery({ queryKey: ['parrot-sessions'], queryFn: () => api('/parrot/sessions') })
+}
+
+export function useParrotSession(id) {
+  return useQuery({ queryKey: ['parrot-session', id], queryFn: () => api(`/parrot/sessions/${id}`), enabled: !!id })
+}
+
 // ── Analyst ──────────────────────────────────────────────────────────────────────
 
 export function useInsights() {

@@ -7,7 +7,7 @@ export default function AgentCard({ agent }) {
           <div className="n">{agent.name}</div>
           <div className="r">{agent.role}</div>
         </div>
-        <span className={`pill ${agent.status === 'setup' || agent.status === 'not-built' ? 'warn' : 'good'}`}>
+        <span className={`pill ${agent.status === 'setup' || agent.status === 'not-built' || agent.status === 'not-connected' ? 'warn' : 'good'}`}>
           <span className="d" />
           {agent.status}
         </span>

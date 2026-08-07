@@ -8,6 +8,12 @@ Optimize **consistent quality + engagement; virality is a byproduct, never the d
 > retweet on/from @skar_connect, automatically or otherwise. It is **draft-only**; all posting and
 > engagement is done manually by Souvik. There is intentionally **no X write capability in the codebase**,
 > and none may ever be added. "Approve" only files a draft in the local queue — it touches nothing on X.
+>
+> **Substack (Heron)** follows the same draft-only spirit by deliberate choice, not a technical
+> limitation — see Phase 8's reasoning. **LinkedIn (Parrot) is a confirmed, explicit exception**
+> (2026-08-01, see Phase 15): Souvik asked for real automated posting on Telegram Approve, was shown the
+> conflict with this rule directly, and confirmed the override in writing ("Yes, override it for
+> LinkedIn"). X and Substack are unaffected — this exception is scoped to LinkedIn only.
 
 Guardrails: human-approve before posting · **draft-only, zero auto-actions on X (hard stop above)** ·
 native in Titto (no framework rewrite) · account-keyed from day one ·
@@ -111,7 +117,13 @@ proper app — that rebuild is most of what's "in progress" below.
    verified live at 1095 words). Still no auto-posting — Substack has no official API for it, the last
    manual click always stays yours. **Only thing left**: the **manual queue** (paste your own
    already-written post, Heron still preps an image prompt for it) — designed but not built yet.
-3. *(Later, not started)* Parrot · LinkedIn — deliberately deferred until Heron is solid.
+3. **Parrot · LinkedIn — fully live** (see Phase 15, 16 below): LinkedIn is connected (confirmed live as
+   "CONNECT SARKAR", token valid to 2026-10-06), Parrot's dedicated Telegram bot is live and verified.
+   Parrot now also has a "Plan LinkedIn Posts" flow (fresh search + career/AI/building-in-public
+   suggestions, mirrors Quill's planning page) and Titto can draft a LinkedIn post from natural chat
+   ("post to linkedin: ...") — it always hands off to Parrot's bot for the actual Approve/post step,
+   never posts directly itself. **Only remaining item**: "Parrot auto-runs" is still OFF in Schedules —
+   flip it on whenever you want the daily automated drop running itself (16:30 IST default, editable).
 
 ## 🙋 Things needed from you
 - **Restart the server** so it picks up everything built recently — it doesn't update itself while running.
@@ -151,6 +163,9 @@ for reference. If you just want to know where things stand, the section above is
 | 12 | Deactivate evening research + weekly wrap; Heron tracks Quill's drop time | ✅ done |
 | 13 | Heron delivery re-verified live + article-length fix (expand-pass) + repost length/substance | ✅ done |
 | 14 | Punch self-help mix, repost reverted to neutral highlight, Heron shape changed to 4 short + 2 mid | ✅ done |
+| 15 | Parrot · LinkedIn — fully automated posting (explicit hard-stop exception) | ✅ done — LinkedIn connected, verified live |
+| 16 | Parrot — Plan LinkedIn Posts, Titto natural-language LinkedIn drafting | ✅ done |
+| 17 | No-personal-angle rule for Parrot/Heron content + Parrot Telegram auto-post clarity | ✅ done |
 
 ---
 
@@ -986,6 +1001,188 @@ LLM call), `scheduler/heronDrop.js` (`runHeronDrop()` rewritten).
 
 No commit/push (standing rule). No test-data left in the real queue/store beyond what earlier
 verification passes already created (Phase 13's real article + drafts remain, unaffected by this pass).
+
+---
+
+## Phase 15 — Parrot · LinkedIn: fully automated posting ✅ DONE — LinkedIn connected, verified live (2026-08-01 → 2026-08-07)
+The first and only agent in TinySparrow that actually posts automatically. Everything else in this app
+(X/Koel/Quill, Substack/Heron) is draft-only by design — this is a deliberate, explicit, confirmed
+exception, not a scope creep. See the updated hard-stop note at the top of this document.
+
+**Why this is different, and how the exception was reached**: TinySparrow's standing rule is draft-only on
+every platform — reinforced as recently as Phase 8, where a technically-possible Substack auto-publish
+path was researched and then deliberately parked specifically to preserve this rule. When Souvik asked for
+LinkedIn to auto-post on Approve, I flagged the direct conflict before writing any plan, rather than
+assuming it was fine because it was the newest ask. His answer: **"Yes, override it for LinkedIn"** —
+explicit, informed, scoped to LinkedIn only. X and Substack are completely unaffected.
+
+**Feasibility, researched (not assumed)**: personal-profile LinkedIn posting (`w_member_social` scope, the
+free/self-serve "Share on LinkedIn" product) does **not** require LinkedIn partner/company approval —
+that's only needed for the Community Management API (organization pages), which isn't what's needed here.
+**One real constraint that shapes the design**: standard apps get no refresh token — access tokens expire
+after 60 days flat and renewing requires Souvik to re-authorize via LinkedIn's browser consent screen
+again (silent permanent auto-refresh is a paid-partner-tier-only feature). Designed around directly: a
+daily expiry check + a one-click re-auth URL + a Telegram warning before it silently breaks, not hidden or
+ignored.
+
+**Confirmed via clarifying questions before building:**
+- Post volume/safety: **no cap** — every approved draft posts to LinkedIn immediately, no daily throttle.
+  Generation itself defaults to 1 topic/day (adjustable), which naturally limits day-to-day exposure even
+  with no post-side cap.
+- Content: **career/professional growth + AI/tech commentary + building-in-public (SaaS journey)** — a
+  more professional/thought-leadership tone than X's punchy style, personal story (transplant/medals) used
+  sparingly, same restraint Heron's articles already use.
+
+**Design (mirrors Heron's Phase 8b/8c patterns throughout — dedicated bot, own scheduler toggle, own
+idempotency stamp):**
+- `utils/linkedinAuth.js` (new) — OAuth URL builder, code exchange, token storage (`state/data/
+  parrotAuth.json`, not `.env` — this one needs programmatic read/write on re-auth), expiry check with a
+  warning margin.
+- `utils/linkedinClient.js` (new) — `postToLinkedIn()` against LinkedIn's Posts API. Exact request schema
+  confirmed against LinkedIn's live docs at build time (research flagged the older UGC Posts API is being
+  migrated to a newer Posts API — a build-time detail, not guessed in the plan). No edit-post endpoint
+  exists on LinkedIn's side (confirmed) — a posted draft can only be deleted and reposted, not corrected.
+- `agents/parrot.js` (new) — `assignDailyTopics()` (mirrors `heron.assignDailyTopics()`),
+  `writePost()` (mirrors `writeNote()`/`writeMidPost()`, reuses `listPillars()` — same content niche, just
+  a different platform tone, no new pillars file), `postApprovedDraft()` — the one shared Approve-time
+  hook called from both the dedicated Telegram bot and the web Queue's Approve button, so posting logic
+  isn't duplicated between the two paths.
+- `prompts/koelWrite.js` — new `linkedin` format: short paragraphs, professional tone, ~150-300 words, a
+  few hashtags at the end **is** appropriate here (unlike X's no-hashtag house rule elsewhere in this
+  file) — reuses all of Koel's existing voice/context/retry/sanitize machinery for free.
+- `server/routes/parrotTelegram.js` (new) — structural near-copy of `heronTelegram.js` (own token/chat-id,
+  own polling boot, same `d|a/d|r/d|rr/d|c/d|e/d|b` callback codes). Its Approve branch is the genuinely
+  new piece: calls `parrot.postApprovedDraft()`, edits the Telegram message to `✅ Posted to LinkedIn ↗
+  <url>` on success or a clear `⚠️ Approved, but LinkedIn post failed: <reason>` on failure (draft stays
+  in the queue, nothing silently lost).
+- Scheduling mirrors **Quill's** directly-editable-time pattern (not Heron's derived-offset pattern, per
+  "auto-scheduling like Quill"): `state/schedulerStore.js` gains `parrotEnabled` (default off, opt-in),
+  `parrotLastRun`, and `linkedinDrop` as its own editable `DEFAULT_TIMES` entry. New `scheduler/
+  parrotDrop.js` mirrors `heronDrop.js`'s shape exactly (reuses `ensureTodaysResearch()`, same
+  `maybeCatchUp()` idempotency pattern).
+- `web/src/pages/ParrotPage.jsx` (new, replaces the placeholder) — near-copy of Heron's Notes-section
+  shape, plus a LinkedIn-connection status card (connected / needs re-auth, with the one-click re-auth
+  link) — the one genuinely new UI element, since no other agent has a credential-expiry concern.
+
+**Status: code-complete, built and verified everything short of a real LinkedIn post.** Every file listed
+above is written and wired. Verified live on scratch ports (all Telegram/LinkedIn credentials unset —
+confirmed clean no-op boot for all three bots), `npm run build:web` clean, and one real end-to-end test of
+the trickiest part — the approve→post flow's failure handling: generated a real LinkedIn draft via
+`POST /api/parrot/write`, called `POST /api/draft/:id/transition {state:'queued'}` with no LinkedIn
+connected, confirmed it failed with a clear `"LinkedIn isn't connected yet..."` message *and* the draft
+stayed in the normal `generated`-state queue (not silently lost, not stuck in limbo) — meaning the exact
+same Approve button/tap works as retry once LinkedIn is actually connected, no separate recovery flow
+needed. (This required a mid-build design fix: the original design transitioned to `'queued'` *before*
+attempting the post, which would have made a failed post vanish from the default Queue view with no way
+back — reordered to post first, transition only on success.)
+
+**One real design decision made during the build, not asked about beforehand — flagging it explicitly**:
+on a successful post, the draft is transitioned through `'queued'` then immediately `'posted'` (both
+together, atomically) rather than skipping straight to `'posted'`, specifically so Parrot drafts still
+feed the learning loop (`approvedDrafts` → Koel's "what's working" context) exactly like every other
+approved draft in this app. Worth knowing since it's a judgment call, not something explicitly specified.
+
+**Update (2026-08-07) — fully connected and verified live**: Souvik created the LinkedIn Developer App
+and Parrot's dedicated Telegram bot (`@TS_Parrot_lnkdln_bot`), added the credentials to `.env`, restarted
+the server, and completed the OAuth consent flow. Confirmed live: `GET /api/parrot/status` returns
+`{connected:true, valid:true, daysLeft:60}`, connected identity is "CONNECT SARKAR" (Souvik's real
+LinkedIn profile), token valid until 2026-10-06. The Parrot Telegram bot is polling cleanly with no
+conflicts against the main/Heron bots (confirmed via `getMe` + boot-log check). **No real post has been
+triggered yet** — per the standing design, that first post stays a deliberate, watched moment, not
+something run automatically the instant the connection was confirmed. "Parrot auto-runs" remains OFF in
+Schedules (opt-in), so nothing posts on a schedule until Souvik flips it on.
+
+**Memory note**: the cross-session memory `tinysparrow-hard-stop.md` was updated alongside this entry to
+record the LinkedIn carve-out precisely, so a future session doesn't misapply the old blanket rule to
+block this work, while keeping the X/Substack guarantee unchanged and clearly stated.
+
+---
+
+## Phase 16 — Parrot: Plan LinkedIn Posts + Titto natural-language LinkedIn drafting ✅ DONE (2026-08-07)
+Follow-up ask after LinkedIn was connected: give Parrot the same "fresh search + plan" flow Quill has
+(scoped to LinkedIn), and let Titto draft-and-hand-off a LinkedIn post from plain chat ("post to
+linkedin: ..."), with Approve as the confirmation step. Also asked for LinkedIn trending-topic/post
+search — **researched and found genuinely infeasible officially**: LinkedIn's API has no trending-topics
+or feed-search capability at any access tier, including paid partner tiers (confirmed via LinkedIn's own
+2026 docs, not assumed). The only path to real LinkedIn-native trending data is an unofficial RapidAPI-
+style scraper (same pattern already used for X data in this app, but LinkedIn's terms discourage it more
+explicitly) — **asked directly, Souvik chose not to add one**, so "search trending" reuses the same
+cross-platform Raven research already powering Quill/Heron, reframed for LinkedIn angles.
+
+**Also confirmed via a clarifying question**: Titto's new "post to LinkedIn" chat flow hands off to
+Parrot's dedicated bot for the actual Approve/post step, rather than letting the main bot post directly —
+keeps real-posting capability isolated to one channel, matching Phase 15's original design intent.
+
+**Built (mirrors Quill's `planSuggestions()`/`draftFromSuggestion()` almost exactly — `agents/quill.js`):**
+- `state/parrotSessionsStore.js` (new) — near-copy of `quillSessionsStore.js`, tracks plan sessions +
+  drafts for the "Previous plans" history view.
+- `prompts/parrotPlan.js` (new) — suggestion-matching prompt using Parrot's fixed 3 categories (career /
+  ai / building-in-public) instead of Quill's content pillars.
+- `agents/parrot.js` — new `planSuggestions({forceFresh})` (same fresh-vs-4h-stale-cache decision as
+  Quill's) and `draftFromSuggestion()` (writes a real, approvable `linkedin`-format draft and — unlike
+  Quill's version, which is copy-only — also delivers it to Parrot's Telegram bot, since Parrot's whole
+  design is generate→Approve→real-post). `writePost()` gained an optional `extraInstructions` param
+  (merged with the existing pillar note) so Titto can pass tone/angle notes through.
+- `server/routes/api.js` — `POST /api/parrot/plan`, `POST /api/parrot/draft`, `GET /api/parrot/sessions[/:id]`.
+- `web/src/pages/ParrotPage.jsx` — new Plan/Write tab toggle; the Plan tab has the "Fresh search"
+  checkbox + suggestion groups by category + "Previous plans" history, same visual pattern as Quill's page.
+- `prompts/tittoReason.js` — new `write_linkedin_post` intent (triggers only when "linkedin"/"Parrot" is
+  explicitly named, so it doesn't steal professional-sounding X requests from `write_post`).
+- `agents/titto.js` — new intent branch calling `parrot.writePost()` with `telegramSendParrotDraft`; no
+  interview-first step (the delivered Approve/Reject/Edit card *is* the confirmation). `handleMessage()`
+  gained a `telegramSendParrotDraft` param, threaded from both `server/routes/telegram.js` (read lazily
+  off `app.locals` since `parrotTelegram.js` initializes after `telegram.js`) and `server/routes/api.js`'s
+  `POST /api/chat`.
+
+**Verification — real live tests, not just syntax checks**: `npm run build:web` clean; real
+`POST /api/parrot/plan` call produced genuine category-spanning suggestions (2 career, 3 ai, 2
+building-in-public); real `POST /api/parrot/draft` on one suggestion produced a real LinkedIn-voice draft
+and correctly appended it to the session (`GET /api/parrot/sessions/:id` confirmed `drafts.length: 1`);
+real Titto chat test (`"post to linkedin: why building constraints force better product decisions"`)
+correctly classified as `write_linkedin_post`, generated a real draft in the background, registered it in
+the queue, and replied confirming the hand-off without claiming to post anything itself. All three test
+drafts were delivered to the real Parrot Telegram channel with working buttons — left in place rather than
+deleted, since removing the underlying draft records would break the already-delivered Telegram buttons.
+
+---
+
+## Phase 17 — No-personal-angle rule for Parrot/Heron + Parrot Telegram auto-post clarity ✅ DONE (2026-08-07)
+Two pieces of direct feedback after seeing real Parrot/Heron output.
+
+**1. Stop injecting Souvik's personal angle/story into Parrot and Heron content.** Both agents had a
+category explicitly built around Souvik's own narrative — Heron's "achievement" (transplant comeback,
+medals) and Parrot's "building-in-public" (his SaaS journey) — plus the `linkedin` format guide
+explicitly *invited* personal-story grounding ("if the topic is personal... ground it in a real detail").
+All reframed to be topical/observational instead of autobiographical:
+- `prompts/koelWrite.js` — `note`, `heronMid`, and `linkedin` format guides all gained an explicit
+  no-personal-angle rule (mirrors the rule `punch` already had: no "in my experience"/"when I..." framing
+  unless the format itself calls for it — `motivational`, X-only, was deliberately left untouched since
+  personal story is the literal point of that format).
+- `agents/heron.js`'s `assignDailyTopics()` — "achievement" category redefined as the psychology/practice
+  of achievement and recognition in general, not Souvik's own story.
+- `agents/parrot.js`'s `assignDailyTopics()` and `prompts/parrotPlan.js` — "building-in-public" category
+  redefined as the practice of building in public as a topic, not Souvik's own story.
+- **Verified live**: a real Parrot draft on "why building in public is harder than it looks" came back as
+  a direct, observational take with zero first-person narrative — confirmed no "I"/"my journey" framing.
+  A real Heron Note on "why achievement is often measured wrong" came back as a general observation, same
+  result.
+
+**2. Parrot's Telegram messages didn't make the auto-post behavior obvious.** The draft card looked
+identical to every other bot's ("✅ Approve" — files a draft, nothing more everywhere else), with nothing
+in the message clarifying that tapping Approve here actually posts to LinkedIn immediately. Fixed in
+`server/routes/parrotTelegram.js`:
+- New `parrotActionKeyboard()` (local to this file, not the shared `telegramCore.actionKeyboard()` every
+  other bot uses) — the Approve button now reads **"✅ Approve & Post to LinkedIn"**.
+- The draft message itself now says **"⚡ Approve posts this to LinkedIn immediately — no further step"**
+  right in the header line.
+- Real bug caught during implementation: the auto-post note couldn't just go on its own line above the
+  blank-line separator — `telegramCore.stripHeader()` (used to strip the header back off before showing
+  "✅ Posted"/"❌ Rejected"/etc.) only matches up to the *first* `\n\n`, so a two-line header would have
+  left half of it stuck in every subsequent message. Fixed by keeping it a single line (`📝 Draft
+  (linkedin) — ⚡ Approve posts this to LinkedIn immediately`), verified against the actual regex before
+  shipping, then confirmed live with a real draft sent through the live bot.
+
+No commit/push (standing rule).
 
 ---
 

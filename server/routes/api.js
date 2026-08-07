@@ -12,7 +12,7 @@ const { readHistory: readKoelHistory } = require('../../state/koelStore')
 const { readLatest: readQuillLatest, readHistory: readQuillHistory } = require('../../state/quillStore')
 const { listPillars, setPillars } = require('../../state/quillPillarsStore')
 const quillSessions = require('../../state/quillSessionsStore')
-const { getStatus: getSchedulerStatus, setEnabled: setSchedulerEnabled, setHeronEnabled, setTimes: setSchedulerTimes } = require('../../state/schedulerStore')
+const { getStatus: getSchedulerStatus, setEnabled: setSchedulerEnabled, setHeronEnabled, setParrotEnabled, setTimes: setSchedulerTimes } = require('../../state/schedulerStore')
 const replyDomainsStore = require('../../state/replyDomainsStore')
 const { readLatest: readRepliesLatest } = require('../../state/replyTargetsStore')
 const activityStore = require('../../state/activityStore')
@@ -20,6 +20,9 @@ const articleWriter = require('../../agents/articleWriter')
 const articlesStore = require('../../state/articlesStore')
 const heron = require('../../agents/heron')
 const heronTopicsStore = require('../../state/heronTopicsStore')
+const parrot = require('../../agents/parrot')
+const parrotSessions = require('../../state/parrotSessionsStore')
+const linkedinAuth = require('../../utils/linkedinAuth')
 const analyst = require('../../agents/analyst')
 const costStore = require('../../state/costStore')
 const modelsConfig = require('../../config/models')
@@ -27,6 +30,7 @@ const memory = require('../../state/memory')
 const { ensureProfile } = require('../../state/profileSeed')
 const dailyDrop = require('../../scheduler/dailyDrop')
 const heronDrop = require('../../scheduler/heronDrop')
+const parrotDrop = require('../../scheduler/parrotDrop')
 const cron = require('../../scheduler/cron')
 
 // GET /api/research/latest
@@ -77,9 +81,9 @@ router.post('/research/trigger', async (req, res) => {
 router.post('/chat', async (req, res) => {
   const { message, sessionId = 'web-default' } = req.body
   if (!message) return res.status(400).json({ error: 'message required' })
-  const { broadcast, telegramSend, telegramSendDraft, telegramSendReplyTargets, telegramSendArticleIdeas } = req.app.locals
+  const { broadcast, telegramSend, telegramSendDraft, telegramSendReplyTargets, telegramSendArticleIdeas, telegramSendParrotDraft } = req.app.locals
   try {
-    const result = await titto.handleMessage({ text: message, sessionId, source: 'web', broadcast, telegramSend, telegramSendDraft, telegramSendReplyTargets, telegramSendArticleIdeas })
+    const result = await titto.handleMessage({ text: message, sessionId, source: 'web', broadcast, telegramSend, telegramSendDraft, telegramSendReplyTargets, telegramSendArticleIdeas, telegramSendParrotDraft })
     res.json({ reply: result.reply, action: result.action, data: result.data || null })
   } catch (err) {
     logger.error('[API] Chat error', err)
@@ -381,6 +385,96 @@ router.post('/heron/note/write', async (req, res) => {
   }
 })
 
+// ── Parrot (LinkedIn) — OAuth + on-demand write. The only agent in this app with a real posting
+// path: Approve (Telegram or the web Queue) calls parrot.postApprovedDraft(), which actually posts. ──
+
+// GET /api/parrot/status → connection status for the dashboard's status card. Never throws.
+router.get('/parrot/status', (req, res) => {
+  res.json(linkedinAuth.tokenStatus({ warnDays: 7 }))
+})
+
+// GET /api/parrot/oauth/start → redirect into LinkedIn's consent screen. Visit this once to connect
+// (or reconnect every ~60 days — standard LinkedIn apps get no refresh token, see utils/linkedinAuth.js).
+router.get('/parrot/oauth/start', (req, res) => {
+  try {
+    res.redirect(linkedinAuth.getAuthUrl())
+  } catch (err) {
+    res.status(500).send(`LinkedIn isn't configured yet: ${err.message}. Set LINKEDIN_CLIENT_ID/LINKEDIN_CLIENT_SECRET in .env first.`)
+  }
+})
+
+// GET /api/parrot/oauth/callback — LinkedIn redirects here with ?code=... after consent.
+router.get('/parrot/oauth/callback', async (req, res) => {
+  const { code, error, error_description: errorDescription, state } = req.query
+  if (error) return res.status(400).send(`LinkedIn declined: ${errorDescription || error}`)
+  if (!code) return res.status(400).send('Missing ?code from LinkedIn')
+  if (!linkedinAuth.verifyState(state)) return res.status(400).send('State mismatch — start the connection again from /api/parrot/oauth/start')
+  try {
+    const record = await linkedinAuth.exchangeCode(code)
+    res.send(`<h2>✅ LinkedIn connected</h2><p>Connected as ${record.name || record.personUrn}. You can close this tab.</p>`)
+  } catch (err) {
+    logger.error('[API] LinkedIn OAuth callback failed', err)
+    res.status(500).send(`LinkedIn connection failed: ${err.message}`)
+  }
+})
+
+// POST /api/parrot/write  body: { topic, count? } → on-demand LinkedIn draft(s), sent to Parrot's bot
+router.post('/parrot/write', async (req, res) => {
+  const { topic, count = 1 } = req.body || {}
+  if (!topic?.trim()) return res.status(400).json({ error: 'topic required' })
+  const { broadcast, telegramSendParrotDraft: telegramSendDraft } = req.app.locals
+  const account = memory.accounts.getActiveAccount()
+  try {
+    const result = await parrot.writePost({ topic, count, account, broadcast, telegramSendDraft, triggerLabel: '🖱 Parrot' })
+    res.json(result)
+  } catch (err) {
+    logger.error('[API] Parrot write failed', err)
+    res.status(500).json({ error: 'Parrot hit an error: ' + err.message })
+  }
+})
+
+// POST /api/parrot/plan  body: { forceFresh?, triggerLabel? } — same shape as /quill/plan. "Fresh
+// search" here reuses Raven's existing cross-platform research (LinkedIn's own API has no trending/feed
+// endpoint at any tier) reframed into career/ai/building-in-public suggestions.
+router.post('/parrot/plan', async (req, res) => {
+  const { forceFresh = false, triggerLabel } = req.body || {}
+  const { broadcast } = req.app.locals
+  try {
+    const result = await parrot.planSuggestions({ broadcast, forceFresh: !!forceFresh, triggerLabel })
+    res.json(result)
+  } catch (err) {
+    logger.error('[API] Parrot plan failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/parrot/draft  body: { suggestion, sessionId? } → registers a real, approvable LinkedIn
+// draft and sends it to Parrot's Telegram bot, same as /parrot/write.
+router.post('/parrot/draft', async (req, res) => {
+  const { suggestion, sessionId } = req.body || {}
+  if (!suggestion?.title) return res.status(400).json({ error: 'suggestion with title required' })
+  const { broadcast, telegramSendParrotDraft: telegramSendDraft } = req.app.locals
+  try {
+    const result = await parrot.draftFromSuggestion({ suggestion, broadcast, sessionId, telegramSendDraft })
+    res.json(result)
+  } catch (err) {
+    logger.error('[API] Parrot draft failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/parrot/sessions  → list all plan sessions (newest first)
+router.get('/parrot/sessions', (req, res) => {
+  res.json({ sessions: parrotSessions.listSessions() })
+})
+
+// GET /api/parrot/sessions/:id  → single session
+router.get('/parrot/sessions/:id', (req, res) => {
+  const s = parrotSessions.readSession(req.params.id)
+  if (!s) return res.status(404).json({ error: 'session not found' })
+  res.json(s)
+})
+
 // ── Activity feed (Titto control tower) ───────────────────────────────────────
 
 // GET /api/activity?limit=100  → newest-first log of every agent run
@@ -459,6 +553,7 @@ function getDailySlotMinutes() {
     raven: [hhmmToLabel(t.morningResearch)],
     'quill-x': [hhmmToLabel(t.dailyDrop)],
     heron: [minutesToLabel(heronDrop.getHeronIstMin())],
+    parrot: [hhmmToLabel(t.linkedinDrop)],
   }
 }
 
@@ -525,8 +620,17 @@ router.get('/agents', (req, res) => {
     nextRun: 'Sun 6:00 AM',
   }
 
-  // Not built yet (v2) — always present so the Control Center can show it, never with fake data.
-  const parrot = { id: 'parrot', name: 'Parrot', role: 'manager · LinkedIn', kind: 'platform', platform: 'linkedin', status: 'not-built', summary: 'No trend source connected yet.' }
+  const parrotActivity = latestActivity(['parrot'])
+  const linkedinStatus = linkedinAuth.tokenStatus()
+  const parrotCard = {
+    id: 'parrot', name: 'Parrot', role: 'manager · LinkedIn', kind: 'platform', platform: 'linkedin',
+    status: linkedinStatus.connected ? 'idle' : 'not-connected',
+    lastRun: parrotActivity?.ts || null,
+    summary: !linkedinStatus.connected
+      ? 'LinkedIn not connected — visit /api/parrot/oauth/start'
+      : (parrotActivity?.summary || 'No runs yet'),
+    nextRun: getSchedulerStatus().parrotEnabled ? nextDailyLabel('parrot') : null,
+  }
 
   const heronArticles = articlesStore.list(50).filter(a => a.platform === 'substack')
   const heronActivity = latestActivity(['heron'])
@@ -541,7 +645,7 @@ router.get('/agents', (req, res) => {
     nextRun: getSchedulerStatus().heronEnabled ? nextDailyLabel('heron') : null,
   }
 
-  res.json({ agents: [raven, quillX, parrot, heronCard, koel, article, analystCard] })
+  res.json({ agents: [raven, quillX, parrotCard, heronCard, koel, article, analystCard] })
 })
 
 // ── Scheduler control ─────────────────────────────────────────────────────────
@@ -556,17 +660,18 @@ function getScheduleSlots() {
     { id: 'morning-research', time: hhmmToLabel(t.morningResearch).label, what: 'Research + briefing', agent: 'raven', editable: true, hhmm: t.morningResearch },
     { id: 'daily-drop', time: hhmmToLabel(t.dailyDrop).label, what: 'Daily drop', agent: 'quill-x', editable: true, hhmm: t.dailyDrop },
     { id: 'heron-drop', time: minutesToLabel(heronDrop.getHeronIstMin()).label, what: 'Heron drop — article + Notes (10 min after the daily drop)', agent: 'heron', editable: false },
+    { id: 'linkedin-drop', time: hhmmToLabel(t.linkedinDrop).label, what: 'Parrot drop — LinkedIn post draft (Approve posts it immediately)', agent: 'parrot', editable: true, hhmm: t.linkedinDrop },
     { id: 'evening-research', time: 'Manual only', what: 'Fresh research — deactivated; use /research or the dashboard', agent: 'raven', editable: false },
     { id: 'weekly-wrap', time: 'Manual only', what: 'Weekly wrap + perf nudge — deactivated; use the Quill page', agent: 'quill-x', editable: false },
   ]
 }
 
-// GET /api/scheduler  →  { enabled: bool, heronEnabled: bool, times: {...}, updatedAt?, slots: [...] }
+// GET /api/scheduler  →  { enabled: bool, heronEnabled: bool, parrotEnabled: bool, times: {...}, updatedAt?, slots: [...] }
 router.get('/scheduler', (req, res) => {
   res.json({ ...getSchedulerStatus(), slots: getScheduleSlots() })
 })
 
-// PUT /api/scheduler  body: { enabled?, heronEnabled?, times?: { morningResearch?, dailyDrop?, eveningResearch? } }
+// PUT /api/scheduler  body: { enabled?, heronEnabled?, parrotEnabled?, times?: { morningResearch?, dailyDrop?, linkedinDrop? } }
 // Any subset — each field is independent. `times` values are "HH:mm" 24h IST; a change re-arms the
 // live cron jobs immediately, no server restart needed.
 router.put('/scheduler', (req, res) => {
@@ -580,6 +685,11 @@ router.put('/scheduler', (req, res) => {
       const heronEnabled = !!req.body.heronEnabled
       setHeronEnabled(heronEnabled)
       logger.info(`[API] Heron auto-runs ${heronEnabled ? 'ENABLED' : 'DISABLED'} by user`)
+    }
+    if (req.body?.parrotEnabled !== undefined) {
+      const parrotEnabled = !!req.body.parrotEnabled
+      setParrotEnabled(parrotEnabled)
+      logger.info(`[API] Parrot auto-runs ${parrotEnabled ? 'ENABLED' : 'DISABLED'} by user`)
     }
     if (req.body?.times && typeof req.body.times === 'object') {
       const updated = setSchedulerTimes(req.body.times)
@@ -784,9 +894,26 @@ router.post('/draft/:id/transition', async (req, res) => {
   const { state, reason, editedText, performance } = req.body || {}
   if (!memory.STATES.includes(state)) return res.status(400).json({ error: `state must be one of ${memory.STATES.join(', ')}` })
   const account = memory.accounts.getActiveAccount()
+
+  // Approving a LinkedIn draft REALLY posts it — same real action as tapping Approve on Parrot's
+  // Telegram bot, just triggered from the web Queue. Intercepted BEFORE the generic transition below:
+  // postApprovedDraft posts first and only transitions state on success, so a failed post leaves the
+  // draft untouched (still 'generated') — it stays visible in the normal Queue and this same Approve
+  // button works as retry, no separate recovery path needed.
+  if (state === 'queued') {
+    const draft = memory.getDraft(account, req.params.id)
+    if (!draft) return res.status(404).json({ error: 'draft not found' })
+    if (draft.platform === 'linkedin') {
+      if (editedText) memory.transition(account, req.params.id, 'edited', { editedText })
+      const toPost = editedText ? memory.getDraft(account, req.params.id) : draft
+      const result = await parrot.postApprovedDraft(toPost)
+      const final = result.ok ? memory.getDraft(account, req.params.id) : toPost
+      return res.json({ account, draft: final, linkedin: result })
+    }
+  }
+
   const updated = memory.transition(account, req.params.id, state, { reason, editedText, performance })
   if (!updated) return res.status(404).json({ error: 'draft not found' })
-  res.json({ account, draft: updated })
   // Approving a Substack draft from the web Queue page hands it off to Telegram too — same moment
   // as tapping Approve there, just triggered from the other client.
   if (state === 'queued' && updated.platform === 'substack') {
@@ -794,7 +921,9 @@ router.post('/draft/:id/transition', async (req, res) => {
     if (telegramSendHeronHandoff) {
       try { await telegramSendHeronHandoff(updated) } catch (err) { logger.error('[API] Heron hand-off failed', err) }
     }
+    return res.json({ account, draft: updated })
   }
+  res.json({ account, draft: updated })
 })
 
 // GET /api/memory → summary of what the loop has learned (for the dashboard)

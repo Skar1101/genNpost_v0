@@ -6,6 +6,7 @@ const ws = require('./websocket')
 const apiRouter = require('./routes/api')
 const telegram = require('./routes/telegram')
 const heronTelegram = require('./routes/heronTelegram')
+const parrotTelegram = require('./routes/parrotTelegram')
 const { initScheduler } = require('../scheduler/cron')
 
 const app = express()
@@ -62,8 +63,15 @@ const telegramSendHeronHandoff = telegram.getHeronHandoffSender() || (heronTeleg
 app.locals.telegramSendHeronDraft = telegramSendHeronDraft
 app.locals.telegramSendHeronHandoff = telegramSendHeronHandoff
 
+// Init Telegram (Parrot — LinkedIn). Always a fully separate, dedicated bot (no same-bot fallback
+// mode like Heron's — this is the one bot where Approve triggers a real platform post, so it stays
+// on its own dedicated channel by design). No-ops cleanly if PARROT_TELEGRAM_BOT_TOKEN is unset.
+const parrotTelegramResult = parrotTelegram.init(app)
+const telegramSendParrotDraft = parrotTelegramResult ? parrotTelegram.getParrotDraftSender() : null
+app.locals.telegramSendParrotDraft = telegramSendParrotDraft
+
 // Init scheduler
-initScheduler(ws.broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft)
+initScheduler(ws.broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft, telegramSendParrotDraft)
 
 // Catch-all → serve the React app's index.html (no-store so a new build is always picked up)
 app.get('*', (req, res) => {

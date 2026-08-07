@@ -3,6 +3,7 @@ const OpenAI = require('openai')
 const raven = require('./raven')
 const koel = require('./koel')
 const quill = require('./quill')
+const parrot = require('./parrot')
 const analyst = require('./analyst')
 const toolsAgent = require('./toolsAgent')
 const { readLatest, findLatestRunBySource } = require('../state/researchStore')
@@ -607,7 +608,7 @@ function launchWrite({ format, input, inputType, count = 3, extraInstructions = 
     })
 }
 
-async function handleMessage({ text, sessionId = 'default', broadcast = null, telegramSend = null, telegramSendDraft = null, telegramSendReplyTargets = null, telegramSendArticleIdeas = null }) {
+async function handleMessage({ text, sessionId = 'default', broadcast = null, telegramSend = null, telegramSendDraft = null, telegramSendReplyTargets = null, telegramSendArticleIdeas = null, telegramSendParrotDraft = null }) {
   const input = text.trim()
 
   // Interview-first: if we asked a clarifying question and are waiting on this session, this message
@@ -855,6 +856,30 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
     const confirmReply = parsed.reply + `\n\nAsking Koel to write a ${fmt} post now…`
     launchWrite({ format: fmt, input: req.input, inputType: req.inputType, count: req.count || 3, extraInstructions: req.extraInstructions || '', broadcast, telegramSendDraft })
     return { reply: confirmReply, action: 'koel_writing' }
+  }
+
+  // ── write_linkedin_post — drafts via Parrot and hands off to Parrot's OWN Telegram bot for the
+  // actual Approve/post step. Titto never posts directly — approving there is the confirmation, and
+  // it posts to LinkedIn immediately. No interview-first step here (unlike write_post): the draft
+  // card itself, with Approve/Reject/Edit, IS the confirmation. ─────────────────────────────────
+  if (parsed.intent === 'write_linkedin_post' && parsed.linkedinRequest) {
+    const req = parsed.linkedinRequest
+    if (!req.topic?.trim()) {
+      return { reply: "What should the LinkedIn post be about?", action: null }
+    }
+    appendMessage(sessionId, 'user', input)
+    const reply = telegramSendParrotDraft
+      ? (parsed.reply + `\n\nDrafting it now — sent to your Parrot channel. Tap Approve there and it posts to LinkedIn immediately.`)
+      : (parsed.reply + `\n\nDrafting it now — but Parrot's Telegram bot isn't configured yet, so check the web Queue to approve it (approving there posts to LinkedIn too).`)
+    appendMessage(sessionId, 'assistant', reply)
+    parrot.writePost({
+      topic: req.topic, count: 1, extraInstructions: req.extraInstructions || '',
+      broadcast, telegramSendDraft: telegramSendParrotDraft, triggerLabel: '💬 Titto',
+    }).catch(err => {
+      console.error('[Titto] Parrot write failed:', err.message)
+      if (broadcast) broadcast({ type: 'chat_reply', data: { role: 'titto', content: 'Parrot hit an error writing that LinkedIn post. Try again.' } })
+    })
+    return { reply, action: 'parrot_writing' }
   }
 
   // ── write_from_list (write posts based on last research results) ─

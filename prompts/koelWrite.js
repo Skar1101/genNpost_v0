@@ -48,6 +48,9 @@ const FORMAT_META = {
   // doesn't compete with the 'short' format's own 280-char cap (they were conflicting when reposts
   // reused 'short' + an extraInstructions override alone).
   repost:      { label: 'Quote-Repost',       desc: 'Neutral highlight of the quoted post, 400-700 chars — reposts only' },
+  // Parrot (LinkedIn) only — different platform, different register: professional/thought-leadership,
+  // not X's punchy one-liner style. Short hashtag use is appropriate here (unlike everywhere else).
+  linkedin:    { label: 'LinkedIn Post',      desc: 'Professional/thought-leadership, ~150-300 words — Parrot only' },
 }
 
 // ── Build the system prompt from cached knowledge ────────────────────────────
@@ -179,9 +182,10 @@ function buildKoelUserPrompt({ format, input, inputType, count = 3, extraInstruc
   } else if (format === 'engagement') {
     formatGuide = `Write ${count} ENGAGEMENT FARMING posts. Each has: hook → what you're giving away → 3 bullet benefits → CTA with a keyword (must be following). Make the keyword relevant and punchy.`
   } else if (format === 'note') {
+    const noteNoAngle = `Do NOT frame this through Souvik's personal journey or story ("in my experience...", "when I..."). Write it as a direct observation or point about the topic itself — no personal angle.`
     formatGuide = count === 1
-      ? `Write ONE Substack Note — 1-2 short lines, punchy, a single sharp point tied to Souvik's niche/pillars. No hashtags, no thread numbering. Aim under ~400 characters — this is a quick aside, not a mini-essay.`
-      : `Write ${count} Substack Notes — 1-2 short lines each, punchy, a single sharp point tied to Souvik's niche/pillars. No hashtags, no thread numbering. Aim under ~400 characters each. The ${count} drafts must each take a DISTINCT angle.`
+      ? `Write ONE Substack Note — 1-2 short lines, punchy, a single sharp point tied to Souvik's niche/pillars. No hashtags, no thread numbering. Aim under ~400 characters — this is a quick aside, not a mini-essay. ${noteNoAngle}`
+      : `Write ${count} Substack Notes — 1-2 short lines each, punchy, a single sharp point tied to Souvik's niche/pillars. No hashtags, no thread numbering. Aim under ~400 characters each. The ${count} drafts must each take a DISTINCT angle. ${noteNoAngle}`
   } else if (format === 'punch') {
     const rules = `Rules:
 - 1 line, MAX 2. If it needs a 3rd line, it's not tight enough — cut it.
@@ -204,6 +208,8 @@ function buildKoelUserPrompt({ format, input, inputType, count = 3, extraInstruc
 - Target 80-120 words — one short paragraph, occasionally two. More room than a Note to develop a
   single thought with a concrete detail or example, but this is NOT a mini-article — one idea, not several.
 - Open with a real hook (a claim, a number, a specific moment) — no throat-clearing or setup.
+- Do NOT frame this through Souvik's personal journey or story ("in my experience...", "when I...").
+  Write it as a direct observation, insight, or point about the topic itself — no personal angle.
 - Land on one clear takeaway by the end. Don't trail off or leave it open-ended.
 - No hashtags, no thread numbering, no subheaders.
 - No em dashes, no filler, no AI-slop phrasing (see HOUSE STYLE above).`
@@ -215,6 +221,25 @@ function buildKoelUserPrompt({ format, input, inputType, count = 3, extraInstruc
 enough to properly convey the quoted post's substance, not a short reaction. Present the post's own
 idea clearly and engagingly, and why it's worth a read — this is a highlight/curation, NOT personal
 opinion. No first-person opinion language ("I think", "in my experience"). No hashtags, no em dashes.`
+  } else if (format === 'linkedin') {
+    const liRules = `Rules:
+- ~150-300 words. Short paragraphs — 1-3 sentences each, blank line between them (LinkedIn's native
+  reading pattern, not a wall of text).
+- Professional, thought-leadership register — NOT X's punchy one-liner style. One real idea, insight, or
+  observation, developed properly, not a listicle or a string of hot takes.
+- Open with a hook that earns the "see more" click — a specific number, a real moment, a clear stance —
+  but the body should read like someone worth following professionally, not someone farming engagement.
+- Do NOT frame this through Souvik's personal journey or story ("in my experience...", "when I had my
+  transplant...", "building my SaaS taught me..."). Write about the topic/idea directly — an observation,
+  a take, an analysis — not a personal narrative. This applies even to career/building-in-public topics:
+  write about the PRACTICE or IDEA, not Souvik's own story.
+- Close with a genuine takeaway or a real question — not "Thoughts?" or "Agree?" tacked on.
+- 3-5 relevant hashtags at the end is appropriate here (LinkedIn convention — unlike X, where this format
+  guide's siblings ban hashtags). Keep them specific, not generic (#leadership, #motivation).
+- No em dashes, no filler, no AI-slop phrasing (see HOUSE STYLE above).`
+    formatGuide = count === 1
+      ? `Write ONE LinkedIn post. ${liRules}`
+      : `Write ${count} LinkedIn posts, each a DISTINCT angle. ${liRules}`
   }
 
   // Titto's instructions always take highest priority — placed first so the LLM sees them before format defaults

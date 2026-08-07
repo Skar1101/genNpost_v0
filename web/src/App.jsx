@@ -9,14 +9,14 @@ import KoelPage from './pages/KoelPage.jsx'
 import QuillPage from './pages/QuillPage.jsx'
 import ArticleWriterPage from './pages/ArticleWriterPage.jsx'
 import HeronPage from './pages/HeronPage.jsx'
+import ParrotPage from './pages/ParrotPage.jsx'
 import AnalystPage from './pages/AnalystPage.jsx'
 import SchedulesPage from './pages/SchedulesPage.jsx'
 import SettingsPage from './pages/SettingsPage.jsx'
 import PortedPage from './pages/PortedPage.jsx'
 import { portedPages } from './lib/nav.js'
 
-// Agents with a real, built page. Everything else in portedPages still renders
-// the PortedPage placeholder (Parrot/LinkedIn — deferred, intentionally unbuilt).
+// Agents with a real, built page.
 const REAL_PAGES = {
   titto: TittoPage,
   raven: RavenPage,
@@ -24,6 +24,7 @@ const REAL_PAGES = {
   koel: KoelPage,
   article: ArticleWriterPage,
   heron: HeronPage,
+  parrot: ParrotPage,
   analyst: AnalystPage,
   schedules: SchedulesPage,
   settings: SettingsPage,

@@ -30,6 +30,7 @@ function describeOrigin(draft) {
   if (origin === 'heron' && meta.kind === 'article') return 'Heron · article'
   if (origin === 'heron' && meta.kind === 'note') return 'Heron · Note'
   if (origin === 'heron') return 'Heron · direct'
+  if (origin === 'parrot') return 'Parrot · LinkedIn post'
   return 'Koel · direct'
 }
 
@@ -38,13 +39,30 @@ export default function DraftCard({ draft }) {
   const [mode, setMode] = useState('view') // view | reject | edit
   const [editText, setEditText] = useState(draft.editedText || draft.text)
   const [copied, setCopied] = useState(false)
+  const [postError, setPostError] = useState(null)
   const transition = useTransition()
   const navigate = useNavigate()
   const isHeronArticle = draft.origin === 'heron' && draft.meta?.kind === 'article' && draft.meta?.articleId
+  const isLinkedIn = draft.platform === 'linkedin'
 
   const text = draft.editedText || draft.text
 
   function approve() {
+    setPostError(null)
+    if (isLinkedIn) {
+      // Real post, not a draft-lifecycle move — stay 'pending' visually until we know the outcome.
+      // A failure leaves the server-side draft untouched (still 'generated'), so this same button
+      // works as retry.
+      setLocalState('posting')
+      transition.mutate({ id: draft.id, state: 'queued' }, {
+        onSuccess: (data) => {
+          if (data?.linkedin?.ok) setLocalState('posted')
+          else { setLocalState('pending'); setPostError(data?.linkedin?.error || 'LinkedIn post failed') }
+        },
+        onError: (err) => { setLocalState('pending'); setPostError(err.message) },
+      })
+      return
+    }
     setLocalState('queued')
     transition.mutate({ id: draft.id, state: 'queued' })
   }
@@ -95,16 +113,28 @@ export default function DraftCard({ draft }) {
         <div className="draft-body">{text}</div>
       )}
 
+      {postError && (
+        <div className="resolved rejected" style={{ marginBottom: 8 }}>
+          <span>⚠️ {postError} — tap Post to LinkedIn to retry.</span>
+        </div>
+      )}
+
       {localState === 'pending' && mode === 'view' && (
         <div className="draft-actions">
           <button className="act approve" onClick={approve} disabled={transition.isPending}>
-            <CheckIcon /> Approve
+            <CheckIcon /> {isLinkedIn ? 'Post to LinkedIn' : 'Approve'}
           </button>
           <button className="act reject" onClick={() => setMode('reject')} disabled={transition.isPending}>
             <XIcon /> Reject
           </button>
           {!isHeronArticle && <button className="act" onClick={() => setMode('edit')}>Edit</button>}
           <button className="act" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+        </div>
+      )}
+
+      {localState === 'posting' && (
+        <div className="draft-actions">
+          <button className="act" disabled><CheckIcon /> Posting to LinkedIn…</button>
         </div>
       )}
 
@@ -130,12 +160,14 @@ export default function DraftCard({ draft }) {
         </div>
       )}
 
-      {localState !== 'pending' && (
-        <div className={`resolved ${localState}`}>
+      {localState !== 'pending' && localState !== 'posting' && (
+        <div className={`resolved ${localState === 'posted' ? 'queued' : localState}`}>
           <span>
-            {localState === 'queued'
-              ? '✓ Approved — added to your queue'
-              : '✕ Rejected — Koel will avoid this angle'}
+            {localState === 'posted'
+              ? '✓ Posted to LinkedIn'
+              : localState === 'queued'
+                ? '✓ Approved — added to your queue'
+                : '✕ Rejected — Koel will avoid this angle'}
           </span>
         </div>
       )}

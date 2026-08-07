@@ -162,8 +162,8 @@ async function writeMidPost({ topic, count = 1, account = null, broadcast = null
 
 // ── Daily topic assignment — 4 short (Note-length) + 2 mid topics, spanning self-help /
 // achievement / ai-updates. Mirrors quill.js's assignTopics() shape. "achievement" topics are
-// freetext (Souvik's own journey — no research link needed); "ai"/"self-help" prefer real research
-// items when good candidates exist. ─────────────────────────────────────────────────────────────
+// freetext (general observations on success/recognition/milestones — NOT Souvik's own story, no
+// research link needed); "ai"/"self-help" prefer real research items when good candidates exist. ──
 function fallbackDailyTopics(results) {
   const picks = (results || []).slice(0, 6).map(r => r.title).filter(Boolean)
   while (picks.length < 6) picks.push('a sharp, general take worth sharing today')
@@ -194,12 +194,15 @@ Pick 6 topics total for today's Substack drop — 4 SHORT posts (Note-length, 1-
 Rules:
 - Span all three categories across the 6 topics:
   - self-help: discipline, mindset, habits, growth — raw and striking, not soft self-care fluff.
-  - achievement: Souvik's own journey (the transplant comeback, the medals, building in public) — a
-    genuine personal angle, freetext, does NOT need a research source.
+  - achievement: the psychology/practice of achievement, recognition, and milestones in general —
+    freetext, does NOT need a research source. NOT Souvik's own story — a general observation or take
+    on achievement as a topic (what actually drives it, common myths, how it's measured, etc.).
   - ai: AI/tech updates — pull from the research list above when a good candidate exists.
 - Aim for roughly: short = 2 self-help + 1 achievement + 1 ai; mid = 1 self-help-or-achievement + 1 ai.
   Adjust only if the research doesn't support it.
-- Each topic is a short, specific angle (one sentence) — not "write about AI" but the actual idea.`
+- Each topic is a short, specific angle (one sentence) — not "write about AI" but the actual idea.
+- None of these should be framed as Souvik's personal story or journey — every topic should read as a
+  direct observation, insight, or take on the subject itself, not "in my experience..." narrative.`
 
   try {
     const response = await guard.runGuarded(() => getOpenAI().chat.completions.create(

@@ -4,7 +4,8 @@ const titto = require('../agents/titto')
 const analyst = require('../agents/analyst')
 const dailyDrop = require('./dailyDrop')
 const heronDrop = require('./heronDrop')
-const { isEnabled, getLastDrop, isHeronEnabled, getLastHeronRun, getTimes } = require('../state/schedulerStore')
+const parrotDrop = require('./parrotDrop')
+const { isEnabled, getLastDrop, isHeronEnabled, getLastHeronRun, isParrotEnabled, getLastParrotRun, getTimes } = require('../state/schedulerStore')
 
 // IST "HH:mm" -> a UTC node-cron expression ("m h * * *"), correctly rolling the UTC day back one
 // when the IST time falls before 05:30 (i.e. subtracting the 5:30 offset crosses midnight).
@@ -36,12 +37,13 @@ let _ctx = null   // closure args captured at initScheduler() time, reused by re
 function registerDynamicJobs() {
   for (const task of Object.values(dynamicTasks)) task?.stop()
   const times = getTimes()
-  const { broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft } = _ctx
+  const { broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft, telegramSendParrotDraft } = _ctx
   dynamicTasks.morningResearch = cron.schedule(istTimeToUtcCron(times.morningResearch), () => runMorning(broadcast, telegramSend), { timezone: 'UTC' })
   dynamicTasks.dailyDrop = cron.schedule(istTimeToUtcCron(times.dailyDrop), () => runBatch(broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas), { timezone: 'UTC' })
   const heronTime = addMinutesToHHMM(times.dailyDrop, 10)
   dynamicTasks.heronDrop = cron.schedule(istTimeToUtcCron(heronTime), () => runHeronBatch(broadcast, telegramSend, telegramSendHeronDraft), { timezone: 'UTC' })
-  console.log(`[Scheduler] Daily jobs (re)armed — research ${times.morningResearch} IST · drop ${times.dailyDrop} IST · Heron ${heronTime} IST (10 min after drop)`)
+  dynamicTasks.linkedinDrop = cron.schedule(istTimeToUtcCron(times.linkedinDrop), () => runParrotBatch(broadcast, telegramSend, telegramSendParrotDraft), { timezone: 'UTC' })
+  console.log(`[Scheduler] Daily jobs (re)armed — research ${times.morningResearch} IST · drop ${times.dailyDrop} IST · Heron ${heronTime} IST (10 min after drop) · Parrot ${times.linkedinDrop} IST`)
 }
 
 // Called by PUT /api/scheduler after a time change — stops and re-creates the dynamic cron tasks
@@ -51,13 +53,13 @@ function rescheduleDynamic() {
   registerDynamicJobs()
 }
 
-function initScheduler(broadcast, telegramSend, telegramSendDraft = null, telegramSendArticleIdeas = null, telegramSendHeronDraft = null) {
-  _ctx = { broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft }
+function initScheduler(broadcast, telegramSend, telegramSendDraft = null, telegramSendArticleIdeas = null, telegramSendHeronDraft = null, telegramSendParrotDraft = null) {
+  _ctx = { broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft, telegramSendParrotDraft }
   registerDynamicJobs()
 
   const istHm = String(Math.floor(dailyDrop.istMinutes() / 60)).padStart(2, '0') + ':' + String(dailyDrop.istMinutes() % 60).padStart(2, '0')
   console.log('[Scheduler] Weekly wrap + evening research are deactivated — manual only (/perf, /research, or the dashboard)')
-  console.log(`[Scheduler] IST now ${istHm} · auto-runs ${isEnabled() ? 'ON' : 'OFF'} · last drop: ${getLastDrop() || 'never'} · Heron auto-runs ${isHeronEnabled() ? 'ON' : 'OFF'} · last Heron run: ${getLastHeronRun() || 'never'}`)
+  console.log(`[Scheduler] IST now ${istHm} · auto-runs ${isEnabled() ? 'ON' : 'OFF'} · last drop: ${getLastDrop() || 'never'} · Heron auto-runs ${isHeronEnabled() ? 'ON' : 'OFF'} · last Heron run: ${getLastHeronRun() || 'never'} · Parrot auto-runs ${isParrotEnabled() ? 'ON' : 'OFF'} · last Parrot run: ${getLastParrotRun() || 'never'}`)
 
   // Catch up a missed drop. Runs at most once/day (guarded by lastDrop). Two triggers:
   //   - shortly after startup (server restarted after drop time), and
@@ -68,8 +70,11 @@ function initScheduler(broadcast, telegramSend, telegramSendDraft = null, telegr
   const heronCatchUp = (why) => heronDrop.maybeCatchUp({ broadcast, telegramSend, telegramSendDraft: telegramSendHeronDraft })
     .then(r => { if (r && r.ran) console.log(`[Scheduler] Catch-up Heron drop completed (${why})`) })
     .catch(() => {})
-  setTimeout(() => { catchUp('startup'); heronCatchUp('startup') }, 8000)
-  setInterval(() => { catchUp('periodic'); heronCatchUp('periodic') }, 30 * 60 * 1000)
+  const parrotCatchUp = (why) => parrotDrop.maybeCatchUp({ broadcast, telegramSend, telegramSendDraft: telegramSendParrotDraft })
+    .then(r => { if (r && r.ran) console.log(`[Scheduler] Catch-up Parrot drop completed (${why})`) })
+    .catch(() => {})
+  setTimeout(() => { catchUp('startup'); heronCatchUp('startup'); parrotCatchUp('startup') }, 8000)
+  setInterval(() => { catchUp('periodic'); heronCatchUp('periodic'); parrotCatchUp('periodic') }, 30 * 60 * 1000)
 }
 
 async function runHeronBatch(broadcast, telegramSend, telegramSendHeronDraft) {
@@ -80,6 +85,17 @@ async function runHeronBatch(broadcast, telegramSend, telegramSendHeronDraft) {
     await heronDrop.runHeronDrop({ broadcast, telegramSend, telegramSendDraft: telegramSendHeronDraft, triggerLabel: `⏰ Scheduled · Heron ${t} IST` })
   } catch (err) {
     console.error('[Scheduler] Heron drop failed:', err.message)
+  }
+}
+
+async function runParrotBatch(broadcast, telegramSend, telegramSendParrotDraft) {
+  if (!isParrotEnabled()) { console.log('[Scheduler] Parrot drop SKIPPED — Parrot auto-runs disabled'); return }
+  const t = getTimes().linkedinDrop
+  console.log(`[Scheduler] Starting Parrot drop (${t} IST)`)
+  try {
+    await parrotDrop.runParrotDrop({ broadcast, telegramSend, telegramSendDraft: telegramSendParrotDraft, triggerLabel: `⏰ Scheduled · Parrot ${t} IST` })
+  } catch (err) {
+    console.error('[Scheduler] Parrot drop failed:', err.message)
   }
 }
 
