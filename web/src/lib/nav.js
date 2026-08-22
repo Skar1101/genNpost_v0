@@ -8,13 +8,17 @@ export const navSections = [
   },
   {
     eyebrow: 'Work',
-    items: [{ id: 'queue', label: 'Queue', to: '/queue', badge: 12 }],
+    items: [
+      { id: 'queue', label: 'Queue', to: '/queue', badge: 12 },
+      { id: 'studio', label: 'Studio', to: '/studio' },
+      { id: 'library', label: 'Library', to: '/library' },
+    ],
   },
   {
     eyebrow: 'Agents',
     items: [
-      { id: 'titto', label: 'Titto', sub: 'history', to: '/agent/titto', dot: 'good',
-        title: 'Titto', desc: 'Your Chief of Staff — chat with Titto anytime from the bubble in the corner. This page is the full run history: every research pull, draft, and reply, who triggered it, and what came out.' },
+      { id: 'titto', label: 'Titto', sub: 'chat', to: '/agent/titto', dot: 'good',
+        title: 'Titto', desc: 'Your Chief of Staff — a full chat to plan and generate content, continuing the same conversation as the bubble in the corner. The run history sits alongside: every research pull, draft, and reply, who triggered it, and what came out.' },
       { id: 'raven', label: 'Raven', sub: 'search', to: '/agent/raven', dot: 'good',
         title: 'Raven · Search', desc: 'The central research engine. Scouts every source (Hacker News, Reddit, GitHub, YouTube, arXiv, X), ranks what’s worth posting, and feeds every platform.' },
       { id: 'quill-x', label: 'Quill', sub: 'X', to: '/agent/quill-x', dot: 'good',
@@ -27,6 +31,8 @@ export const navSections = [
         title: 'Koel · Writer', desc: 'The writer behind every post. Reads your profile, voice, approvals and rejections before drafting — and never repeats a rejected angle.' },
       { id: 'article', label: 'Article Writer', to: '/agent/article', dot: 'good',
         title: 'Article Writer', desc: 'A dedicated long-form tool — streams full articles you can edit, version, and export. Grounded in real cited sources.' },
+      { id: 'image', label: 'Image', sub: 'tool', to: '/agent/image', dot: 'good',
+        title: 'Image', desc: 'Generate visuals in your house style — from a post, a subject, or a raw prompt. Approve the good ones: that set becomes the training data for a model tuned to your own look.' },
       { id: 'analyst', label: 'Analyst', to: '/agent/analyst', dot: 'good',
         title: 'Analyst', desc: 'The learning engine. Turns your approvals, edits and posted-tweet stats into what’s-working insights that steer the writer and research.' },
     ],
@@ -42,10 +48,12 @@ export const navSections = [
   },
 ]
 
-// Flattened list of the pages that render as ported placeholders (everything but CC + Queue).
+// Flattened list of the pages that render as ported placeholders (everything but the pages built
+// as their own surfaces: Control Center, Queue, Library, Compose).
+const OWN_SURFACES = ['cc', 'queue', 'library', 'studio']
 export const portedPages = navSections
   .flatMap((s) => s.items)
-  .filter((it) => it.id !== 'cc' && it.id !== 'queue')
+  .filter((it) => !OWN_SURFACES.includes(it.id))
 
 // Title/crumb lookup by pathname for the top bar. `pendingCount` (real generated-queue
 // count) is passed in from TopBar so Control Center/Queue crumbs reflect live data
@@ -58,6 +66,12 @@ export function pageMetaFor(pathname, pendingCount) {
   if (pathname === '/queue') {
     const n = pendingCount ?? 0
     return { title: 'Queue', crumb: n > 0 ? `${n} waiting for review` : 'Nothing waiting for review' }
+  }
+  if (pathname === '/library') {
+    return { title: 'Library', crumb: 'Finished work — editable, versioned, ready to schedule' }
+  }
+  if (pathname === '/studio') {
+    return { title: 'Studio', crumb: 'Write or generate, add a picture, save · schedule · send' }
   }
   const p = portedPages.find((x) => x.to === pathname)
   return p ? { title: p.title, crumb: p.desc } : { title: 'TinySparrow', crumb: '' }

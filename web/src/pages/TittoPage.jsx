@@ -3,6 +3,7 @@ import { useActivity } from '../lib/queries.js'
 import { useWSEvent } from '../lib/ws.js'
 import { triggerClass } from '../lib/sourceMeta.js'
 import { AGENT_META } from '../lib/agentMeta.js'
+import TittoChat from '../components/TittoChat.jsx'
 
 // Where "Open →" sends you, keyed by activityStore's ref.kind.
 const REF_ROUTE = {
@@ -57,22 +58,37 @@ export default function TittoPage() {
     <div className="content">
       <div className="toolbar">
         <span style={{ fontSize: 13, fontWeight: 650 }}>Titto</span>
-        <span className="hint">Activity — every run, who triggered it, what came out</span>
+        <span className="hint">Chat to plan and generate — activity log alongside</span>
         <div className="spacer" />
-        {entries[0] && <span className="hint">Last: {timeAgo(entries[0].ts)} · {entries.length} shown</span>}
+        {entries[0] && <span className="hint">Last run: {timeAgo(entries[0].ts)}</span>}
         <button className="btn sm" onClick={() => activity.refetch()}>↻ Refresh</button>
       </div>
 
-      {activity.isLoading ? (
-        <div className="card placeholder"><p>Loading activity…</p></div>
-      ) : entries.length === 0 ? (
-        <div className="card placeholder">
-          <h2>No activity yet</h2>
-          <p>Trigger a run — research, a write, a batch, replies — and it'll show up here.</p>
+      {/* Chat is the primary surface here — the same conversation as the floating dock, with room
+          to actually plan in. Activity sits alongside on wide screens, below on narrow ones. */}
+      <div className="titto-page-split">
+        <div className="card titto-page-chat">
+          <div className="titto-dock-head" style={{ padding: '0 0 12px' }}>
+            <span style={{ fontWeight: 650, fontSize: 13 }}>Chat</span>
+            <span className="mono" style={{ fontSize: 10, color: 'var(--faint)' }}>CHIEF OF STAFF</span>
+          </div>
+          <TittoChat autoFocus />
         </div>
-      ) : (
-        entries.map((e) => <ActivityRow key={e.id} e={e} onOpen={onOpen} />)
-      )}
+
+        <div className="titto-page-activity">
+          <div className="section-head"><span className="eyebrow">Activity</span></div>
+          {activity.isLoading ? (
+            <div className="card placeholder"><p>Loading activity…</p></div>
+          ) : entries.length === 0 ? (
+            <div className="card placeholder">
+              <h2>No activity yet</h2>
+              <p>Trigger a run — research, a write, a batch, replies — and it'll show up here.</p>
+            </div>
+          ) : (
+            entries.map((e) => <ActivityRow key={e.id} e={e} onOpen={onOpen} />)
+          )}
+        </div>
+      </div>
     </div>
   )
 }

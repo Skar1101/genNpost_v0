@@ -5,10 +5,14 @@ const koel = require('../../agents/koel')
 const quill = require('../../agents/quill')
 const replyTargetsStore = require('../../state/replyTargetsStore')
 const articlesStore = require('../../state/articlesStore')
-const { REASONS, actionKeyboard, reasonKeyboard, escapeHtml, stripHeader } = require('./telegramCore')
+const assetsStore = require('../../state/assetsStore')
+const finishDraft = require('../../utils/finishDraft')
+const generateImage = require('../../tools/generateImage')
+const { REASONS, actionKeyboard, assetKeyboard, reasonKeyboard, escapeHtml, stripHeader } = require('./telegramCore')
 
 let bot = null
 let _sendDrafts = null
+let _sendAssetCard = null
 let _sendReplyTargets = null
 let _sendArticleIdeas = null
 // Only set when Heron is configured in "same bot, second chat" mode (HERON_TELEGRAM_CHAT_ID set,
@@ -59,6 +63,20 @@ function init(app, broadcast) {
   }
   const sendDrafts = (drafts, opts) => sendDraftsToChat(chatId, drafts, opts)
   _sendDrafts = sendDrafts
+
+  // A slot-delivered library asset: the finished, copy-ready text plus a "Posted ✅" button.
+  // Substack goes to Heron's chat when one is configured, X to the main chat.
+  const sendAssetCard = async ({ asset, text, substack = false }) => {
+    const target = substack && heronChatId ? heronChatId : chatId
+    if (!target || !bot) return
+    try {
+      await bot.sendMessage(target, text, { reply_markup: assetKeyboard(asset.id) })
+    } catch (e) {
+      console.warn('[Telegram] sendAssetCard failed:', e.message)
+      try { await bot.sendMessage(target, text) } catch (_) {}
+    }
+  }
+  _sendAssetCard = sendAssetCard
 
   // Heron delivery in same-bot mode — draft cards to the Heron chat, plus a short hand-off ping on
   // Approve. Articles: one line only (the full text/image prompt live in the Heron dashboard — no
@@ -161,6 +179,65 @@ function init(app, broadcast) {
       return
     }
 
+    // ── Manual content ingest ────────────────────────────────────────────────
+    // Work written outside the app, saved into the library. A photo with a caption is unambiguous
+    // enough to handle on its own; bare text needs /save so it can't collide with Titto's intent
+    // parsing. Nothing here rewrites what was sent — same rule as the compose page.
+    //
+    // Platform is inferred from the chat: the Heron chat means Substack, otherwise X, and either
+    // can be overridden with a leading "linkedin:" / "substack:" / "x:" in the caption or command.
+    const PLATFORM_PREFIX = /^\s*(x|linkedin|substack)\s*:\s*/i
+    const savePlatform = (body) => {
+      const m = body.match(PLATFORM_PREFIX)
+      if (m) return { platform: m[1].toLowerCase(), text: body.replace(PLATFORM_PREFIX, '') }
+      return { platform: isHeronChat ? 'substack' : 'x', text: body }
+    }
+
+    const saveManual = async ({ body, photoFileId }) => {
+      const { platform, text: clean } = savePlatform(body || '')
+      const acct = memory.accounts.getActiveAccount()
+      let imageId = null
+
+      if (photoFileId) {
+        try {
+          const link = await bot.getFileLink(photoFileId)
+          const resp = await fetch(link)
+          const buf = Buffer.from(await resp.arrayBuffer())
+          imageId = generateImage.saveUpload({ data: buf, contentType: 'image/jpeg', platform, account: acct }).id
+        } catch (e) {
+          console.warn('[Telegram] photo download failed:', e.message)
+        }
+      }
+
+      if (!clean.trim() && !imageId) {
+        await sendToChat(incomingChatId, 'Send a photo with a caption, or `/save <your post>`, and I\'ll file it in the library.')
+        return
+      }
+
+      const finished = finishDraft.finish({ text: clean, platform })
+      const segments = finished.segments.map((s, i) => (i === 0 && imageId ? { ...s, imageId } : s))
+      const asset = assetsStore.create(acct, { segments, platform, origin: 'manual', warnings: finished.warnings })
+      // Your own writing is the strongest voice signal available — voice-examples.json has been
+      // sitting at a single entry, which is why voice calibration is thin.
+      if (clean.trim()) memory.voiceExamples.append(acct, { text: clean.slice(0, 600), platform, source: 'manual-telegram' })
+
+      const bits = [`📥 Saved to the library — ${platform}${segments.length > 1 ? ` · ${segments.length} segments` : ''}${imageId ? ' · image attached' : ''}`]
+      if (finished.changes.length) bits.push(`\nSaved exactly as you wrote it. Available if you want it: ${finished.changes.join(' ')}`)
+      const errs = finished.warnings.filter(w => w.level === 'error')
+      if (errs.length) bits.push(`\n⚠️ ${errs.map(w => w.message).join(' ')}`)
+      await sendToChat(incomingChatId, bits.join('\n'))
+    }
+
+    if (msg.photo?.length) {
+      // Highest-resolution variant is last in the array.
+      await saveManual({ body: msg.caption || '', photoFileId: msg.photo[msg.photo.length - 1].file_id })
+      return
+    }
+    if (/^\/save\b/i.test(text)) {
+      await saveManual({ body: text.replace(/^\/save\b\s*/i, '') })
+      return
+    }
+
     // If awaiting an edit, treat this (non-command) message as the edited draft — reply in whichever
     // chat sent it (main or Heron).
     if (pendingEdit[incomingChatId] && text && !text.startsWith('/')) {
@@ -249,6 +326,36 @@ function init(app, broadcast) {
         return
       }
 
+      // 📅 Slot-delivered library assets (as|<action>|<id>) — see scheduler/slotDelivery.js.
+      // "Posted" is the only signal that anything shipped on X/Substack while the timeline ingest
+      // stays deferred, so it also drives the learning loop via voiceExamples.
+      if (parts[0] === 'as') {
+        const [, action, assetId] = parts
+        const acct2 = memory.accounts.getActiveAccount()
+        const asset = assetsStore.get(acct2, assetId)
+        if (!asset) return ack('That asset is gone')
+        const msgId2 = q.message.message_id
+
+        if (action === 'p') {
+          assetsStore.update(acct2, assetId, { state: 'posted', note: 'marked posted from Telegram' })
+          // Your own posted copy is the strongest voice signal there is — feed it back.
+          memory.voiceExamples.append(acct2, {
+            text: asset.segments.map(s => s.text).join('\n\n').slice(0, 600),
+            platform: asset.platform,
+            source: 'posted-asset',
+          })
+          await bot.editMessageText(`✅ Posted\n\n${q.message.text}`, { chat_id: chat, message_id: msgId2 }).catch(() => {})
+          return ack('Marked posted — thanks, that teaches the voice')
+        }
+        if (action === 's') {
+          const later = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+          assetsStore.setSchedule(acct2, assetId, later)
+          await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chat, message_id: msgId2 }).catch(() => {})
+          return ack('Snoozed an hour — I\'ll send it again')
+        }
+        return ack()
+      }
+
       if (parts[0] !== 'd') return ack()
       const [, action, id, code] = parts
       const acct = memory.accounts.getActiveAccount()
@@ -327,6 +434,12 @@ function getDraftSender() {
   return _sendDrafts
 }
 
+// Sends a slot-delivered library asset with its "Posted ✅" button. Null when Telegram is disabled,
+// in which case slotDelivery falls back to a plain message.
+function getAssetCardSender() {
+  return _sendAssetCard
+}
+
 // Returns the reply-target sender (each with a "Draft reply" button), or null if not configured.
 function getReplyTargetSender() {
   return _sendReplyTargets
@@ -349,6 +462,6 @@ function getHeronHandoffSender() {
 }
 
 module.exports = {
-  init, getSendFn, getDraftSender, getReplyTargetSender, getArticleIdeaSender,
+  init, getSendFn, getDraftSender, getAssetCardSender, getReplyTargetSender, getArticleIdeaSender,
   getHeronDraftSender, getHeronHandoffSender,
 }

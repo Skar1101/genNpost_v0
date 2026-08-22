@@ -16,6 +16,21 @@ function actionKeyboard(id) {
   ] }
 }
 
+// Slot-delivered assets (scheduler/slotDelivery.js). Separate namespace from drafts ('d|') because
+// these are library assets, not draft-queue records.
+//
+// "Posted ✅" matters more than it looks: with the real-tweet ingest deferred, this tap is the ONLY
+// signal that anything actually shipped on X or Substack. Without it, assets stall exactly the way
+// 12 approved drafts sat at 'queued' from June onward.
+function assetKeyboard(id) {
+  return { inline_keyboard: [
+    [
+      { text: '✅ Posted', callback_data: `as|p|${id}` },
+      { text: '⏰ Snooze 1h', callback_data: `as|s|${id}` },
+    ],
+  ] }
+}
+
 function reasonKeyboard(id) {
   return { inline_keyboard: [
     [{ text: 'weak hook', callback_data: `d|rr|${id}|hook` }, { text: 'off-voice', callback_data: `d|rr|${id}|voice` }],
@@ -52,4 +67,4 @@ function chunkForTelegram(text, maxLen = 3500) {
   return chunks
 }
 
-module.exports = { REASONS, actionKeyboard, reasonKeyboard, escapeHtml, stripHeader, chunkForTelegram }
+module.exports = { REASONS, actionKeyboard, assetKeyboard, reasonKeyboard, escapeHtml, stripHeader, chunkForTelegram }

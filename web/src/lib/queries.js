@@ -191,14 +191,30 @@ export function useArticle(id) {
 export function useGenerateArticle() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ topic, model }) => api('/article/generate', { method: 'POST', body: { topic, model } }),
+    // `brief` is whatever was typed — the server splits out a searchable topic and keeps the rest as
+    // a binding instruction. Sending it as `topic` used to make the whole sentence the article title.
+    mutationFn: ({ brief, model }) => api('/article/generate', { method: 'POST', body: { brief, model } }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['articles'] }),
   })
 }
 
+export function useCancelArticle() {
+  return useMutation({
+    mutationFn: ({ id }) => api(`/article/${id}/cancel`, { method: 'POST' }),
+  })
+}
+
 export function useRefineArticle() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ id, instruction, model }) => api('/article/refine', { method: 'POST', body: { id, instruction, model } }),
+    // The route responds immediately and streams the result over WS, so the new version doesn't
+    // exist yet at this point — the page re-invalidates on article_done. Without any invalidation
+    // at all the VERSIONS list silently stayed on the pre-rewrite state.
+    onSettled: (_d, _e, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['article', vars?.id] })
+      queryClient.invalidateQueries({ queryKey: ['articles'] })
+    },
   })
 }
 
@@ -295,6 +311,20 @@ export function useInsights() {
   return useQuery({ queryKey: ['insights'], queryFn: () => api('/insights') })
 }
 
+// Real X brand-gap audit — pulls Souvik's actual tweet history + real niche comparison. See
+// agents/analyst.js's auditBrand().
+export function useBrandAudit() {
+  return useQuery({ queryKey: ['brand-audit'], queryFn: () => api('/brand-audit') })
+}
+
+export function useTriggerBrandAudit() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ screenname } = {}) => api('/brand-audit/trigger', { method: 'POST', body: { screenname } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['brand-audit'] }),
+  })
+}
+
 // ── Profile / Settings ───────────────────────────────────────────────────────────
 
 export function useProfile() {
@@ -318,6 +348,231 @@ export function useSaveReplyDomains() {
   return useMutation({
     mutationFn: (enabled) => api('/replies/domains', { method: 'PUT', body: { enabled } }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['reply-domains'] }),
+  })
+}
+
+// ── Calendar / slots ─────────────────────────────────────────────────────────────
+
+export function useSchedule({ start = null, days = 7 } = {}) {
+  const qs = new URLSearchParams({ days: String(days) })
+  if (start) qs.set('start', start)
+  return useQuery({ queryKey: ['schedule', start, days], queryFn: () => api(`/schedule?${qs}`) })
+}
+
+export function useReschedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ assetId, scheduledFor }) => api(`/schedule/${assetId}`, { method: 'PUT', body: { scheduledFor } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedule'] })
+      queryClient.invalidateQueries({ queryKey: ['assets'] })
+    },
+  })
+}
+
+// Click an empty slot → write into it. Goes through the platform-aware Koel path.
+export function useGenerateIntoSlot() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body) => api('/schedule/generate', { method: 'POST', body }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedule'] })
+      queryClient.invalidateQueries({ queryKey: ['assets'] })
+    },
+  })
+}
+
+// ── Asset library ────────────────────────────────────────────────────────────────
+
+export function useAssets({ platform = null, state = null } = {}) {
+  const qs = new URLSearchParams()
+  if (platform) qs.set('platform', platform)
+  if (state) qs.set('state', state)
+  const suffix = qs.toString() ? `?${qs}` : ''
+  return useQuery({ queryKey: ['assets', platform, state], queryFn: () => api(`/assets${suffix}`) })
+}
+
+export function useCreateAsset() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body) => api('/assets', { method: 'POST', body }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['assets'] }),
+  })
+}
+
+export function useUpdateAsset() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...body }) => api(`/assets/${id}`, { method: 'PUT', body }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['assets'] }),
+  })
+}
+
+export function useRevertAsset() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, v }) => api(`/assets/${id}/revert`, { method: 'POST', body: { v } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['assets'] }),
+  })
+}
+
+export function useDeleteAsset() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id) => api(`/assets/${id}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['assets'] }),
+  })
+}
+
+// Rewrite an asset for a different platform — a real rewrite in that platform's register,
+// not a reformat. Returns a NEW asset; the original is untouched.
+export function useAdaptAsset() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, platform }) => api(`/assets/${id}/adapt`, { method: 'POST', body: { platform } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['assets'] }),
+  })
+}
+
+// Write something with AI and get the TEXT BACK for editing — nothing is saved or scheduled.
+export function useGenerateAssetText() {
+  return useMutation({
+    mutationFn: ({ brief, platform }) => api('/assets/generate', { method: 'POST', body: { brief, platform } }),
+  })
+}
+
+// Deliver an asset to Telegram right now, bypassing its slot.
+export function useSendAsset() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id) => api(`/assets/${id}/send`, { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['assets'] })
+      queryClient.invalidateQueries({ queryKey: ['schedule'] })
+    },
+  })
+}
+
+// Split + validate without saving — powers the live warning strip while typing.
+export function usePreviewAsset() {
+  return useMutation({ mutationFn: ({ text, platform }) => api('/assets/preview', { method: 'POST', body: { text, platform } }) })
+}
+
+// ── Images ───────────────────────────────────────────────────────────────────────
+
+export function useImages() {
+  return useQuery({ queryKey: ['images'], queryFn: () => api('/images') })
+}
+
+export function useGenerateImage() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body) => api('/images/generate', { method: 'POST', body }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['images'] }),
+  })
+}
+
+export function useUploadImage() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body) => api('/images/upload', { method: 'POST', body }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['images'] }),
+  })
+}
+
+// approved/rejected accumulates the training set for a future LoRA.
+export function useImageVerdict() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, verdict }) => api(`/images/${id}/verdict`, { method: 'POST', body: { verdict } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['images'] }),
+  })
+}
+
+// ── Article preferences (the template files) + learned corrections ───────────────
+
+export function useArticleTemplate(platform) {
+  return useQuery({
+    queryKey: ['article-template', platform],
+    queryFn: () => api(`/article-template?platform=${platform}`),
+  })
+}
+
+export function useSaveArticleTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body) => api('/article-template', { method: 'PUT', body }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['article-template'] }),
+  })
+}
+
+export function useArticleLessons() {
+  return useQuery({ queryKey: ['article-lessons'], queryFn: () => api('/article-lessons') })
+}
+
+export function useLearnArticleLessons() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api('/article-lessons/learn', { method: 'POST' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['article-lessons'] }),
+  })
+}
+
+export function useAddArticleLesson() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (text) => api('/article-lessons', { method: 'POST', body: { text } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['article-lessons'] }),
+  })
+}
+
+export function useRemoveArticleLesson() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id) => api(`/article-lessons/${id}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['article-lessons'] }),
+  })
+}
+
+// ── Content strategy (pillars, positioning, exclusions) ──────────────────────────
+
+export function useStrategy() {
+  return useQuery({ queryKey: ['strategy'], queryFn: () => api('/strategy') })
+}
+
+export function useSaveStrategy() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body) => api('/strategy', { method: 'PUT', body }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['strategy'] })
+      // Ranking, thread themes and the repost filter all derive from this, so anything showing
+      // research results is now stale.
+      queryClient.invalidateQueries({ queryKey: ['research-runs'] })
+    },
+  })
+}
+
+// ── Per-platform keywords ────────────────────────────────────────────────────────
+
+export function useKeywords() {
+  return useQuery({ queryKey: ['keywords'], queryFn: () => api('/keywords') })
+}
+
+export function useSaveKeywords() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    // Patch shape: { x?: [{term, weight}], linkedin?: [...], substack?: [...] } — omitted platforms
+    // are left untouched server-side.
+    mutationFn: (patch) => api('/keywords', { method: 'PUT', body: patch }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['keywords'] }),
+  })
+}
+
+// Scores candidate keywords against the CURRENT research pool (real occurrence counts).
+export function useKeywordSearch() {
+  return useMutation({
+    mutationFn: ({ seed, platform }) => api('/keywords/search', { method: 'POST', body: { seed, platform } }),
   })
 }
 

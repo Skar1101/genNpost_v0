@@ -146,12 +146,59 @@ function RunSection({ run, i, source, type, sort, collapsed, onToggle, onOpen })
         <span className="run-time">{runLabel}</span>
         {i === 0 && <span className="run-latest">LATEST</span>}
         <span className="run-count">{items.length} items</span>
+        {(run.dropped?.length ?? 0) > 0 && (
+          <span className="run-count" style={{ color: 'var(--faint)' }}>{run.dropped.length} filtered</span>
+        )}
         <span className="run-arrow">{collapsed ? '▶' : '▼'}</span>
       </div>
       {!collapsed && (
         <div className="run-body">
           {items.length ? items.map((item, idx) => <ResultRow key={item.url || idx} item={item} i={idx} onOpen={onOpen} />)
             : <div style={{ padding: 16, fontSize: 12, color: 'var(--faint)' }}>No results match the current filters.</div>}
+          <DroppedSection run={run} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// What the topic filter removed, and why. Without this the only evidence was a log line — so when a
+// drop felt wrong there was no way to tell whether the filter was too tight or the sources were
+// simply thin. Collapsed by default; it's diagnostics, not the main event.
+function DroppedSection({ run }) {
+  const [open, setOpen] = useState(false)
+  const dropped = run.dropped || []
+  if (!dropped.length) return null
+
+  return (
+    <div style={{ borderTop: '1px solid var(--border)', padding: '10px 16px' }}>
+      <button
+        className="btn sm"
+        onClick={() => setOpen((o) => !o)}
+        title="Items the topic filter removed before they reached the drop"
+      >
+        {open ? '▼' : '▶'} Filtered out — {dropped.length}
+      </button>
+      {run.strategy?.onTopicDomains && (
+        <span className="hint" style={{ marginLeft: 10 }}>
+          kept only: {run.strategy.onTopicDomains.join(', ')}
+        </span>
+      )}
+      {open && (
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {dropped.map((d, i) => (
+            <div key={d.url || i} style={{ display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 12 }}>
+              <span className="mono" style={{ color: 'var(--faint)', flex: 'none', width: 74 }}>{d.source}</span>
+              <span className="agent-badge" style={{ flex: 'none' }}>{d.domain}</span>
+              <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {d.url ? <a href={d.url} target="_blank" rel="noreferrer">{d.title}</a> : d.title}
+              </span>
+            </div>
+          ))}
+          <div className="hint" style={{ marginTop: 4 }}>
+            Too much here that you'd have wanted? Widen the pillars in Settings → Content strategy.
+            Nothing here at all, but the drop still felt thin? The sources were short, not the filter.
+          </div>
         </div>
       )}
     </div>

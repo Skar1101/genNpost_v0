@@ -125,6 +125,343 @@ proper app — that rebuild is most of what's "in progress" below.
    never posts directly itself. **Only remaining item**: "Parrot auto-runs" is still OFF in Schedules —
    flip it on whenever you want the daily automated drop running itself (16:30 IST default, editable).
 
+## 🆕 v2 — per-platform engine, images, library, calendar, manual entry (2026-08-10)
+
+Built in one pass. Everything below is live in the code and verified against a running server.
+
+**The per-platform engine (the core fix).** Koel was structurally an X writer wearing other
+platforms as costumes: `prompts/koelWrite.js` built ONE system prompt for every platform, carrying
+~27 KB of X-only material (tweet copy principles, 100K-view tweet examples, DM-giveaway templates)
+into LinkedIn and Substack calls, where a format guide at the end then tried to countermand it.
+Measured: a LinkedIn call was sending **9,417 prompt tokens**, most of it about a platform it wasn't
+writing for.
+- `sub-agents/koel/` is now `common/` + `x/` + `linkedin/` + `substack/`. Each platform loads its
+  own pack and nothing else. Edit a pack to change how Souvik sounds on that platform.
+- The `platform` argument already existed on `koel.write()` and was stored on every draft — it just
+  never reached the prompt builders. It's now derived from the format (every format belongs to
+  exactly one platform), so no caller had to change. Heron never set it, which is why its Substack
+  drafts were written with X's full playbook loaded.
+- Approvals/rejections/voice examples now record their platform, so each platform calibrates against
+  its OWN approved work. A LinkedIn draft used to be shown "YOUR BEST TWEETS (the gold standard)".
+- `agents/articleWriter.js` had the identical bug and is fixed the same way.
+- **Result: LinkedIn 9,417 → 5,093 tokens, Substack ~9,190 → 4,480.** Cheaper and on-target.
+
+**Raven — keyword priority + per-platform fit.** `state/keywordsStore.js` holds per-platform keyword
+sets (editable in Settings). `prompts/rankResults.js` now returns `platformFit: {x, linkedin,
+substack}` per item **in the same ranking call** — no extra requests, just more output tokens.
+Quill/Parrot/Heron each read the pool ordered by their own score via `raven.topForPlatform()`
+instead of all three slicing the same top 15. Verified on 20 real items: zero had identical scores.
+`tools/keywordSearch.js` scores candidate keywords by real occurrences in the current research pool.
+
+**Image generation** — a tool, not an agent. `tools/generateImage.js` + `prompts/imagePrompt.js` +
+`config/imageStyle.js` (house visual style with a never-produce list, the image equivalent of
+`BANNED_PHRASES`). Post text → visual subject → house style → image. Files live in
+`state/data/assets/images/`, served at `/assets/images/`. Every image carries an approved/rejected
+verdict, because that set is the future LoRA training data.
+
+**Swapping the image API is a one-line change.** Providers are pluggable, each self-contained in
+`utils/imageProviders/`:
+- **Change provider:** set `IMAGE_PROVIDER=openrouter|fal|openai` in `.env`. Unset, the first
+  provider with a key wins in priority order `fal → openrouter → openai`. A value naming an
+  unconfigured provider is ignored rather than breaking generation.
+- **Add a provider:** one file in `utils/imageProviders/` + one line in that folder's `index.js`.
+  Nothing else changes — `utils/imageClient.js` is a thin dispatcher that knows no provider details,
+  and `config/models.js` re-exports from the registry so existing call sites keep working.
+- Each provider owns its own endpoint, auth, request shape, size translation and pricing. Sizes in
+  `config/imageStyle.js` are provider-neutral (`width`/`height`/`aspect`); each provider converts
+  (fal → named sizes, OpenAI → `WxH` strings, OpenRouter → `aspect_ratio` + `resolution` tier).
+
+**Cost is taken from the provider when it reports one.** OpenRouter returns the real billed amount
+per request, which beats any local table and can't go stale. The registry prices from `models` only
+as a fallback, and handles per-megapixel pricing (FLUX bills that way — a flat per-image figure
+would misreport it).
+
+Live measured, same prompt: **OpenRouter FLUX.2 Klein at 2048×1376 for $0.016**, versus **OpenAI
+`gpt-image-1` at 1536×1024 for $0.040** — cheaper *and* higher resolution. fal remains first in
+priority because it is cheaper still (~$0.003) and is the only one that can train.
+
+**Asset library** (`state/assetsStore.js`, `/library`) — finished, editable, versioned work.
+`segments[]` is the thread split, which also happens to match what a scheduler like Postiz expects.
+Every edit appends a version; revert is itself a version, so it's undoable.
+
+**Manual entry** (`/compose`, plus Telegram) — the manual queue that was designed and deferred twice
+(see below), now general across all three platforms rather than Heron-only. **Rule: manual content
+is never silently rewritten.** House-style polish is applied automatically to agent drafts and only
+*offered as a diff* on anything hand-written. Telegram: send a photo with a caption, or
+`/save <text>`; prefix with `linkedin:` / `substack:` to override the platform.
+
+**Calendar Control Center + slot delivery** — the old page was 101 lines of status cards. Now a week
+grid: drag to reschedule, click an empty slot to write into it. At slot time, routing respects the
+hard stop — **LinkedIn posts for real, X and Substack arrive in their own Telegram channel,
+copy-ready, with a "Posted ✅" button.** Fires off the existing 30-minute tick, no new job.
+Since the timeline ingest is deferred, that button is the only signal a post shipped.
+
+**"Adapt for X / LinkedIn / Substack"** — takes any asset and genuinely rewrites it for another
+platform, not a reformat. Verified: one 170-char X post became a 171-word LinkedIn piece with
+paragraphs and 5 hashtags, and a 102-word Substack passage with prose and no CTA.
+
+**Titto's chat page** — `/agent/titto` rendered history and no chat, so Control Center's "Ask Titto"
+button dead-ended. Chat extracted to a shared component; the conversation lives in the store, so the
+dock and the page are one thread.
+
+## 📝 Article quality — a regression of mine, three bugs, and a learning loop (2026-08-18)
+
+Reported: article quality dropped sharply, X links appearing, weak openings. Four causes.
+
+**1 · [MY REGRESSION] The article writer lost its voice.** When `sub-agents/koel/` was split into
+`common/ x/ linkedin/ substack/` for the platform packs, `prompts/koelWrite.js` was updated but
+`agents/articleWriter.js` was not — it kept reading `koel/IDENTITY.md`,
+`koel/writing_principles_context.txt` and `koel/Viral_long_form_template.txt` at their old flat
+paths. `readFileSafe()` swallowed the miss and returned `''`, so it failed **silently**: measured
+identity **0 chars**, principles **0 chars**, system prompt ~900 chars. Every article since ran with
+no voice definition and no writing principles. Paths fixed; the prompt is now **7,255 chars**, and
+`readFileSafe` **logs a warning** on a miss rather than returning empty quietly.
+
+**2 · Refine could destroy an article.** `/article/refine` appends an empty placeholder version so
+streamed tokens have a target, then only *logged* on failure — leaving a 0-char latest version.
+One real article ("Consistency Is the Currency of Trust") was destroyed this way and has been
+**restored to v1 (1,484 chars)**. `articlesStore.removeLatestVersion()` now rolls the placeholder
+back, an empty result is treated as an error, and `platform` is passed through (Substack refines
+were silently running under X's rules).
+
+**3 · Generate had the same bug** — it pre-creates an empty article record and left it on failure.
+**Three dead 0-word articles** had accumulated. `articlesStore.remove()` now cleans up.
+
+**4 · X links, because tweets were being used as citations.** Grounding sources were
+`research.results.slice(0, 6)`, and research is now mostly Twitter and YouTube Shorts. Added
+`citableOnly()` — social sources are excluded from citations (they can still inspire a topic), the
+extractor drops any social link the model produces anyway, and `ARTICLE_TEMPLATE.md`'s Links section
+— which literally *instructed* the behaviour ("Those items become the primary citation sources") —
+was rewritten to ban them.
+
+### The learning loop — 12 corrections, 0 learned from
+
+Article refine instructions were stored in version history and **never read**. The same three
+complaints repeated: links (×2), first paragraph (×2), headline (×2).
+
+- **`state/articleLessonsStore.js`** — standing rules, each deletable, with hand-written rules
+  **pinned** so they survive a re-learn.
+- **`analyst.learnArticleLessons()`** — distils every stored refine instruction into ≤6 testable
+  rules, injected into the article system prompt as `LEARNED FROM SOUVIK'S OWN CORRECTIONS`, which
+  is placed last so it outranks the template. Runs on demand; `articleWriter.reload()` clears the
+  per-platform prompt cache so new rules take effect immediately.
+- **Settings → Article preferences** — the two template files (`sub-agents/quill/ARTICLE_TEMPLATE.md`,
+  `sub-agents/heron/SUBSTACK_ARTICLE_TEMPLATE.md`) are now editable **per `## section`** rather than
+  only on disk, via `state/articleTemplateStore.js`. Round-trip verified lossless. Saving an empty
+  or near-empty template is **refused** — that is precisely the failure mode of cause 1.
+
+**Verified live:** a fresh article came out at 654 words, **zero social links**, opening with
+*"Three months into launching my first AI project, I noticed a recurring theme…"* — a specific
+moment, not the "AI has taken center stage in recent years" boilerplate it produced before the rule.
+
+**Note:** the first learned rule for openings came out as the useless *"ensure a strong opening"*.
+It was replaced with a pinned, testable one — which is exactly why the delete/pin controls exist.
+
+## 🎬 Studio — one place to make a post (2026-08-12)
+
+Making a post with a picture and scheduling it used to span **five surfaces** — `/compose`,
+`/agent/image`, `/library` (which had its own second editor), the calendar's generate-modal, and
+`/queue`. Each did part of the job; none did the whole thing.
+
+**`web/src/pages/StudioPage.jsx`** replaces `/compose` with three panels visible at once:
+**Content** (write, paste, or generate from a brief; live split + warnings) · **Picture**
+(generate / upload / **pick from gallery**) · **Publish** (save, schedule into a slot, send to
+Telegram now, restore a version, rewrite for another platform).
+
+"Pick from gallery" is the piece that was actually missing: before it, an image could only be
+attached in the same sitting it was made, so a picture created separately could never be clubbed
+with text later — which is the flow that was reported broken.
+
+**One editor, not two.** The Library's side-panel `AssetEditor` was removed and its row action now
+opens `/studio?id=…`, so creating and revising are the same screen. `ComposePage.jsx` is deleted;
+`/compose` redirects.
+
+Two new endpoints, both thin wrappers over existing logic:
+- `POST /api/assets/generate` — the same Koel call as `/api/schedule/generate` but WITHOUT forcing a
+  slot, so a draft can land in the editor and be read before it becomes anything.
+- `POST /api/assets/:id/send` — exposes `slotDelivery.deliverAsset()`, which already routed
+  correctly per platform but was only reachable from the cron tick.
+
+**Scope note:** the daily drop's drafts deliberately stay in their own Telegram/Queue triage flow and
+do NOT enter the library — user's call. The consequence is that drop content still can't carry an
+image or be scheduled; promoting on approve is a small change if that changes.
+
+**Verified:** generate returns text without creating anything (library count unchanged) · a gallery
+image attaches by id · lowercase text saves verbatim with polish only offered · scheduling puts it
+on the calendar · `/compose` redirects to `/studio`.
+
+## 🎯 Positioning pivot — AI · Self-help · Wellness (2026-08-11)
+
+Goal: position as **AI influencer + self-help expert + wellness expert**. The blocker wasn't any one
+setting — it was that topical control lived in **seven places, none editable from the UI**
+(`PILLARS.md` with a `setPillars()` that literally threw, `rankResults.js` exclusions, `raven.js`
+hardcoded domains, `contentVolume.js`, `keywordsStore.js`, `sources.config.js`, `profile.json`).
+Every positioning change needed a code edit. That is now one editable Content Strategy.
+
+**`state/strategyStore.js` — the single source of truth**, edited in Settings → Content strategy:
+positioning line, pillars (label · active · thread slot · domains · description · keywords), and an
+editable never-include list. Everything derives from it — the ranking prompt's subjects and HARD
+EXCLUDE, `raven`'s on-topic domains, the daily thread themes, and the repost filter. Change
+positioning in the UI; no code, no restart.
+
+- **Domain taxonomy split** `wellness` → **`self-help`** (discipline, habits, focus, mindset) and
+  **`wellness`** (sleep, energy, recovery, meditation). The positioning treats them as separate
+  expertise, so one bucket made the rotating thread slot meaningless.
+- **Thread slots**: AI owns slot 1 **every day**; self-help and wellness **alternate** in slot 2, by
+  day-of-year parity — deterministic, no stored state to drift.
+- **Volume**: 10 posts (2 threads + 8 short), 5 reposts, 4 article ideas. Pool raised to match —
+  `POOL_SIZE` 20→40, `MAX_PER_SOURCE` 6→10, AI-tools floor 6→10, ranker returns TOP 30. Without the
+  pool increase, 10 posts from an 8-item list means repeated angles.
+- **YouTube Shorts mining** (`tools/fetchYouTubeShorts.js`) — the existing YouTube source only polls
+  a fixed channel list and so can never surface a Short from an account not already on it. This
+  searches all of YouTube by pillar keywords (`videoDuration=short`), then makes a second
+  `videos.list` call for real view counts, since search results don't include them.
+  **Ordered by relevance, not viewCount** — a first pass ordered by views returned AI-baby-video
+  slop, a devotional clip, Free Fire gameplay and JCB-repair spam, all with millions of views.
+  A spam-pattern filter drops the rest before it costs pool slots.
+- **Watchlist loose filter** — you curate those accounts *because* they post these subjects, so the
+  strict domain filter was fighting your own curation (it dropped ~85%, including plainly on-subject
+  self-help). `classifyDomains(items, { loose: true })` now drops only clear violations. The strict
+  filter still applies to research-sourced reposts. `fetchWatchlist` caps to 5 posts/handle, 80
+  total, with a 6-hour cache so a 30-account watchlist doesn't re-bill on every drop.
+- **Pseudoscience excluded by default** — positioning as a wellness *expert* raises the credibility
+  bar, and a live run had put "40 Hz + 528 Hz Brain Regeneration" into the wellness thread slot.
+
+**Filter visibility** — `agents/raven.js` now returns `dropped[]` with a reason per item, persisted
+on the run and shown as a collapsible "Filtered out" section on the Raven page. Previously the only
+evidence was a log line, which is why diagnosing a bad drop needed a developer.
+
+### The feedback loop — it had never run, not once
+
+`analyst.analyze()` had exactly two callers and **neither ever fired**: `quill.runWeekly()` (the
+weekly wrap is deactivated in `scheduler/cron.js`) and `/perf` (needs a manual paste that never
+happened). Meanwhile 18 approvals and 19 rejections *with reasons* sat unread and `insights.json`
+never existed — so `memory.loadContext()` fed Koel a **null `insights` on every draft ever written**.
+
+- **`analyze()` now runs at the end of every drop** (`scheduler/dailyDrop.js`) and after a `/triage`
+  burst. `insights.json` exists for the first time.
+- **Rejection reasons are their own prompt block.** `wrong topic` is 7 of 19 rejections — the
+  clearest instruction you've ever given the system, previously buried inline per-draft.
+- **Pillar guard.** The first real run concluded `downweight: AI-related topics` — it read the
+  historical "wrong topic" rejections (which came from the off-topic era) as *"AI is the wrong
+  subject"* and would have suppressed the primary pillar. The prompt now states pillars are fixed,
+  and a code-level guard strips any downweight term matching an active pillar's label, domains or
+  keywords. Re-run output: `downweight: (none)`, with the summary correctly reading *"AI posts are
+  struggling due to off-topic framing"* — the angle, not the subject.
+- **`/triage [n]`** — sends the newest unrated drafts as action cards, bounded and recent-first.
+  335 sat unrated; chasing all of them is hopeless, clearing today's drop isn't.
+
+**Verified live:** pool 34 raw → 12 ranked, **0 filtered out**, domains ai-tools 4 / self-help 4 /
+ai-impact 2 / wellness 2, Shorts contributing 10 items, thread themes resolving to AI + Wellness.
+
+## 🩹 Content-quality fix — off-topic drops + vanishing AI (2026-08-11)
+
+Reported from the live drop: content pillars completely off-topic, AI "reduced drastically",
+political news appearing, weak short posts. Diagnosed against the real research run, and the root
+cause was **structural, not prompt wording**.
+
+**Root cause: the seen-URL filter never expired.** `state/seenUrlsStore.js` recorded `addedAt` but
+only used it to trim at 5000 entries — a URL seen once was blocked effectively forever. Measured on
+a live fetch:
+
+| source | fetched | survived the seen-filter |
+|---|---|---|
+| hackernews | 13 | **0** |
+| github | 15 | **0** |
+| youtube | 6 | **0** |
+| twitter | 20 | 15 |
+| reddit | 25 | 19 |
+
+GitHub, HN and YouTube are precisely the **AI-tools** sources, and they move slowly — a repo trends
+for a week, a channel posts weekly. Twitter and Reddit churn constantly, so they kept supplying
+"new" URLs and flooded the drop with whatever they happened to surface. That is why AI disappeared
+and drug-policy history, etymology, ASMR and game-AI papers took its place. The 60/40 human/tech
+quota then made it worse by padding the "human" side with lifestyle filler to hit its target.
+
+**The fixes:**
+- **Per-source TTL** on the seen filter (github 10d, HN 7d, youtube 14d, arxiv 21d, twitter/reddit
+  45d). Still-trending items on slow sources become eligible again — on those sources, still
+  trending *is* the signal. Result: pool went from **13 raw → 95 raw**.
+- **AI-tools supply floor** — `fetchAllSources()` reserves 6 slots for github/hackernews/youtube
+  *before* balancing, so they can't be crowded out.
+- **Domain classification** — the ranking call now labels every item `ai-tools | ai-research |
+  ai-impact | wellness | building | other`, in the same request (no extra LLM calls). Anything
+  landing on `other` is **dropped in code**, not merely discouraged by the prompt.
+- **Much harder exclusions** — politics/policy of any kind, religion and devotional practice
+  (secular meditation still wanted, faith-based practice not), drugs, trivia/etymology, video games,
+  lifestyle/decor/travel, ASMR. Plus an explicit "an on-topic list of 8 beats a padded list of 20".
+- **Removed the "inject skipped source" guarantee** in `agents/raven.js` — it re-added RAW,
+  unclassified items *after* the off-topic filter, so they defaulted to `other` and slipped through.
+  A live run produced exactly that. Source diversity is now handled earlier by the supply floor.
+- **Two themed threads per drop** (`config/contentVolume.js` → `threadThemes`): slot 1 from
+  `ai-tools`/`ai-impact`, slot 2 from `wellness`. Reserved from their own domains *before* the punch
+  topics are picked, so they can't be displaced. If a domain has nothing that day, the slot falls
+  back to an original angle on that theme rather than substituting off-topic material.
+- **Reposts restricted to AI + wellness** and the watchlist is now *fetched*, not hoped for. The old
+  code only re-ordered whatever the keyword search returned — and a keyword search almost never
+  surfaces a specific handle, so "watchlist first" had no practical effect. New
+  `tools/fetchWatchlist.js` pulls their timelines directly (reusing `fetchUserTweets.js`), and
+  `raven.classifyDomains()` topic-filters them, so an off-subject post can't qualify purely by
+  virtue of who wrote it.
+
+**Verified live:** 8 ranked items, **0 off-topic**, split wellness 4 / ai-tools 2 / ai-impact 1 /
+ai-research 1. Thread slots resolved to "New in Claude Code: your sessions can now message each
+other" (AI tools) and "The curse of discipline is that every day looks the same" (wellness).
+Watchlist: 20 fetched → 3 on-topic kept, 17 dropped (finance, general commentary).
+
+**Tuning note:** the repost filter is deliberately strict, per "strictly AI and wellness" — it also
+drops `building` (solo-SaaS/indie) posts. Widen via `contentVolume.reposts.domains` if that's too
+tight.
+
+## ✅ Fixed 2026-08-21 — drafts inventing statistics
+
+**Resolved.** Measured before the fix: **15 of the last 60 drafts (25%)** carried a fabricated
+percentage, and — the serious part — **10 of 37 approved drafts (27%)** did, against **0 of 20
+rejected**. Since `analyst.analyze()` learns voice from approvals, the bug was teaching itself.
+
+What changed:
+- `prompts/styleRules.js` — the mandatory-number rule is now a **specificity** rule (a named thing,
+  a specific moment, a real action, *or* a number). Percentages and study/survey claims are banned
+  outright unless the figure appears in that draft's input material, with the real observed
+  fabrications included as worked negative examples.
+- `agents/koel.js` — the deterministic check was **inverted**. It used to detect "no number anywhere"
+  and re-ask for one (the pump). It now detects an *ungrounded* stat and re-asks to remove it, reusing
+  the same bounded 2-attempt loop and shape-drift guard.
+- `prompts/styleRules.js` — new `findUngroundedStat(text, sourceText)` beside `findBannedPhrase`.
+  Grounds a figure by checking its digits against the source; allows the Atomic Habits "1% better"
+  idiom; grounds a study claim when the source mentions a study/survey/report at all.
+- `scripts/auditStats.js` — read-only report of approved drafts still carrying an invented stat.
+
+Verified: a wellness batch (the pillar where every fabrication occurred) produced **0 fabricated of
+9 drafts**, while a batch given a genuine survey stat kept the real 42%/27% figure in **3 of 3**.
+
+**Still to do (yours):** run `node scripts/auditStats.js` and un-approve the 8 flagged approved
+drafts via `/triage` or the Queue — until then they keep training the voice.
+
+<details><summary>Original diagnosis (2026-08-10)</summary>
+
+**Drafts are inventing statistics.** (Found 2026-08-10 while verifying the platform packs; deferred
+by choice to keep the v2 stages moving.)
+
+The numbers-retry loop in `agents/koel.js` makes "every draft must include a concrete number" a hard
+requirement, and the same prompt adds a soft prohibition against making one up. When the source
+material has no real number, that resolves as fabrication every time. Three-for-three in a single
+test run:
+
+- X — "AI coding assistants miss **70% of context** when reading files"
+- LinkedIn — "like the **10 typos I found in my code last week**"
+- Substack — "**In a recent observation**, they flagged **7 out of 10** basic syntax errors"
+
+None are real. All three fired `no concrete numbers anywhere — re-ask 1` first, so the retry is what
+produces them. This path ships in the daily drop.
+
+**Intended fix:** stop requiring a number outright. Require concrete *specificity* — a name, a
+version, a mechanism, a timeframe — and require an actual **number** only when the input material
+contains one (checkable in code, the same way the current check is). That removes the pressure
+rather than arguing with it.
+
+</details>
+
 ## 🙋 Things needed from you
 - **Restart the server** so it picks up everything built recently — it doesn't update itself while running.
 - **Try the new dashboard** (`web/` — ask me how to start it if you haven't) and tell me anything that

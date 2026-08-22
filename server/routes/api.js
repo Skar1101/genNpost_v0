@@ -18,10 +18,24 @@ const { readLatest: readRepliesLatest } = require('../../state/replyTargetsStore
 const activityStore = require('../../state/activityStore')
 const articleWriter = require('../../agents/articleWriter')
 const articlesStore = require('../../state/articlesStore')
+const inflight = require('../../utils/inflight')
 const heron = require('../../agents/heron')
 const heronTopicsStore = require('../../state/heronTopicsStore')
 const parrot = require('../../agents/parrot')
 const parrotSessions = require('../../state/parrotSessionsStore')
+const brandAuditStore = require('../../state/brandAuditStore')
+const keywordsStore = require('../../state/keywordsStore')
+const keywordSearch = require('../../tools/keywordSearch')
+const strategyStore = require('../../state/strategyStore')
+const imagesStore = require('../../state/imagesStore')
+const imageClient = require('../../utils/imageClient')
+const generateImage = require('../../tools/generateImage')
+const assetsStore = require('../../state/assetsStore')
+const finishDraft = require('../../utils/finishDraft')
+const scheduleStore = require('../../state/scheduleStore')
+const slotDelivery = require('../../scheduler/slotDelivery')
+const articleTemplateStore = require('../../state/articleTemplateStore')
+const articleLessonsStore = require('../../state/articleLessonsStore')
 const linkedinAuth = require('../../utils/linkedinAuth')
 const analyst = require('../../agents/analyst')
 const costStore = require('../../state/costStore')
@@ -179,42 +193,87 @@ router.get('/article/:id/export', (req, res) => {
   res.send(out.markdown)
 })
 
-// POST /api/article/generate  { topic, model }  → creates a record, streams tokens over WS, finalizes.
+// The Writer's input is a BRIEF, not just a topic. It used to be dropped into `suggestion.title`, so
+// "600 words, second person, as a checklist, on morning routines" became the article's working title
+// and its GitHub/arXiv search query — which is why typed requirements were ignored.
+//
+// Short input is a plain topic. Anything longer is kept whole as a binding instruction, and the first
+// clause (or the "on/about X" tail) is used as the topic so research still gets something searchable.
+const SPEC_MARKERS = /\b(\d{2,5}\s*words?|second person|first person|checklist|bullet|structure|section|tone|no citations|no links|paragraph|style|format|steps?|listicle|casual|formal|short|long)\b/i
+
+function splitBrief(raw) {
+  const text = String(raw || '').trim()
+  const words = text.split(/\s+/).filter(Boolean)
+  if (words.length <= 10 && !SPEC_MARKERS.test(text)) return { topic: text, instructions: '' }
+
+  let topic = ''
+  const about = text.match(/\b(?:about|on|regarding|covering)\s+([^,.;\n]{3,80})/i)
+  if (about) topic = about[1].trim()
+  if (!topic) topic = text.split(/[,.;\n]/).map((s) => s.trim()).find((s) => s && !SPEC_MARKERS.test(s)) || ''
+  if (!topic) topic = words.slice(0, 8).join(' ')
+
+  return { topic: topic.replace(/^(write|draft|create|make)\s+(an?|the)?\s*/i, '').trim() || text.slice(0, 80), instructions: text }
+}
+
+// POST /api/article/generate  { brief | topic, model }  → creates a record, streams tokens over WS, finalizes.
 // Returns { id } immediately; the draft arrives via `article_*` WS events.
 router.post('/article/generate', async (req, res) => {
-  const { topic, model } = req.body || {}
-  if (!topic?.trim()) return res.status(400).json({ error: 'topic required' })
+  // `brief` is the new field: whatever you typed in the Writer box, treated as a real instruction.
+  // `topic` is still accepted so Telegram /ideas and other existing callers keep working unchanged.
+  const { brief, topic: topicBody, model } = req.body || {}
+  const rawBrief = String(brief || topicBody || '').trim()
+  if (!rawBrief) return res.status(400).json({ error: 'topic required' })
+  const { topic, instructions } = splitBrief(rawBrief)
   const { broadcast } = req.app.locals
   const modelId = modelsConfig.byId(model) ? model : modelsConfig.DEFAULT_MODEL_ID
 
-  // Pre-create a placeholder so the client has an id to bind the stream to.
-  const record = articlesStore.create({ topic, title: topic, text: '', model: modelId })
-  res.json({ id: record.id, model: modelId })
+  // Reserve an id WITHOUT persisting anything — the client only needs an id to bind the stream to,
+  // and an empty record written now is stranded forever if the process is killed mid-generation
+  // (node --watch restarts on any file save, and a killed process never runs a catch block).
+  // The record is created once, below, when there is real text.
+  const articleId = articlesStore.newId()
+  res.json({ id: articleId, model: modelId })
 
-  if (broadcast) broadcast({ type: 'article_start', data: { id: record.id, title: topic, mode: 'generate' } })
+  const ctrl = inflight.start(articleId)
+  if (broadcast) broadcast({ type: 'article_start', data: { id: articleId, title: topic, mode: 'generate' } })
   try {
     const result = await articleWriter.generate({
-      topic, model: modelId,
-      onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id: record.id, delta } }) : null,
+      topic, model: modelId, instructions, searchQuery: topic, signal: ctrl.signal,
+      onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id: articleId, delta } }) : null,
     })
-    articlesStore.updateLatestVersion(record.id, {
-      text: result.text, usage: result.usage, cost: result.cost, sources: result.sources,
-      model: result.modelId, title: result.title,
+    const wasCancelled = ctrl.signal.aborted
+    // On Stop we keep whatever was written (your choice), so a half-finished piece is still openable
+    // and refinable rather than thrown away. Empty output is still an error.
+    if (!result.text?.trim()) throw new Error(wasCancelled ? 'stopped before any text was written' : 'generate returned empty text')
+    const record = articlesStore.create({
+      id: articleId, topic, title: result.title || topic, text: result.text, model: result.modelId,
+      sources: result.sources, usage: result.usage, cost: result.cost,
     })
     if (broadcast) broadcast({ type: 'article_done', data: {
       id: record.id, version: 1, title: result.title, text: result.text,
       sources: result.sources, usage: result.usage, cost: result.cost, model: result.modelId,
+      cancelled: wasCancelled,
     } })
     const words = result.text.split(/\s+/).filter(Boolean).length
     activityStore.recordAndBroadcast(broadcast, {
-      agent: 'article', action: 'write', triggerLabel: '🖱 Article',
-      summary: `${words} words · ${result.sources.length} sources${result.cost != null ? ' · $' + result.cost.toFixed(4) : ''}`,
+      agent: 'article', action: 'write', triggerLabel: wasCancelled ? '🛑 Article (stopped)' : '🖱 Article',
+      summary: `${words} words · ${result.sources.length} sources${result.cost != null ? ' · $' + result.cost.toFixed(4) : ''}${wasCancelled ? ' · stopped early' : ''}`,
       ref: { kind: 'article', id: record.id },
     })
   } catch (err) {
-    logger.error('[API] Article generate failed', err)
-    if (broadcast) broadcast({ type: 'article_error', data: { id: record.id, message: err.message } })
+    // Nothing was ever written, so there is nothing to clean up — even if this process dies here.
+    logger.error('[API] Article generate failed — nothing written', err)
+    if (broadcast) broadcast({ type: 'article_error', data: { id: articleId, message: err.message } })
+  } finally {
+    inflight.finish(articleId)
   }
+})
+
+// POST /api/article/:id/cancel — stop a running generation.
+// Must be HTTP: the WebSocket is one-way (server/websocket.js registers no 'message' listener).
+router.post('/article/:id/cancel', (req, res) => {
+  const stopped = inflight.cancel(req.params.id)
+  res.json({ ok: true, stopped })
 })
 
 // POST /api/article/refine  { id, instruction, model }  → streams a new version over WS.
@@ -227,19 +286,32 @@ router.post('/article/refine', async (req, res) => {
   const modelId = modelsConfig.byId(model) ? model : (record.model || modelsConfig.DEFAULT_MODEL_ID)
   const currentText = articlesStore.latestText(record)
 
-  // Append a placeholder version so streamed tokens have a target.
-  const withPlaceholder = articlesStore.addVersion(id, { text: '', instruction, model: modelId })
-  const newVersion = withPlaceholder.versions.length
+  // NO placeholder version. The client streams into local state keyed by the ARTICLE id (see
+  // ArticleWriterPage's article_token handler) — it never reads a persisted empty version, so the
+  // placeholder only ever existed as a write target.
+  //
+  // It also made every failure destructive: a throw, a hang, or the process being restarted
+  // mid-stream (node --watch does this on any file save) left a 0-char latest version and the
+  // article read as destroyed. A try/catch cannot save you from a killed process; not writing the
+  // empty version in the first place can. The version is appended below, once, only on success.
+  const newVersion = record.versions.length + 1
   res.json({ id, version: newVersion, model: modelId })
 
+  const ctrl = inflight.start(id)
   if (broadcast) broadcast({ type: 'article_start', data: { id, version: newVersion, mode: 'refine' } })
   try {
     const result = await articleWriter.refine({
       currentText, instruction, model: modelId, sources: record.sources,
+      // Was missing: Substack refines ran under X's rules and lost the SUBJECT/PREVIEW/SUBTITLE block.
+      platform: record.platform || 'x',
+      signal: ctrl.signal,
       onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id, delta } }) : null,
     })
-    articlesStore.updateLatestVersion(id, {
-      text: result.text, usage: result.usage, cost: result.cost, sources: result.sources, model: result.modelId,
+    if (!result.text?.trim()) throw new Error('refine returned empty text')
+    // One atomic append, only now that there is real text.
+    articlesStore.addVersion(id, {
+      text: result.text, instruction, model: result.modelId,
+      usage: result.usage, cost: result.cost, sources: result.sources,
     })
     if (broadcast) broadcast({ type: 'article_done', data: {
       id, version: newVersion, text: result.text, sources: result.sources,
@@ -252,8 +324,11 @@ router.post('/article/refine', async (req, res) => {
       ref: { kind: 'article', id },
     })
   } catch (err) {
-    logger.error('[API] Article refine failed', err)
-    if (broadcast) broadcast({ type: 'article_error', data: { id, message: err.message } })
+    // Nothing to roll back — no version was written. The article still holds its previous text.
+    logger.error('[API] Article refine failed — article left unchanged', err)
+    if (broadcast) broadcast({ type: 'article_error', data: { id, message: err.message, unchanged: true } })
+  } finally {
+    inflight.finish(id)
   }
 })
 
@@ -287,10 +362,11 @@ router.post('/heron/topics/search', async (req, res) => {
 // streams tokens over the SAME article_* WS events the X Article Writer uses, then registers a
 // short-preview draft and fires the normal Telegram approve/reject/edit card.
 router.post('/heron/article/generate', async (req, res) => {
-  const { idx = null, topic: topicBody = null, model } = req.body || {}
+  const { idx = null, brief = null, topic: rawTopicBody = null, model } = req.body || {}
   const { broadcast, telegramSendHeronDraft: telegramSendDraft } = req.app.locals
   const account = memory.accounts.getActiveAccount()
 
+  const topicBody = String(brief || rawTopicBody || '').trim() || null
   let topic = topicBody
   if (!topic?.trim() && idx != null) {
     const t = heronTopicsStore.getTopic(account, idx)
@@ -300,29 +376,46 @@ router.post('/heron/article/generate', async (req, res) => {
   if (!topic?.trim()) return res.status(400).json({ error: 'topic or idx required' })
 
   const modelId = modelsConfig.byId(model) ? model : modelsConfig.DEFAULT_MODEL_ID
-  const record = articlesStore.create({ topic, title: topic, text: '', model: modelId, platform: 'substack' })
-  res.json({ id: record.id, model: modelId })
+  // Reserve an id without persisting — see the X generate route. Nothing hits disk until success.
+  const articleId = articlesStore.newId()
+  res.json({ id: articleId, model: modelId })
 
-  if (broadcast) broadcast({ type: 'article_start', data: { id: record.id, title: topic, mode: 'generate' } })
+  const split = splitBrief(topic)
+  const ctrl = inflight.start(articleId)
+  if (broadcast) broadcast({ type: 'article_start', data: { id: articleId, title: split.topic, mode: 'generate' } })
   try {
     const result = await articleWriter.generate({
-      topic, model: modelId, platform: 'substack',
-      onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id: record.id, delta } }) : null,
+      topic: split.topic, model: modelId, platform: 'substack',
+      instructions: split.instructions, searchQuery: split.topic, signal: ctrl.signal,
+      onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id: articleId, delta } }) : null,
     })
-    articlesStore.updateLatestVersion(record.id, {
-      text: result.text, usage: result.usage, cost: result.cost, sources: result.sources, model: result.modelId, title: result.title,
+    const wasCancelled = ctrl.signal.aborted
+    if (!result.text?.trim()) throw new Error(wasCancelled ? 'stopped before any text was written' : 'generate returned empty text')
+    const record = articlesStore.create({
+      id: articleId, topic, title: result.title || topic, text: result.text, model: result.modelId, platform: 'substack',
+      sources: result.sources, usage: result.usage, cost: result.cost,
       subtitle: result.subtitle, subject: result.subject, previewText: result.previewText, imagePrompt: result.imagePrompt,
     })
     if (broadcast) broadcast({ type: 'article_done', data: {
       id: record.id, version: 1, title: result.title, text: result.text,
       sources: result.sources, usage: result.usage, cost: result.cost, model: result.modelId,
       subtitle: result.subtitle, subject: result.subject, previewText: result.previewText, imagePrompt: result.imagePrompt,
+      cancelled: wasCancelled,
     } })
-    const updatedRecord = articlesStore.get(record.id)
-    await heron.registerArticleDraft({ record: updatedRecord, account, broadcast, telegramSendDraft, triggerLabel: '🖱 Heron' })
+    // A stopped run must NOT fire the Telegram approve card — you'd be asked to approve a
+    // deliberately abandoned half-article.
+    if (wasCancelled) {
+      logger.warn(`[API] Heron article ${articleId} stopped early — partial saved, no Telegram card sent`)
+    } else {
+      const updatedRecord = articlesStore.get(record.id)
+      await heron.registerArticleDraft({ record: updatedRecord, account, broadcast, telegramSendDraft, triggerLabel: '🖱 Heron' })
+    }
   } catch (err) {
-    logger.error('[API] Heron article generate failed', err)
-    if (broadcast) broadcast({ type: 'article_error', data: { id: record.id, message: err.message } })
+    // Nothing written — nothing to clean up, even if this process is killed here.
+    logger.error('[API] Heron article generate failed — nothing written', err)
+    if (broadcast) broadcast({ type: 'article_error', data: { id: articleId, message: err.message } })
+  } finally {
+    inflight.finish(articleId)
   }
 })
 
@@ -338,8 +431,9 @@ router.post('/heron/article/refine', async (req, res) => {
   const modelId = modelsConfig.byId(model) ? model : (record.model || modelsConfig.DEFAULT_MODEL_ID)
   const currentText = articlesStore.latestText(record)
 
-  const withPlaceholder = articlesStore.addVersion(id, { text: '', instruction, model: modelId })
-  const newVersion = withPlaceholder.versions.length
+  // Same as the X refine route: no empty placeholder version. Writing one made every failure
+  // destructive, and a process killed mid-stream can't be rescued by a catch block.
+  const newVersion = record.versions.length + 1
   res.json({ id, version: newVersion, model: modelId })
 
   if (broadcast) broadcast({ type: 'article_start', data: { id, version: newVersion, mode: 'refine' } })
@@ -348,8 +442,10 @@ router.post('/heron/article/refine', async (req, res) => {
       currentText, instruction, model: modelId, sources: record.sources, platform: 'substack',
       onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id, delta } }) : null,
     })
-    articlesStore.updateLatestVersion(id, {
-      text: result.text, usage: result.usage, cost: result.cost, sources: result.sources, model: result.modelId,
+    if (!result.text?.trim()) throw new Error('refine returned empty text')
+    articlesStore.addVersion(id, {
+      text: result.text, instruction, model: result.modelId,
+      usage: result.usage, cost: result.cost, sources: result.sources,
       subtitle: result.subtitle, subject: result.subject, previewText: result.previewText, imagePrompt: result.imagePrompt,
     })
     if (broadcast) broadcast({ type: 'article_done', data: {
@@ -364,8 +460,9 @@ router.post('/heron/article/refine', async (req, res) => {
       ref: { kind: 'article', id },
     })
   } catch (err) {
-    logger.error('[API] Heron article refine failed', err)
-    if (broadcast) broadcast({ type: 'article_error', data: { id, message: err.message } })
+    // Nothing written — the article keeps its previous text.
+    logger.error('[API] Heron article refine failed — article left unchanged', err)
+    if (broadcast) broadcast({ type: 'article_error', data: { id, message: err.message, unchanged: true } })
   }
 })
 
@@ -489,6 +586,466 @@ router.get('/insights', (req, res) => {
   res.json({ account, insights: analyst.getInsights(account) })
 })
 
+// ── Calendar / slots ──────────────────────────────────────────────────────────
+// The grid is a convenience, not a constraint: an asset can sit at any instant, and anything
+// scheduled off-grid still comes back in `offGrid` so it can never silently vanish.
+
+// GET /api/schedule?start=YYYY-MM-DD&days=7
+router.get('/schedule', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  const days = Math.min(31, Math.max(1, parseInt(req.query.days) || 7))
+  res.json({ account, ...scheduleStore.grid(account, { startYmd: req.query.start || null, days }) })
+})
+
+// PUT /api/schedule/:assetId  body: { scheduledFor: ISO | null }
+// This is what drag-to-reschedule calls. null unschedules.
+router.put('/schedule/:assetId', (req, res) => {
+  try {
+    const account = memory.accounts.getActiveAccount()
+    const { scheduledFor = null } = req.body || {}
+    if (scheduledFor && Number.isNaN(Date.parse(scheduledFor))) return res.status(400).json({ error: 'scheduledFor must be an ISO datetime or null' })
+    const asset = assetsStore.setSchedule(account, req.params.assetId, scheduledFor)
+    if (!asset) return res.status(404).json({ error: 'asset not found' })
+    res.json({ ok: true, asset })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// GET /api/schedule/slots · PUT /api/schedule/slots  body: { slots: ["09:00", …] }  (IST)
+router.get('/schedule/slots', (req, res) => res.json({ slots: scheduleStore.getSlots() }))
+router.put('/schedule/slots', (req, res) => {
+  try {
+    res.json({ ok: true, slots: scheduleStore.setSlots(req.body?.slots) })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// POST /api/schedule/generate  body: { brief, platform, scheduledFor, withImage? }
+// Click an empty slot → write into it. Goes through the platform-aware Koel path (Stage B), lands
+// in the library, and attaches itself to the slot.
+router.post('/schedule/generate', async (req, res) => {
+  try {
+    const { brief, platform = 'x', scheduledFor = null, withImage = false } = req.body || {}
+    if (!brief?.trim()) return res.status(400).json({ error: 'brief is required' })
+    const account = memory.accounts.getActiveAccount()
+    const broadcast = req.app.locals.broadcast
+
+    // Format drives the platform pack — see prompts/koelWrite.js platformForFormat().
+    const format = platform === 'linkedin' ? 'linkedin' : platform === 'substack' ? 'heronMid' : 'punch'
+    const written = await koel.write({
+      format, input: brief, inputType: 'topic', count: 1,
+      account, broadcast: null, register: false, origin: 'quill',
+      triggerLabel: '📅 Slot',
+    })
+    const text = written.drafts[0] || ''
+    const finished = finishDraft.finish({ text, platform })
+
+    let imageId = null
+    if (withImage) {
+      try {
+        imageId = (await generateImage.generateFromPost({ text, platform, account, broadcast })).id
+      } catch (e) {
+        logger.source('api').warn('slot image generation failed, continuing without: ' + e.message)
+      }
+    }
+
+    const segments = finished.polishedSegments.map((s, i) => (i === 0 && imageId ? { ...s, imageId } : s))
+    const asset = assetsStore.create(account, { segments, platform, origin: 'quill', warnings: finished.warnings, meta: { brief } })
+    if (scheduledFor) assetsStore.setSchedule(account, asset.id, scheduledFor)
+
+    res.json({ ok: true, asset: assetsStore.get(account, asset.id) })
+  } catch (err) {
+    logger.source('api').error('slot generate failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── Asset library ─────────────────────────────────────────────────────────────
+// An asset is a finished, editable, publishable unit — segments + images + platform validation.
+// Everything lands here: agent-generated drafts, and work written outside the app (origin:'manual').
+
+// GET /api/assets?platform=&state=
+router.get('/assets', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  const { platform = null, state = null } = req.query
+  res.json({ account, assets: assetsStore.list(account, { platform, state }), states: assetsStore.STATES })
+})
+
+router.get('/assets/:id', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  const asset = assetsStore.get(account, req.params.id)
+  if (!asset) return res.status(404).json({ error: 'asset not found' })
+  res.json({ asset })
+})
+
+// POST /api/assets  body: { text?, segments?, platform?, origin?, imageId?, polish? }
+// `polish` (default: true for agent origins, false for manual) decides whether house-style
+// cleanup is APPLIED. For anything hand-written it is computed and returned, never applied —
+// see utils/finishDraft.js.
+router.post('/assets', (req, res) => {
+  try {
+    const account = memory.accounts.getActiveAccount()
+    const { text = '', segments = null, platform = 'x', origin = 'manual', imageId = null, meta = {} } = req.body || {}
+    if (!text.trim() && !(segments && segments.length)) return res.status(400).json({ error: 'text or segments required' })
+
+    const polish = req.body?.polish ?? (origin !== 'manual')
+    let finished = null
+    let finalSegments = segments
+
+    if (!finalSegments) {
+      finished = finishDraft.finish({ text, platform })
+      finalSegments = polish ? finished.polishedSegments : finished.segments
+    }
+    if (imageId) finalSegments = finalSegments.map((s, i) => (i === 0 ? { ...s, imageId } : s))
+
+    const asset = assetsStore.create(account, {
+      segments: finalSegments, platform, origin, meta,
+      warnings: finished ? finished.warnings : [],
+    })
+    // `suggestions` lets the UI offer polish as a diff for manual content instead of silently applying it.
+    res.json({ ok: true, asset, suggestions: finished && !polish ? { changes: finished.changes, polishedSegments: finished.polishedSegments } : null })
+  } catch (err) {
+    logger.source('api').error('asset create failed', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// PUT /api/assets/:id  body: { segments?, platform?, state?, note? } → appends a version
+router.put('/assets/:id', (req, res) => {
+  try {
+    const account = memory.accounts.getActiveAccount()
+    const { segments = null, platform = null, state = null, note = 'edited' } = req.body || {}
+    const target = assetsStore.get(account, req.params.id)
+    if (!target) return res.status(404).json({ error: 'asset not found' })
+    // Re-validate against whichever platform the asset ends up on.
+    const warnings = segments ? finishDraft.validate(segments, platform || target.platform) : null
+    const asset = assetsStore.update(account, req.params.id, { segments, platform, state, warnings, note })
+    res.json({ ok: true, asset })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// POST /api/assets/:id/revert  body: { v }
+router.post('/assets/:id/revert', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  const asset = assetsStore.revert(account, req.params.id, req.body?.v)
+  if (!asset) return res.status(404).json({ error: 'asset or version not found' })
+  res.json({ ok: true, asset })
+})
+
+// POST /api/assets/:id/adapt  body: { platform }
+// Rewrite an existing asset for a DIFFERENT platform. This is what the Stage B platform packs make
+// possible: not a reformat, a genuine rewrite in that platform's register, calibrated against work
+// already approved there. Works on manual content too — write once, get three native versions.
+router.post('/assets/:id/adapt', async (req, res) => {
+  try {
+    const account = memory.accounts.getActiveAccount()
+    const source = assetsStore.get(account, req.params.id)
+    if (!source) return res.status(404).json({ error: 'asset not found' })
+
+    const target = req.body?.platform
+    if (!['x', 'linkedin', 'substack'].includes(target)) return res.status(400).json({ error: 'platform must be x, linkedin or substack' })
+    if (target === source.platform) return res.status(400).json({ error: `already a ${target} asset` })
+
+    const sourceText = source.segments.map(s => s.text).join('\n\n')
+    const format = target === 'linkedin' ? 'linkedin' : target === 'substack' ? 'heronMid' : 'punch'
+
+    const written = await koel.write({
+      format,
+      input: sourceText,
+      inputType: 'freetext',
+      count: 1,
+      // The source is the IDEA, not a template. Saying so explicitly stops the model reformatting
+      // the original instead of rewriting it for the new platform.
+      extraInstructions: `Below is a post Souvik already has for ${source.platform}. Take the IDEA and write it properly for ${target} instead.
+
+This is a rewrite, not a reformat. ${target} has a different reader, a different reading pattern, and different conventions — follow the ${target} rules in your system prompt, not the shape of the original. Keep the underlying point and any real specifics (numbers, names, concrete details). Change everything else that needs to change.`,
+      account, broadcast: null, register: false, origin: 'quill', platform: target,
+      triggerLabel: '🔀 Adapt',
+    })
+
+    const text = written.drafts[0] || ''
+    const finished = finishDraft.finish({ text, platform: target })
+    const asset = assetsStore.create(account, {
+      segments: finished.polishedSegments, platform: target, origin: 'adapted',
+      warnings: finished.warnings, meta: { adaptedFrom: source.id, adaptedFromPlatform: source.platform },
+    })
+    res.json({ ok: true, asset })
+  } catch (err) {
+    logger.source('api').error('adapt failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/assets/generate  body: { brief, platform }
+// Write something with AI and hand the TEXT BACK, without saving or scheduling it. The Studio needs
+// this so a generated draft lands in the editor where it can be read and changed before it becomes
+// anything — /api/schedule/generate does the same Koel call but commits it to a slot immediately,
+// which is the wrong shape for "generate, then look at it".
+router.post('/assets/generate', async (req, res) => {
+  try {
+    const { brief, platform = 'x' } = req.body || {}
+    if (!brief?.trim()) return res.status(400).json({ error: 'brief is required' })
+    const account = memory.accounts.getActiveAccount()
+
+    // Format drives the platform pack — see prompts/koelWrite.js platformForFormat().
+    const format = platform === 'linkedin' ? 'linkedin' : platform === 'substack' ? 'heronMid' : 'punch'
+    const written = await koel.write({
+      format, input: brief, inputType: 'topic', count: 1,
+      account, broadcast: null, register: false, origin: 'quill',
+      triggerLabel: '🎬 Studio',
+    })
+    const text = written.drafts[0] || ''
+    // Return the finishing pass alongside so the editor can show segments/warnings straight away.
+    res.json({ ok: true, text, ...finishDraft.finish({ text, platform }) })
+  } catch (err) {
+    logger.source('api').error('studio generate failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/assets/:id/send → deliver this asset to Telegram right now.
+// scheduler/slotDelivery.js already routes correctly per platform (LinkedIn posts for real, X to
+// the main chat, Substack to Heron's, each with the "Posted ✅" button); it was only reachable from
+// the cron tick. This is the same call, triggered by hand.
+router.post('/assets/:id/send', async (req, res) => {
+  try {
+    const account = memory.accounts.getActiveAccount()
+    const asset = assetsStore.get(account, req.params.id)
+    if (!asset) return res.status(404).json({ error: 'asset not found' })
+
+    const result = await slotDelivery.deliverAsset({
+      account,
+      asset,
+      telegramSend: req.app.locals.telegramSend,
+      telegramSendHeronDraft: req.app.locals.telegramSendHeronDraft,
+      sendAssetCard: req.app.locals.telegramSendAssetCard,
+    })
+    if (!result.ok) return res.status(502).json({ error: result.error || 'delivery failed', mode: result.mode })
+    res.json({ ok: true, mode: result.mode, asset: assetsStore.get(account, req.params.id) })
+  } catch (err) {
+    logger.source('api').error('asset send failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/assets/preview  body: { text, platform } → split + validate WITHOUT saving anything.
+// Powers the live warning strip on the compose page.
+router.post('/assets/preview', (req, res) => {
+  const { text = '', platform = 'x' } = req.body || {}
+  res.json(finishDraft.finish({ text, platform }))
+})
+
+router.delete('/assets/:id', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  if (!assetsStore.remove(account, req.params.id)) return res.status(404).json({ error: 'asset not found' })
+  res.json({ ok: true })
+})
+
+// ── Images ────────────────────────────────────────────────────────────────────
+// Files are served statically from /assets/images (see server/index.js); these routes are the
+// metadata index, generation, upload, and the approve/reject verdict that builds the future
+// LoRA training set.
+
+// GET /api/images → newest first, plus which provider is live and what else is available.
+// `provider` reflects utils/imageProviders/ — swap it with IMAGE_PROVIDER in .env.
+router.get('/images', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  const all = imagesStore.list(account).slice().reverse()
+  const status = imageClient.status()
+  res.json({
+    account,
+    images: all,
+    approvedCount: all.filter(i => i.verdict === 'approved').length,
+    provider: status.active,
+    providerStatus: status,
+    defaultModel: status.defaultModel,
+    models: modelsConfig.IMAGE_MODELS,
+  })
+})
+
+// POST /api/images/generate  body: { text? | subject?, raw?, platform?, modelId? }
+// `text` = post copy (a visual subject is derived from it first). `subject` = skip that step.
+router.post('/images/generate', async (req, res) => {
+  try {
+    const { text = null, subject = null, raw = false, platform = 'x', modelId = null } = req.body || {}
+    if (!text && !subject) return res.status(400).json({ error: 'Provide either `text` (post copy) or `subject` (a visual subject/prompt)' })
+    const account = memory.accounts.getActiveAccount()
+    const broadcast = req.app.locals.broadcast
+    const image = subject
+      ? await generateImage.generateFromPrompt({ subject, raw, platform, modelId, account, broadcast })
+      : await generateImage.generateFromPost({ text, platform, modelId, account, broadcast })
+    res.json({ ok: true, image })
+  } catch (err) {
+    logger.source('api').error('image generate failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/images/upload  body: { data: "<base64 or data: URL>", contentType?, platform? }
+router.post('/images/upload', (req, res) => {
+  try {
+    const { data, contentType = 'image/png', platform = 'x' } = req.body || {}
+    if (!data) return res.status(400).json({ error: 'data (base64 or data: URL) is required' })
+    const account = memory.accounts.getActiveAccount()
+    res.json({ ok: true, image: generateImage.saveUpload({ data, contentType, platform, account }) })
+  } catch (err) {
+    logger.source('api').error('image upload failed', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// POST /api/images/:id/verdict  body: { verdict: 'approved' | 'rejected' | null }
+router.post('/images/:id/verdict', (req, res) => {
+  try {
+    const account = memory.accounts.getActiveAccount()
+    const rec = imagesStore.setVerdict(account, req.params.id, req.body?.verdict ?? null)
+    if (!rec) return res.status(404).json({ error: 'image not found' })
+    res.json({ ok: true, image: rec, approvedCount: imagesStore.approved(account).length })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// DELETE /api/images/:id → removes the record and the file
+router.delete('/images/:id', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  const ok = imagesStore.remove(account, req.params.id)
+  if (!ok) return res.status(404).json({ error: 'image not found' })
+  res.json({ ok: true })
+})
+
+// ── Article preferences ───────────────────────────────────────────────────────
+// The two template files already drove article generation but had no UI. articleWriter reads them
+// fresh on every generation, so a save here takes effect on the next article with no restart.
+
+router.get('/article-template', (req, res) => {
+  try {
+    res.json({ ...articleTemplateStore.get(req.query.platform || 'x'), platforms: articleTemplateStore.platforms() })
+  } catch (err) { res.status(400).json({ error: err.message }) }
+})
+
+router.put('/article-template', (req, res) => {
+  try {
+    const { platform = 'x', content = null, preamble = null, sections = null } = req.body || {}
+    res.json({ ok: true, ...articleTemplateStore.save(platform, { content, preamble, sections }) })
+  } catch (err) { res.status(400).json({ error: err.message }) }
+})
+
+// Standing rules distilled from the corrections Souvik makes when refining articles.
+router.get('/article-lessons', (req, res) => {
+  res.json(articleLessonsStore.get(memory.accounts.getActiveAccount()))
+})
+
+router.post('/article-lessons/learn', async (req, res) => {
+  try {
+    res.json(await analyst.learnArticleLessons({ broadcast: req.app.locals.broadcast }))
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.post('/article-lessons', (req, res) => {
+  const { text } = req.body || {}
+  if (!text?.trim()) return res.status(400).json({ error: 'text required' })
+  res.json(articleLessonsStore.addRule(memory.accounts.getActiveAccount(), text))
+})
+
+router.delete('/article-lessons/:id', (req, res) => {
+  res.json(articleLessonsStore.removeRule(memory.accounts.getActiveAccount(), req.params.id))
+})
+
+// ── Content strategy ──────────────────────────────────────────────────────────
+// The single source of truth for what this account is about. Editing it here changes the ranking
+// prompt's subjects and ban list, Raven's on-topic domains, the thread themes, and the repost
+// filter — all at once. Before this existed those lived in seven separate files, none editable.
+
+// GET /api/strategy → { positioning, pillars[], exclusions[], domains, threadThemes }
+router.get('/strategy', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  const strategy = strategyStore.get(account)
+  res.json({
+    account,
+    strategy,
+    allDomains: strategyStore.ALL_DOMAINS,
+    onTopicDomains: strategyStore.onTopicDomains(account),
+    // What today's thread slots resolve to — makes the 'always'/'rotate' setting concrete.
+    threadThemesToday: strategyStore.threadThemes(account, 2),
+  })
+})
+
+// PUT /api/strategy  body: { positioning?, pillars?, exclusions? }
+router.put('/strategy', (req, res) => {
+  try {
+    const account = memory.accounts.getActiveAccount()
+    const strategy = strategyStore.save(account, req.body || {})
+    res.json({
+      ok: true,
+      strategy,
+      onTopicDomains: strategyStore.onTopicDomains(account),
+      threadThemesToday: strategyStore.threadThemes(account, 2),
+    })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// ── Per-platform keywords ─────────────────────────────────────────────────────
+// What earns reach differs per platform, so keyword priority is stored per platform and folded into
+// Raven's ranking call (see prompts/rankResults.js) rather than a single global focus list.
+
+// GET /api/keywords → { x: [{term, weight}], linkedin: [...], substack: [...] }
+router.get('/keywords', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  res.json({ account, keywords: keywordsStore.getAll(account), platforms: keywordsStore.PLATFORMS })
+})
+
+// PUT /api/keywords  body: { x?: [...], linkedin?: [...], substack?: [...] }
+// Each list is [{ term, weight }] or bare strings. Platforms left out are untouched.
+router.put('/keywords', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  const patch = req.body || {}
+  const known = keywordsStore.PLATFORMS.filter(p => patch[p] !== undefined)
+  if (!known.length) return res.status(400).json({ error: 'Provide at least one of: ' + keywordsStore.PLATFORMS.join(', ') })
+  res.json({ ok: true, keywords: keywordsStore.save(account, patch) })
+})
+
+// POST /api/keywords/search  body: { seed?, platform? }
+// Expands a seed topic into candidate keywords and scores every one against the CURRENT research
+// pool (real occurrence counts, not a model's guess at what's trending). Omit `seed` to just report
+// what the pool is already about plus how the saved keywords are performing.
+router.post('/keywords/search', async (req, res) => {
+  try {
+    const { seed = null, platform = 'x' } = req.body || {}
+    const result = await keywordSearch({ seed, platform })
+    res.json(result)
+  } catch (err) {
+    logger.source('api').error('keyword search failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/brand-audit → the latest real X brand-gap audit (real tweets, real engagement, real niche comparison)
+router.get('/brand-audit', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  res.json({ account, audit: brandAuditStore.get(account) })
+})
+
+// POST /api/brand-audit/trigger  body: { screenname? } → runs a real audit now (real RapidAPI + LLM call)
+router.post('/brand-audit/trigger', async (req, res) => {
+  const { screenname } = req.body || {}
+  const { broadcast } = req.app.locals
+  const account = memory.accounts.getActiveAccount()
+  try {
+    const audit = await analyst.auditBrand({ account, screenname: screenname || undefined, broadcast })
+    res.json({ account, audit })
+  } catch (err) {
+    logger.error('[API] Brand audit failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // GET /api/expenses?days=N → LLM spend, bucketed by IST calendar day and by agent. Merges the
 // cost log (every agent except Article Writer) with articlesStore's own per-version costs (Article
 // Writer already persists its cost where it is — not duplicated into the cost log).
@@ -610,6 +1167,19 @@ router.get('/agents', (req, res) => {
     summary: articles[0] ? `Last: "${articles[0].title || articles[0].topic}"` : (articleActivity?.summary || 'No articles yet'),
   }
 
+  const imageActivity = latestActivity(['image'])
+  const allImages = imagesStore.list(account)
+  const approvedImages = allImages.filter(i => i.verdict === 'approved').length
+  const imageCard = {
+    id: 'image', name: 'Image', role: 'visuals', kind: 'shared',
+    status: imageClient.activeProvider() ? 'idle' : 'not-built',
+    mode: imageClient.activeProvider() || 'no provider',
+    lastRun: imageActivity?.ts || null,
+    summary: allImages.length
+      ? `${allImages.length} image${allImages.length === 1 ? '' : 's'} · ${approvedImages} approved`
+      : 'No images yet',
+  }
+
   const insights = analyst.getInsights(account)
   const analystActivity = latestActivity(['analyst'])
   const analystCard = {
@@ -645,7 +1215,7 @@ router.get('/agents', (req, res) => {
     nextRun: getSchedulerStatus().heronEnabled ? nextDailyLabel('heron') : null,
   }
 
-  res.json({ agents: [raven, quillX, parrotCard, heronCard, koel, article, analystCard] })
+  res.json({ agents: [raven, quillX, parrotCard, heronCard, koel, article, imageCard, analystCard] })
 })
 
 // ── Scheduler control ─────────────────────────────────────────────────────────

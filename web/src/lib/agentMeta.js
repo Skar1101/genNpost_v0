@@ -7,6 +7,7 @@ export const AGENT_META = {
   quill: { label: 'Quill', cls: 'quill' },
   koel: { label: 'Koel', cls: 'koel' },
   article: { label: 'Article', cls: 'article' },
+  image: { label: 'Image', cls: 'article' },
   tools: { label: 'Tools', cls: 'tools' },
   insights: { label: 'Analyst', cls: 'insights' },
   analyst: { label: 'Analyst', cls: 'insights' },

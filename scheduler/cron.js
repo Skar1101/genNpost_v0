@@ -5,6 +5,7 @@ const analyst = require('../agents/analyst')
 const dailyDrop = require('./dailyDrop')
 const heronDrop = require('./heronDrop')
 const parrotDrop = require('./parrotDrop')
+const slotDelivery = require('./slotDelivery')
 const { isEnabled, getLastDrop, isHeronEnabled, getLastHeronRun, isParrotEnabled, getLastParrotRun, getTimes } = require('../state/schedulerStore')
 
 // IST "HH:mm" -> a UTC node-cron expression ("m h * * *"), correctly rolling the UTC day back one
@@ -53,8 +54,8 @@ function rescheduleDynamic() {
   registerDynamicJobs()
 }
 
-function initScheduler(broadcast, telegramSend, telegramSendDraft = null, telegramSendArticleIdeas = null, telegramSendHeronDraft = null, telegramSendParrotDraft = null) {
-  _ctx = { broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft, telegramSendParrotDraft }
+function initScheduler(broadcast, telegramSend, telegramSendDraft = null, telegramSendArticleIdeas = null, telegramSendHeronDraft = null, telegramSendParrotDraft = null, sendAssetCard = null) {
+  _ctx = { broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft, telegramSendParrotDraft, sendAssetCard }
   registerDynamicJobs()
 
   const istHm = String(Math.floor(dailyDrop.istMinutes() / 60)).padStart(2, '0') + ':' + String(dailyDrop.istMinutes() % 60).padStart(2, '0')
@@ -73,8 +74,15 @@ function initScheduler(broadcast, telegramSend, telegramSendDraft = null, telegr
   const parrotCatchUp = (why) => parrotDrop.maybeCatchUp({ broadcast, telegramSend, telegramSendDraft: telegramSendParrotDraft })
     .then(r => { if (r && r.ran) console.log(`[Scheduler] Catch-up Parrot drop completed (${why})`) })
     .catch(() => {})
-  setTimeout(() => { catchUp('startup'); heronCatchUp('startup'); parrotCatchUp('startup') }, 8000)
-  setInterval(() => { catchUp('periodic'); heronCatchUp('periodic'); parrotCatchUp('periodic') }, 30 * 60 * 1000)
+  // Scheduled library assets whose slot has come due. Rides the SAME tick as the catch-ups rather
+  // than adding a job — a 30-minute granularity is right for "post around 1pm", and an asset leaves
+  // 'scheduled' the moment it's delivered, so repeated calls can't double-send.
+  const slots = (why) => slotDelivery.deliverDue({ telegramSend, telegramSendHeronDraft, sendAssetCard })
+    .then(r => { if (r && r.delivered) console.log(`[Scheduler] Delivered ${r.delivered} scheduled asset(s) (${why})${r.failed ? `, ${r.failed} failed` : ''}`) })
+    .catch(e => console.warn('[Scheduler] slot delivery failed:', e.message))
+
+  setTimeout(() => { catchUp('startup'); heronCatchUp('startup'); parrotCatchUp('startup'); slots('startup') }, 8000)
+  setInterval(() => { catchUp('periodic'); heronCatchUp('periodic'); parrotCatchUp('periodic'); slots('periodic') }, 30 * 60 * 1000)
 }
 
 async function runHeronBatch(broadcast, telegramSend, telegramSendHeronDraft) {

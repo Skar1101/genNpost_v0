@@ -6,10 +6,23 @@ const G = require('../config/guardrails')
 
 // Wrap a create() in an AbortController that fires after TIMEOUT_MS, so a hung/slow call (even a stalled
 // stream) is aborted rather than holding a concurrency slot forever.
-function withTimeout() {
+// `external` lets a caller (e.g. the Stop button on the Article Writer) abort the same request.
+// Linked by hand rather than with AbortSignal.any, which is Node 20+ — this project targets Node 18.
+function withTimeout(external = null) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), G.TIMEOUT_MS)
-  return { signal: controller.signal, clear: () => clearTimeout(timer) }
+  const onExternalAbort = () => controller.abort()
+  if (external) {
+    if (external.aborted) controller.abort()
+    else external.addEventListener('abort', onExternalAbort, { once: true })
+  }
+  return {
+    signal: controller.signal,
+    clear: () => {
+      clearTimeout(timer)
+      if (external) external.removeEventListener('abort', onExternalAbort)
+    },
+  }
 }
 
 // Unified chat client for the Article Writer. Routes through OpenRouter when OPENROUTER_API_KEY is set
@@ -57,12 +70,12 @@ function resolveModelId(modelId) {
 }
 
 // Non-streaming completion. Returns { text, usage, modelUsed }.
-async function complete({ modelId, messages, temperature = 0.8, maxTokens = 4000 } = {}) {
+async function complete({ modelId, messages, temperature = 0.8, maxTokens = 4000, signal = null } = {}) {
   const client = getClient()
   const model = resolveModelId(modelId)
   const cappedTokens = Math.min(maxTokens, G.MAX_OUTPUT_TOKENS)
   return guard.runGuarded(async () => {
-    const t = withTimeout()
+    const t = withTimeout(signal)
     try {
       const res = await client.chat.completions.create(
         { model, messages, temperature, max_tokens: cappedTokens },
@@ -80,13 +93,13 @@ async function complete({ modelId, messages, temperature = 0.8, maxTokens = 4000
 // Streaming completion. Calls onToken(delta) for each chunk; returns { text, usage, modelUsed }.
 // Note: usage is only present on the final chunk when stream_options.include_usage is honored (OpenRouter
 // + OpenAI support it). We also accumulate text so callers always get the full result.
-async function stream({ modelId, messages, temperature = 0.8, maxTokens = 4000, onToken } = {}) {
+async function stream({ modelId, messages, temperature = 0.8, maxTokens = 4000, onToken, signal = null } = {}) {
   const client = getClient()
   const model = resolveModelId(modelId)
   const cappedTokens = Math.min(maxTokens, G.MAX_OUTPUT_TOKENS)
   // Hold the guard slot for the ENTIRE stream (create + consumption), so concurrency is real.
   return guard.runGuarded(async () => {
-    const t = withTimeout()
+    const t = withTimeout(signal)
     try {
       const s = await client.chat.completions.create(
         { model, messages, temperature, max_tokens: cappedTokens, stream: true, stream_options: { include_usage: true } },
@@ -94,12 +107,14 @@ async function stream({ modelId, messages, temperature = 0.8, maxTokens = 4000, 
       )
       let text = ''
       let usage = null
+      let aborted = false
       for await (const chunk of s) {
+        if (signal && signal.aborted) { aborted = true; break }
         const delta = chunk.choices?.[0]?.delta?.content || ''
         if (delta) { text += delta; if (onToken) onToken(delta) }
         if (chunk.usage) usage = chunk.usage
       }
-      return { text: text.trim(), usage, modelUsed: model }
+      return { text: text.trim(), usage, modelUsed: model, aborted }
     } finally { t.clear() }
   })
 }

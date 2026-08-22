@@ -4,21 +4,53 @@ const { HOUSE_STYLE_TEXT } = require('./styleRules')
 
 const KOEL_DIR = path.join(__dirname, '..', 'sub-agents', 'koel')
 
-function loadFile(filename) {
-  try { return fs.readFileSync(path.join(KOEL_DIR, filename), 'utf8') } catch (_) { return '' }
+function loadFile(...segments) {
+  try { return fs.readFileSync(path.join(KOEL_DIR, ...segments), 'utf8') } catch (_) { return '' }
+}
+
+// ── Platform packs ───────────────────────────────────────────────────────────
+// Every platform loads `common/` (the constant voice) plus EXACTLY ONE platform pack. Before this
+// split, one prompt carried all of X's material — ~27 KB of tweet principles, 100K-view tweet
+// examples and DM-giveaway templates — on every call, including LinkedIn and Substack ones, where a
+// format guide at the very end then tried to countermand it. Measured: a LinkedIn call was sending
+// ~9,400 prompt tokens, most of it about a platform it wasn't writing for.
+//
+// To change how Souvik sounds on one platform, edit that platform's directory. Nothing in a
+// platform pack should ever describe another platform.
+const PLATFORMS = ['x', 'linkedin', 'substack']
+
+const PACK_FILES = {
+  x: [
+    { file: 'PRINCIPLES.md',                heading: 'X COPY PRINCIPLES' },
+    { file: 'EXAMPLES.txt',                 heading: 'HIGH-PERFORMING TWEET EXAMPLES (100K+ VIEWS)' },
+    { file: 'Engagement_Post_Templates.txt', heading: 'ENGAGEMENT POST TEMPLATES' },
+    { file: 'Viral_long_form_template.txt', heading: 'VIRAL LONG-FORM TEMPLATE' },
+  ],
+  linkedin: [
+    { file: 'PRINCIPLES.md', heading: 'LINKEDIN COPY PRINCIPLES' },
+    { file: 'EXAMPLES.md',   heading: 'LINKEDIN PATTERNS THAT WORK (shape references — never reuse the wording)' },
+  ],
+  substack: [
+    { file: 'PRINCIPLES.md', heading: 'SUBSTACK COPY PRINCIPLES' },
+    { file: 'EXAMPLES.md',   heading: 'SUBSTACK PATTERNS THAT WORK (shape references — never reuse the wording)' },
+  ],
 }
 
 // Cache loaded once at startup — call reloadKnowledge() after editing files
 let _cache = null
 
 function reloadKnowledge() {
+  const packs = {}
+  for (const p of PLATFORMS) {
+    packs[p] = {
+      sections: PACK_FILES[p].map(({ file, heading }) => ({ heading, body: loadFile(p, file) })).filter(s => s.body.trim()),
+      outputRules: loadFile(p, 'OUTPUT_RULES.md'),
+    }
+  }
   _cache = {
-    identity:       loadFile('IDENTITY.md'),
-    writingCtx:     loadFile('writing_principles_context.txt'),
-    copyPrinciples: loadFile('twitter_copy_principles.md'),
-    examples:       loadFile('HIGH-PERFORMING_TWEET_EXAMPLES_100K_Views_V2.txt'),
-    engTemplates:   loadFile('Engagement_Post_Templates.txt'),
-    viralLongform:  loadFile('Viral_long_form_template.txt'),
+    identity:   loadFile('common', 'IDENTITY.md'),
+    writingCtx: loadFile('common', 'writing_principles_context.txt'),
+    packs,
   }
   return _cache
 }
@@ -31,52 +63,65 @@ function getKnowledge() {
 }
 
 // ── Format descriptions shown in UI ──────────────────────────────────────────
+// `platform` decides which knowledge pack loads. Every format belongs to exactly one platform, so
+// the format alone is enough to resolve it — that matters because callers are reliable about
+// passing `format` and were not about passing `platform` (Heron never did, so its Substack drafts
+// were being written with X's full playbook loaded).
 const FORMAT_META = {
-  short:       { label: 'Short Form',         desc: 'Single tweet, punchy & direct, max 280 chars' },
-  thread:      { label: 'Thread',             desc: '5–8 tweet thread, numbered, standalone tweets, one CTA' },
-  longform:    { label: 'Long Form',          desc: 'Single detailed post, 500–900 chars' },
-  motivational:{ label: 'Motivational',       desc: 'Personal story or resilience post, emotional + universal' },
-  engagement:  { label: 'Engagement Farming', desc: 'DM giveaway post with CTA keyword' },
-  note:        { label: 'Substack Note',      desc: '1–2 lines, punchy, tied to your niche/pillars' },
+  short:       { platform: 'x',        label: 'Short Form',         desc: 'Single tweet, punchy & direct, max 280 chars' },
+  thread:      { platform: 'x',        label: 'Thread',             desc: '5–8 tweet thread, numbered, standalone tweets, one CTA' },
+  longform:    { platform: 'x',        label: 'Long Form',          desc: 'Single detailed post, 500–900 chars' },
+  motivational:{ platform: 'x',        label: 'Motivational',       desc: 'Personal story or resilience post, emotional + universal' },
+  engagement:  { platform: 'x',        label: 'Engagement Farming', desc: 'DM giveaway post with CTA keyword' },
+  note:        { platform: 'substack', label: 'Substack Note',      desc: '1–2 lines, punchy, tied to your niche/pillars' },
   // Daily-drop only — not a manually-selectable format (kept out of KoelPage.jsx's format list on
   // purpose). Raw, hook-driven, punchline-length; no forced personal-story framing.
-  punch:       { label: 'Punch',              desc: '1–2 lines, raw hook, built to go viral — daily drop only' },
+  punch:       { platform: 'x',        label: 'Punch',              desc: '1–2 lines, raw hook, built to go viral — daily drop only' },
   // Heron daily-drop only (kept out of KoelPage.jsx's format list) — a step up from a Substack Note:
   // enough room to develop one thought with a concrete detail, still well short of an article.
-  heronMid:    { label: 'Heron Mid-Post',     desc: '~80–120 words, one developed thought — Heron daily drop only' },
+  heronMid:    { platform: 'substack', label: 'Heron Mid-Post',     desc: '~80–120 words, one developed thought — Heron daily drop only' },
   // Quote-repost comment (Quill's repost pipeline only) — own format so its 400-700 char target
   // doesn't compete with the 'short' format's own 280-char cap (they were conflicting when reposts
   // reused 'short' + an extraInstructions override alone).
-  repost:      { label: 'Quote-Repost',       desc: 'Neutral highlight of the quoted post, 400-700 chars — reposts only' },
+  repost:      { platform: 'x',        label: 'Quote-Repost',       desc: 'Neutral highlight of the quoted post, 400-700 chars — reposts only' },
   // Parrot (LinkedIn) only — different platform, different register: professional/thought-leadership,
   // not X's punchy one-liner style. Short hashtag use is appropriate here (unlike everywhere else).
-  linkedin:    { label: 'LinkedIn Post',      desc: 'Professional/thought-leadership, ~150-300 words — Parrot only' },
+  linkedin:    { platform: 'linkedin', label: 'LinkedIn Post',      desc: 'Professional/thought-leadership, ~150-300 words — Parrot only' },
+}
+
+// Which knowledge pack a request should load. Format wins when it maps to a platform (it always
+// does today); the explicit `platform` argument is the fallback for anything unrecognised.
+function platformForFormat(format, fallback = 'x') {
+  const p = FORMAT_META[format]?.platform
+  if (p) return p
+  return PLATFORMS.includes(fallback) ? fallback : 'x'
 }
 
 // ── Build the system prompt from cached knowledge ────────────────────────────
-function buildKoelSystemPrompt() {
+// Composed per platform: shared identity + shared writing principles + THAT platform's pack +
+// house style + shared output rules + that platform's own output rules.
+const PLATFORM_LABEL = { x: 'X (Twitter)', linkedin: 'LinkedIn', substack: 'Substack' }
+
+function buildKoelSystemPrompt(platform = 'x') {
+  const plat = PLATFORMS.includes(platform) ? platform : 'x'
   const k = getKnowledge()
+  const pack = k.packs[plat]
+
+  const packBlocks = pack.sections.map(s => `---\n## ${s.heading}\n${s.body}`).join('\n\n')
+
   return `${k.identity}
+
+---
+## YOU ARE WRITING FOR: ${PLATFORM_LABEL[plat]}
+
+Everything below is specific to ${PLATFORM_LABEL[plat]}. Do not import mechanics, formats, or
+conventions from any other platform — the rules that win on one lose on another.
 
 ---
 ## WRITING PRINCIPLES
 ${k.writingCtx}
 
----
-## TWITTER COPY PRINCIPLES
-${k.copyPrinciples}
-
----
-## HIGH-PERFORMING TWEET EXAMPLES (100K+ Views)
-${k.examples}
-
----
-## ENGAGEMENT POST TEMPLATES
-${k.engTemplates}
-
----
-## VIRAL LONG-FORM TEMPLATE
-${k.viralLongform}
+${packBlocks}
 
 ---
 ${HOUSE_STYLE_TEXT}
@@ -88,15 +133,14 @@ ${HOUSE_STYLE_TEXT}
   matching the requested count)
 - Start with DRAFT 1 (no header needed, just start writing)
 - Never explain your choices, never add notes or meta-commentary
-- Never number lines inside a tweet
-- Keep threads clearly separated: Tweet 1/, Tweet 2/ etc.
-- Motivational posts: ground them in Souvik's real story (transplant, medals, building)
-- Engagement posts: always end with Comment "[KEYWORD]" + follow → I'll DM it (must be following)
-- Do not add hashtags unless asked
 - Write as Souvik in first person always
 - Use standard sentence casing — capitalize the start of sentences and proper nouns (AI, product/brand
   names, etc.). Do not write in all-lowercase unless the profile explicitly opts in via a line that
-  says "CASE: write everything in lowercase"`
+  says "CASE: write everything in lowercase"
+
+---
+## ${PLATFORM_LABEL[plat].toUpperCase()} OUTPUT RULES (CRITICAL — these override any habit from another platform)
+${pack.outputRules}`
 }
 
 // ── Build the live context block (read-before-write) ─────────────────────────
@@ -110,8 +154,16 @@ function bestTweetText(t) {
   return String(t.text || t.url || '').trim()
 }
 
-function buildContextBlock(ctx) {
+// Entries written before platform packs existed carry no `platform` — every one of them is an X
+// post, since X was the only platform Koel wrote for at the time.
+function entryPlatform(e) { return e?.platform || 'x' }
+
+function buildContextBlock(ctx, platform = 'x') {
   if (!ctx) return ''
+  const plat = PLATFORMS.includes(platform) ? platform : 'x'
+  // Calibrate against work from the SAME platform. A LinkedIn draft used to be shown "YOUR BEST
+  // TWEETS (the gold standard — match THIS voice)", which is precisely the wrong target.
+  const samePlatform = arr => (arr || []).filter(e => entryPlatform(e) === plat)
   const out = []
   const p = ctx.profile
   if (p) {
@@ -129,19 +181,26 @@ function buildContextBlock(ctx) {
     // Opt-in lowercase voice — only when the profile explicitly sets it.
     if (v.lowercase) out.push('CASE: write everything in lowercase (no capitalization at sentence starts or on proper nouns), for a casual all-lowercase voice.')
   }
-  // Best tweets are the gold-standard voice reference — show them first and fuller than learned examples.
+  // Best tweets are the gold-standard voice reference on X — and ONLY on X. They are tweets; held
+  // up as the quality bar for a LinkedIn or Substack draft they actively pull the writing wrong.
   const best = (p && p.bestTweets ? p.bestTweets : []).map(bestTweetText).filter(Boolean)
-  if (best.length) {
+  if (plat === 'x' && best.length) {
     out.push('\n=== YOUR BEST TWEETS (the gold standard — match THIS voice, rhythm, and quality bar) ===')
     best.slice(0, 5).forEach(t => out.push('- ' + t.replace(/\s+/g, ' ').trim().slice(0, 320)))
   }
-  if (ctx.voiceExamples && ctx.voiceExamples.length) {
+  // Voice examples come from drafts Souvik edited by hand — the strongest voice signal there is.
+  // Same-platform first; fall back to all of them when this platform has none yet, since the
+  // underlying voice is constant even where the craft isn't.
+  const voice = ctx.voiceExamples || []
+  const voiceScoped = samePlatform(voice).length ? samePlatform(voice) : voice
+  if (voiceScoped.length) {
     out.push('\n=== VOICE EXAMPLES (mirror the rhythm & phrasing, not the topic) ===')
-    ctx.voiceExamples.slice(-8).forEach(e => out.push('- ' + oneLine(e.text)))
+    voiceScoped.slice(-8).forEach(e => out.push('- ' + oneLine(e.text)))
   }
-  if (ctx.approved && ctx.approved.length) {
-    out.push('\n=== RECENTLY APPROVED (what resonates — lean toward these patterns) ===')
-    ctx.approved.slice(-6).forEach(e => out.push('- ' + oneLine(e.text)))
+  const approvedHere = samePlatform(ctx.approved)
+  if (approvedHere.length) {
+    out.push(`\n=== RECENTLY APPROVED ${PLATFORM_LABEL[plat].toUpperCase()} POSTS (what resonates here — lean toward these patterns) ===`)
+    approvedHere.slice(-6).forEach(e => out.push('- ' + oneLine(e.text)))
   }
   // Learned performance insights (Phase 4) — what actually landed with the audience.
   const ins = ctx.insights
@@ -152,9 +211,10 @@ function buildContextBlock(ctx) {
     if (ins.workingTopics?.length) out.push('Topics that land: ' + ins.workingTopics.slice(0, 6).join(' · '))
     if (ins.avoid?.length) out.push('AVOID (underperformed): ' + ins.avoid.slice(0, 6).join(' · '))
   }
-  if (ctx.rejected && ctx.rejected.length) {
+  const rejectedHere = samePlatform(ctx.rejected)
+  if (rejectedHere.length) {
     out.push('\n=== REJECTED ANGLES — DO NOT REPEAT THESE (avoid the angle and its reason) ===')
-    ctx.rejected.slice(-10).forEach(e => out.push(`- ${oneLine(e.text)}${e.reason ? '  (reason: ' + e.reason + ')' : ''}`))
+    rejectedHere.slice(-10).forEach(e => out.push(`- ${oneLine(e.text)}${e.reason ? '  (reason: ' + e.reason + ')' : ''}`))
   }
   return out.join('\n')
 }
@@ -218,9 +278,13 @@ function buildKoelUserPrompt({ format, input, inputType, count = 3, extraInstruc
       : `Write ${count} mid-length Substack posts, each a DISTINCT angle. ${midRules}`
   } else if (format === 'repost') {
     formatGuide = `Write the quote-repost comment. Length: 3-6 lines, roughly 400-700 characters — long
-enough to properly convey the quoted post's substance, not a short reaction. Present the post's own
-idea clearly and engagingly, and why it's worth a read — this is a highlight/curation, NOT personal
-opinion. No first-person opinion language ("I think", "in my experience"). No hashtags, no em dashes.`
+enough to properly convey the quoted post's substance, not a short reaction. Take a real, sharp stance —
+bigger than it looks, overhyped, the part everyone's missing. "Not personal opinion" means not about
+Souvik's own life/story, NOT hedged or explainer-toned — a comment with no real point of view is not
+acceptable output. Never write like a press release or product description ("marking a pivotal moment",
+"this insight highlights", "essential reading for anyone") — if it could be swapped onto a different
+announcement unchanged, rewrite it. No first-person opinion framed as personal experience ("in my
+experience", "when I..."). No hashtags, no em dashes.`
   } else if (format === 'linkedin') {
     const liRules = `Rules:
 - ~150-300 words. Short paragraphs — 1-3 sentences each, blank line between them (LinkedIn's native
@@ -234,8 +298,8 @@ opinion. No first-person opinion language ("I think", "in my experience"). No ha
   a take, an analysis — not a personal narrative. This applies even to career/building-in-public topics:
   write about the PRACTICE or IDEA, not Souvik's own story.
 - Close with a genuine takeaway or a real question — not "Thoughts?" or "Agree?" tacked on.
-- 3-5 relevant hashtags at the end is appropriate here (LinkedIn convention — unlike X, where this format
-  guide's siblings ban hashtags). Keep them specific, not generic (#leadership, #motivation).
+- 3-5 relevant hashtags at the end (see the LinkedIn output rules above). Keep them specific, not
+  generic — never #leadership or #motivation.
 - No em dashes, no filler, no AI-slop phrasing (see HOUSE STYLE above).`
     formatGuide = count === 1
       ? `Write ONE LinkedIn post. ${liRules}`
@@ -265,4 +329,4 @@ ${input}
 Write now. No preamble.`
 }
 
-module.exports = { buildKoelSystemPrompt, buildKoelUserPrompt, buildContextBlock, FORMAT_META, reloadKnowledge }
+module.exports = { buildKoelSystemPrompt, buildKoelUserPrompt, buildContextBlock, FORMAT_META, reloadKnowledge, platformForFormat, PLATFORMS }

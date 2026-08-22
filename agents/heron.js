@@ -177,7 +177,8 @@ async function assignDailyTopics({ account = null } = {}) {
   const acct = account || memory.accounts.getActiveAccount()
   const research = researchStore.readLatest()
   const results = research?.results || []
-  const top = results.slice(0, 15)
+  // Ordered by Substack fit — items with enough depth to carry 100+ words rise above pure news.
+  const top = raven.topForPlatform(research, 'substack', 15)
   const topList = top.length
     ? top.map((r, i) => `${i + 1}. [${r.source}] ${r.title}`).join('\n')
     : '(no fresh research available — use freetext angles for every topic)'

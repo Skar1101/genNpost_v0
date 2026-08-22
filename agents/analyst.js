@@ -2,13 +2,22 @@ require('dotenv').config()
 const OpenAI = require('openai')
 const memory = require('../state/memory')
 const insightsStore = require('../state/insightsStore')
+const brandAuditStore = require('../state/brandAuditStore')
 const focusStore = require('../state/focusStore')
+const keywordsStore = require('../state/keywordsStore')
+const strategyStore = require('../state/strategyStore')
+const articlesStore = require('../state/articlesStore')
+const articleLessonsStore = require('../state/articleLessonsStore')
+const articleWriter = require('./articleWriter')
 const activityStore = require('../state/activityStore')
+const researchStore = require('../state/researchStore')
 const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 const logger = require('../utils/logger')
 const log = logger.source('analyst')
 const costTracker = require('../utils/costTracker')
+const fetchUserTweets = require('../tools/fetchUserTweets')
+const { buildBrandAuditPrompt } = require('../prompts/brandAudit')
 
 let _openai = null
 function getOpenAI() {
@@ -129,7 +138,40 @@ async function analyze({ account = null, broadcast = null } = {}) {
   const fmtRejected = rejected.map(r => `- ${norm(r.text).slice(0, 80)}${r.reason ? ` (rejected: ${r.reason})` : ''}`).join('\n') || '(none)'
   const fmtStats = stats.sources.map(s => `${s.source}: ${s.approved}/${s.decided} approved (winRate ${s.winRate ?? 'n/a'})`).join(' · ') || '(no provenance yet)'
 
-  const prompt = `You are the performance analyst for Souvik, a tech/AI creator on X. From his real data below, extract what is working so future drafts and research lean into it. Be concrete and specific — no generic advice.
+  // Rejection REASONS as their own block. They were previously only inline per-draft, where a
+  // repeated complaint reads as a detail rather than a pattern — the live data has "wrong topic"
+  // as 7 of 19 rejections, which is the single clearest instruction the user has ever given the
+  // system, and it was invisible.
+  const reasonCounts = {}
+  for (const r of memory.rejectedDrafts.read(acct)) {
+    const key = String(r.reason || 'unspecified').trim().toLowerCase()
+    reasonCounts[key] = (reasonCounts[key] || 0) + 1
+  }
+  const totalRejections = Object.values(reasonCounts).reduce((a, b) => a + b, 0)
+  const fmtReasons = totalRejections
+    ? Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => `${k}: ${n} (${Math.round((n / totalRejections) * 100)}%)`).join(' · ')
+    : '(none yet)'
+
+  // The pillars are a DECISION, not a hypothesis to test against noisy history. Without this, the
+  // analyst reads a run of "wrong topic" rejections (which came from off-target AI items in the
+  // pre-fix era) as "AI is the wrong subject" and emits `downweight: AI-related topics` — actively
+  // suppressing the account's primary pillar. That happened on the very first real run.
+  const strategy = strategyStore.get(acct)
+  const pillarLines = strategy.pillars.filter(p => p.active)
+    .map(p => `- ${p.label}: ${p.notes || p.domains.join(', ')}`).join('\n')
+
+  const prompt = `You are the performance analyst for Souvik, positioned as: ${strategy.positioning}.
+
+HIS CONTENT PILLARS ARE FIXED — these are a strategic decision, not something to re-litigate:
+${pillarLines}
+
+**Never recommend moving away from a pillar subject.** If rejections cluster around one, the problem
+is the ANGLE, FRAMING or QUALITY of those posts — never the subject itself. Say "AI posts need
+sharper, more practical angles", never "downweight AI". The focus/downweight fields steer research
+WITHIN these pillars; they must not be used to abandon one.
+
+From his real data below, extract what is working so future drafts and research lean into it. Be concrete and specific — no generic advice.
 
 POSTED TWEET PERFORMANCE (best first if sorted):
 ${fmtPerf}
@@ -139,6 +181,14 @@ ${fmtApproved}
 
 RECENTLY REJECTED DRAFTS (he rejected these):
 ${fmtRejected}
+
+WHY HE REJECTS — the reason distribution across ALL ${totalRejections} rejections:
+${fmtReasons}
+
+This is the most direct feedback he gives. Treat a dominant reason as an instruction, not a
+statistic. If "wrong topic" leads, the research focus is off and the focus/downweight fields must
+change to correct it. If "off-voice" leads, the voice rules are being missed. If "weak hook" leads,
+the openers need work. Say so explicitly in the summary and act on it in the fields below.
 
 RESEARCH-SOURCE WIN RATES (which sources became approved posts):
 ${fmtStats}
@@ -167,7 +217,23 @@ Return ONLY JSON, no markdown:
   } catch (err) { log.warn('analyze parse failed: ' + err.message) }
 
   const arr = v => Array.isArray(v) ? v.filter(Boolean).map(String) : []
-  const downweight = [...new Set([...arr(parsed.downweight), ...weakSources])]
+
+  // Code-level guard behind the prompt rule above: strip any downweight term that would suppress an
+  // active pillar. A prompt instruction is not a guarantee, and the cost of this one slipping
+  // through is the account quietly abandoning its own positioning.
+  const pillarTerms = strategy.pillars.filter(p => p.active).flatMap(p => [
+    p.label.toLowerCase(), ...p.domains.map(d => d.toLowerCase()), ...p.keywords.map(k => k.toLowerCase()),
+  ])
+  const suppressesPillar = (term) => {
+    const t = String(term).toLowerCase()
+    return pillarTerms.some(pt => t.includes(pt) || pt.includes(t))
+  }
+  const rawDownweight = arr(parsed.downweight)
+  const blocked = rawDownweight.filter(suppressesPillar)
+  if (blocked.length) {
+    log.warn(`Ignoring downweight terms that would suppress an active pillar: ${blocked.join(' | ')}`)
+  }
+  const downweight = [...new Set([...rawDownweight.filter(t => !suppressesPillar(t)), ...weakSources])]
   const insights = {
     summary: parsed.summary || '(no summary)',
     workingHooks: arr(parsed.workingHooks), workingFormats: arr(parsed.workingFormats),
@@ -219,16 +285,21 @@ function profileFocus(account) {
 //   focus = manual /focus override if set, else profile niche + learned focus
 //   downweight = learned downweight (always)
 // Keeps "all data in my area of interest, until I specify otherwise".
-function researchInstructions(account) {
+// `platform` (optional) folds that platform's own keyword priorities into the focus set — used when
+// research is being run for one platform specifically. Omit it for the shared daily run, which
+// feeds all three; per-platform ordering there comes from raven's platformFit scores instead.
+function researchInstructions(account, platform = null) {
   const acct = account || memory.accounts.getActiveAccount()
   const override = focusStore.get(acct)
   const learned = insightsStore.get(acct) || {}
+  const platformTerms = platform ? keywordsStore.terms(acct, platform) : []
   const focus = override && override.length
-    ? override
-    : [...new Set([...profileFocus(acct), ...((learned.focus) || [])])]
+    ? [...new Set([...override, ...platformTerms])]
+    : [...new Set([...profileFocus(acct), ...((learned.focus) || []), ...platformTerms])]
   const downweight = learned.downweight || []
   if (!focus.length && !downweight.length) return null
-  return { focus, downweight, source: override && override.length ? 'override' : 'profile+learned' }
+  const source = override && override.length ? 'override' : 'profile+learned'
+  return { focus, downweight, source: platform ? `${source}+${platform}` : source }
 }
 
 // Text summary for the /learned command (web + Telegram).
@@ -248,4 +319,146 @@ function formatLearnedSummary(account) {
   return lines.join('\n')
 }
 
-module.exports = { computeSourceStats, ingestPerformance, analyze, getInsights, learnedInstructions, researchInstructions, profileFocus, formatLearnedSummary }
+// ── Real brand-gap audit — pulls Souvik's ACTUAL X timeline (via tools/fetchUserTweets.js, the RapidAPI
+// user-timeline endpoint, real engagement numbers) and compares it against real high-performing niche
+// posts already sitting in Raven's own research pool. No manual /perf paste needed for this one — it's
+// the first fully-automated real-data path this app has ever had. ──────────────────────────────────────
+async function auditBrand({ account = null, screenname = 'skar_connect', broadcast = null } = {}) {
+  const acct = account || memory.accounts.getActiveAccount()
+
+  const { tweets, user } = await fetchUserTweets({ screenname, count: 40 })
+  const ownTweets = tweets.filter(t => t.text && !t.text.startsWith('RT @'))
+  if (!ownTweets.length) throw new Error('No original tweets found — check the screenname or RAPIDAPI_KEY.')
+
+  const sorted = [...ownTweets].sort((a, b) => b.engagement - a.engagement)
+  const top = sorted.slice(0, 8)
+  const bottom = sorted.slice(-8).reverse()
+  const avgEngagement = ownTweets.reduce((s, t) => s + t.engagement, 0) / ownTweets.length
+  const avgViews = ownTweets.reduce((s, t) => s + t.views, 0) / ownTweets.length
+
+  const research = researchStore.readLatest()
+  const niche = (research?.results || [])
+    .filter(r => r.source === 'twitter')
+    .sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0))
+    .slice(0, 8)
+
+  log.info(`auditBrand: analyzing ${ownTweets.length} real tweets (avg engagement ${avgEngagement.toFixed(1)}) vs ${niche.length} niche comparisons`)
+
+  const prompt = buildBrandAuditPrompt({ user, top, bottom, avgEngagement, avgViews, niche })
+  const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
+    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 2000 },
+    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
+  ))
+  costTracker.priceAndRecord({ agent: 'analyst', action: 'brand_audit', modelId: 'openai/gpt-4o-mini', usage: res.usage })
+
+  const raw = res.choices[0].message.content.trim()
+  const m = raw.match(/\{[\s\S]*\}/)
+  let parsed
+  try {
+    parsed = JSON.parse(m ? m[0] : raw)
+  } catch (e) {
+    log.error('Brand audit JSON parse failed', e)
+    throw new Error('Brand audit: LLM returned invalid JSON')
+  }
+
+  const audit = {
+    screenname,
+    profile: { followers: user?.sub_count ?? null, totalTweets: user?.statuses_count ?? null, following: user?.friends ?? null, createdAt: user?.created_at || null },
+    ownStats: { avgEngagement: Math.round(avgEngagement * 100) / 100, avgViews: Math.round(avgViews * 10) / 10, sampleSize: ownTweets.length },
+    topPerformers: top.map(t => ({ text: t.text, engagement: t.engagement, views: t.views, url: t.url })),
+    bottomPerformers: bottom.map(t => ({ text: t.text, engagement: t.engagement, views: t.views, url: t.url })),
+    nicheComparison: niche.map(n => ({ text: n.title, engagement: n.engagement, views: n.views, publisher: n.publisher })),
+    summary: parsed.summary || '', gaps: parsed.gaps || [], recommendations: parsed.recommendations || [],
+  }
+  const saved = brandAuditStore.save(acct, audit)
+
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'analyst', action: 'brand_audit', triggerLabel: '🖱 Brand audit',
+    summary: `real audit — ${ownTweets.length} tweets analyzed, avg engagement ${avgEngagement.toFixed(1)}/post`,
+    ref: { kind: 'koel' },
+  })
+
+  return saved
+}
+
+// Text summary for the /brand-audit command (web + Telegram) — mirrors formatLearnedSummary()'s style.
+function formatBrandAuditSummary(account) {
+  const audit = brandAuditStore.get(account)
+  if (!audit) return "No brand audit yet. Run /brand-audit to pull your real X data and compare it against what's actually going viral in your niche."
+  const lines = [
+    `*Brand Audit* (updated ${String(audit.updatedAt || '').slice(0, 10)})`,
+    '',
+    `${audit.profile?.followers ?? '?'} followers · avg ${audit.ownStats?.avgEngagement ?? '?'} engagement / ${audit.ownStats?.avgViews ?? '?'} views per post (${audit.ownStats?.sampleSize ?? '?'} real posts analyzed)`,
+    '',
+    audit.summary || '',
+  ]
+  if (audit.gaps?.length) lines.push(`\n*Gaps:*\n${audit.gaps.map(g => '• ' + g).join('\n')}`)
+  if (audit.recommendations?.length) lines.push(`\n*Recommendations:*\n${audit.recommendations.map(r => '• ' + r).join('\n')}`)
+  lines.push('\nFull breakdown (top/bottom real tweets + niche comparison) is on the Analyst page.')
+  return lines.join('\n')
+}
+
+// ── Article lessons ───────────────────────────────────────────────────────────
+// Turn the corrections Souvik makes to articles into standing rules. Every "refine" instruction was
+// already stored in the article version history and never read — 12 of them repeating the same three
+// complaints (links, weak opening, weak headline) while the writer kept making the same mistakes.
+async function learnArticleLessons({ account = null, broadcast = null } = {}) {
+  const acct = account || memory.accounts.getActiveAccount()
+
+  const instructions = []
+  for (const meta of articlesStore.list(200)) {
+    const rec = articlesStore.get(meta.id)
+    for (const v of rec?.versions || []) {
+      if (v.instruction && v.instruction.trim()) {
+        instructions.push({ at: v.createdAt, text: v.instruction.replace(/\s+/g, ' ').trim() })
+      }
+    }
+  }
+  if (instructions.length < 2) {
+    log.info(`learnArticleLessons: only ${instructions.length} correction(s) so far — nothing to distil yet`)
+    return articleLessonsStore.get(acct)
+  }
+
+  // Newest last, so recent corrections read as the most current preference.
+  instructions.sort((a, b) => new Date(a.at) - new Date(b.at))
+  const list = instructions.map((i, n) => `${n + 1}. ${i.text.slice(0, 220)}`).join('\n')
+
+  const prompt = `Below are the edits Souvik has asked for on his own articles, oldest first. Turn them into a SHORT list of standing rules his writer should follow from now on, so he stops having to ask twice.
+
+HIS CORRECTIONS:
+${list}
+
+Rules for your output:
+- Maximum 6 rules. Fewer is better.
+- Only include something he asked for MORE THAN ONCE, or that is clearly a standing preference rather than a one-off for a specific article.
+- Write each as a direct instruction to the writer ("Open with...", "Never..."), not a description of what he said.
+- Be specific and testable. "Write better openings" is useless; "Open with a concrete moment or a specific number, never a definition or a general observation" is usable.
+- Ignore anything tied to one article's subject matter.
+
+Return ONLY a JSON array of strings.`
+
+  try {
+    const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
+      { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 700 },
+      { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
+    ))
+    costTracker.priceAndRecord({ agent: 'analyst', action: 'article_lessons', modelId: 'openai/gpt-4o-mini', usage: res.usage })
+    const raw = res.choices[0].message.content.trim()
+    const m = raw.match(/\[[\s\S]*\]/)
+    const rules = JSON.parse(m ? m[0] : raw)
+    const saved = articleLessonsStore.save(acct, { rules, learnedFrom: instructions.length })
+    articleWriter.reload()   // the system prompt is cached per platform; it must pick these up
+    log.info(`learnArticleLessons: ${saved.rules.length} rule(s) from ${instructions.length} corrections`)
+    if (broadcast) activityStore.recordAndBroadcast(broadcast, {
+      agent: 'article', action: 'lessons', triggerLabel: '📝 Learned',
+      summary: `${saved.rules.length} standing rule(s) from ${instructions.length} corrections`,
+      ref: { kind: 'article' },
+    })
+    return saved
+  } catch (err) {
+    log.warn(`learnArticleLessons failed: ${err.message}`)
+    return articleLessonsStore.get(acct)
+  }
+}
+
+module.exports = { computeSourceStats, ingestPerformance, analyze, getInsights, learnedInstructions, researchInstructions, profileFocus, formatLearnedSummary, auditBrand, formatBrandAuditSummary, learnArticleLessons }

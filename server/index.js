@@ -13,7 +13,17 @@ const app = express()
 const server = http.createServer(app)
 
 // Middleware
-app.use(express.json())
+// 15mb rather than the 100kb default: images are posted as base64 data URLs (browser FileReader on
+// the compose page, Telegram photo buffers). That avoids adding a multipart dependency for what is
+// a single-user app.
+app.use(express.json({ limit: '15mb' }))
+
+// Generated + uploaded images. They live outside web/dist because they are user data, not build
+// output — a rebuild must never wipe them. Long cache is safe: filenames are content-unique ids.
+app.use('/assets/images', express.static(path.join(__dirname, '..', 'state', 'data', 'assets', 'images'), {
+  maxAge: '30d',
+  setHeaders(res) { res.setHeader('Cache-Control', 'public, max-age=2592000, immutable') },
+}))
 // Serve the built React dashboard (web/dist — run `npm run build:web` after any UI change).
 // Never cache HTML so the dashboard always loads the latest build (static assets can still cache).
 app.use(express.static(path.join(__dirname, '..', 'web', 'dist'), {
@@ -49,10 +59,13 @@ const telegramSend = telegramResult ? telegram.getSendFn() : null
 const telegramSendDraft = telegramResult ? telegram.getDraftSender() : null
 const telegramSendReplyTargets = telegramResult ? telegram.getReplyTargetSender() : null
 const telegramSendArticleIdeas = telegramResult ? telegram.getArticleIdeaSender() : null
+// Slot-delivered library assets, with their "Posted ✅" button (scheduler/slotDelivery.js).
+const telegramSendAssetCard = telegramResult ? telegram.getAssetCardSender() : null
 app.locals.telegramSend = telegramSend
 app.locals.telegramSendDraft = telegramSendDraft
 app.locals.telegramSendReplyTargets = telegramSendReplyTargets
 app.locals.telegramSendArticleIdeas = telegramSendArticleIdeas
+app.locals.telegramSendAssetCard = telegramSendAssetCard
 
 // Init Telegram (Heron delivery — either a fully separate bot, or the main bot in "same bot, second
 // chat" mode. heronTelegram.js only actually boots a second bot/polling loop when HERON_TELEGRAM_BOT_TOKEN
@@ -71,7 +84,7 @@ const telegramSendParrotDraft = parrotTelegramResult ? parrotTelegram.getParrotD
 app.locals.telegramSendParrotDraft = telegramSendParrotDraft
 
 // Init scheduler
-initScheduler(ws.broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft, telegramSendParrotDraft)
+initScheduler(ws.broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft, telegramSendParrotDraft, telegramSendAssetCard)
 
 // Catch-all → serve the React app's index.html (no-store so a new build is always picked up)
 app.get('*', (req, res) => {

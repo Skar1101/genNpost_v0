@@ -74,4 +74,27 @@ function costFor(modelId, usage) {
   return Math.round(cost * 1e6) / 1e6   // round to 6 decimals (micro-dollars)
 }
 
-module.exports = { MODELS, DEFAULT_MODEL_ID, ARTICLE_DEFAULT_MODEL, articleDefaultModel, byId, costFor }
+// ── Image models ─────────────────────────────────────────────────────────────
+// Images are NOT defined here. Every image model, its price, and how to call its API live with the
+// provider that owns it, in utils/imageProviders/ — so adding or swapping a provider is one file
+// and one registry line, with nothing to change here or in any caller.
+//
+// These are thin re-exports so existing call sites keep working unchanged.
+const imageProviders = require('../utils/imageProviders')
+
+function imageDefaultModel() { return imageProviders.active()?.defaultModel || null }
+function imageById(id) { return imageProviders.modelById(id) }
+
+// Cost in USD. `dims` is optional and only matters for per-megapixel models (FLUX bills that way,
+// so a flat per-image figure would misreport it).
+function imageCostFor(modelId, count = 1, dims = {}) {
+  return imageProviders.costFor(modelId, { ...dims, count })
+}
+
+module.exports = {
+  MODELS, DEFAULT_MODEL_ID, ARTICLE_DEFAULT_MODEL, articleDefaultModel, byId, costFor,
+  imageDefaultModel, imageById, imageCostFor,
+  imageProviders,
+  // Every model across every provider, each flagged `available` by whether its key is set.
+  get IMAGE_MODELS() { return imageProviders.allModels() },
+}

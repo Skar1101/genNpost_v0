@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useProfile, useSaveProfile, useReplyDomains, useSaveReplyDomains, useExpenses } from '../lib/queries.js'
+import KeywordsCard from '../components/KeywordsCard.jsx'
+import StrategyCard from '../components/StrategyCard.jsx'
+import ArticlePreferencesCard from '../components/ArticlePreferencesCard.jsx'
+import { AGENT_META } from '../lib/agentMeta.js'
 
 const linesToArray = (s) => s.split('\n').map((x) => x.trim()).filter(Boolean)
 const arrayToLines = (a) => (a || []).join('\n')
@@ -77,6 +81,15 @@ function ExpensesCard() {
   const cutoff = window_ === 7 ? cutoff7 : window_ === 30 ? cutoff30 : daysAgoKey(89)
   const visibleDays = allDays.filter((d) => d.date >= cutoff)
 
+  // Roll the per-day byAgent maps up over the selected window. The API has always returned this;
+  // the card just wasn't showing it, so image spend was counted but invisible next to writing spend.
+  const byAgent = {}
+  for (const d of visibleDays) {
+    for (const [agent, cost] of Object.entries(d.byAgent || {})) byAgent[agent] = (byAgent[agent] || 0) + cost
+  }
+  const agentRows = Object.entries(byAgent).sort((a, b) => b[1] - a[1])
+  const windowTotal = agentRows.reduce((s, [, c]) => s + c, 0)
+
   return (
     <div className="card" style={{ padding: 18, marginTop: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -102,14 +115,47 @@ function ExpensesCard() {
       ) : !visibleDays.length ? (
         <p className="hint">No spend recorded yet.</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {visibleDays.map((d) => (
-            <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ width: 90, fontSize: 12.5, color: 'var(--muted)', flexShrink: 0 }}>{d.date === istToday() ? `${d.date} (today)` : d.date}</span>
-              <span className="mono" style={{ fontWeight: 650, fontSize: 13 }}>${d.total.toFixed(4)}</span>
+        <>
+          {/* Where the money actually goes. Images are priced per image rather than per token, so
+              they behave very differently from the writing spend and are worth seeing separately. */}
+          {agentRows.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div className="hint" style={{ marginBottom: 6 }}>By agent, last {window_} days</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {agentRows.map(([agent, cost]) => {
+                  const meta = AGENT_META[agent] || { label: agent, cls: '' }
+                  const pct = windowTotal > 0 ? (cost / windowTotal) * 100 : 0
+                  return (
+                    <div key={agent} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span className={`agent-badge ${meta.cls}`} style={{ flexShrink: 0 }}>{meta.label}</span>
+                      <div style={{ flex: 1, height: 6, background: 'var(--surface-2)', borderRadius: 3, overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent)' }} />
+                      </div>
+                      <span className="mono" style={{ fontSize: 12, width: 74, textAlign: 'right' }}>${cost.toFixed(4)}</span>
+                      <span className="hint" style={{ width: 38, textAlign: 'right' }}>{pct.toFixed(0)}%</span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-          ))}
-        </div>
+          )}
+
+          <div className="hint" style={{ marginBottom: 6 }}>Day by day</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {visibleDays.map((d) => (
+              <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                <span style={{ width: 90, fontSize: 12.5, color: 'var(--muted)', flexShrink: 0 }}>{d.date === istToday() ? `${d.date} (today)` : d.date}</span>
+                <span className="mono" style={{ fontWeight: 650, fontSize: 13, width: 70 }}>${d.total.toFixed(4)}</span>
+                <span className="hint" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {Object.entries(d.byAgent || {})
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([a, c]) => `${(AGENT_META[a] || { label: a }).label} $${c.toFixed(3)}`)
+                    .join(' · ')}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   )
@@ -246,6 +292,12 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
+
+      <StrategyCard />
+
+      <ArticlePreferencesCard />
+
+      <KeywordsCard />
 
       <ExpensesCard />
     </div>

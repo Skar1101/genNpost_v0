@@ -12,6 +12,9 @@ const activityStore = require('../state/activityStore')
 const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 const { filterNew, markSeen } = require('../state/seenUrlsStore')
+const keywordsStore = require('../state/keywordsStore')
+const { readUrlsIn, extractUrls } = require('../tools/readUrl')
+const strategyStore = require('../state/strategyStore')
 const logger = require('../utils/logger')
 const costTracker = require('../utils/costTracker')
 const log = logger.source('raven')
@@ -29,6 +32,124 @@ const CACHE_TTL_MS = 2 * 60 * 60 * 1000
 
 function isCacheValid() {
   return _rawCache && (Date.now() - _cacheTs) < CACHE_TTL_MS
+}
+
+const FIT_PLATFORMS = ['x', 'linkedin', 'substack']
+
+// Domains come from the editable content strategy (state/strategyStore.js), not from a constant
+// here — that's what lets a positioning change be a Settings edit rather than a code change.
+// `other` is never postable: it's the label the ranker gives something that should have been
+// excluded, and it gets dropped in code rather than trusted to prompt discipline alone.
+const DOMAINS = strategyStore.ALL_DOMAINS
+const AI_DOMAINS = ['ai-tools', 'ai-research', 'ai-impact']
+
+function onTopicDomains() {
+  const d = strategyStore.onTopicDomains(null)
+  return d.length ? d : DOMAINS.filter(x => x !== 'other')
+}
+
+function normalizeDomain(d) {
+  const v = String(d || '').toLowerCase().trim()
+  return DOMAINS.includes(v) ? v : 'other'
+}
+
+// Classify arbitrary items into the same domains the ranker uses. Needed for anything that reaches
+// the pipeline WITHOUT going through ranking — watchlist posts fetched directly, for instance,
+// which would otherwise skip the topic filter entirely and could be reposted off-subject.
+// One cheap call for the whole batch.
+async function classifyDomains(items, { loose = false } = {}) {
+  const rows = (items || []).filter(i => i?.title)
+  if (!rows.length) return items || []
+
+  const list = rows.map((r, i) => `${i + 1}. ${String(r.title).replace(/\s+/g, ' ').slice(0, 180)}`).join('\n')
+
+  // Loose mode is for CURATED sources — the watchlist. Those accounts were hand-picked because they
+  // post these subjects, so the filter should not fight that curation: strict mode was dropping 85%
+  // of watchlist posts, including plainly on-subject self-help. Here only clear violations drop.
+  const prompt = loose
+    ? `These posts come from accounts the user deliberately follows for AI, self-help and wellness content. Assume a post belongs UNLESS it clearly does not.
+
+Label each "ok" or "violation".
+
+"violation" ONLY for: politics/policy, religion or devotional practice, finance/crypto/trading/get-rich, sports, celebrity gossip, or pure self-promotion (course/product sales pitch with no substance).
+
+Everything else is "ok" — including general life advice, mindset, motivation, productivity, business lessons and personal reflection. When unsure, answer "ok".
+
+POSTS:
+${list}
+
+Return ONLY a JSON array of ${rows.length} strings ("ok" or "violation"), in order.`
+    : `Label each post with the ONE domain it belongs to.
+
+Domains:
+- "ai-tools"     a usable AI tool, agent, product, model release, or practical how-to
+- "ai-research"  AI papers / academic work
+- "ai-impact"    how AI changes work, jobs, daily life, society
+- "self-help"    discipline, habits, focus, mindset, consistency, resilience
+- "wellness"     sleep, energy, recovery, meditation, mental and physical health
+- "building"     solo SaaS, indie business, building in public
+- "other"        anything else — politics, religion, finance/economics, sports, trivia, lifestyle, general commentary
+
+Be strict. If a post is general life/business commentary rather than clearly one of the first six, label it "other".
+
+POSTS:
+${list}
+
+Return ONLY a JSON array of ${rows.length} domain strings, in order.`
+
+  try {
+    const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
+      { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 600 },
+      { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
+    ))
+    costTracker.priceAndRecord({ agent: 'raven', action: loose ? 'classify_loose' : 'classify_domains', modelId: 'openai/gpt-4o-mini', usage: res.usage })
+    const raw = res.choices[0].message.content.trim()
+    const m = raw.match(/\[[\s\S]*\]/)
+    const labels = JSON.parse(m ? m[0] : raw)
+    if (loose) {
+      // Anything not an explicit violation passes. Default to keeping when the label is unreadable —
+      // for a curated source, a missed classification should not silently discard a good post.
+      rows.forEach((r, i) => { r.violation = String(labels[i] || '').toLowerCase().trim() === 'violation' })
+    } else {
+      rows.forEach((r, i) => { r.domain = normalizeDomain(labels[i]) })
+    }
+  } catch (err) {
+    log.warn(`classifyDomains failed (${err.message}) — leaving items unclassified`)
+  }
+  return items
+}
+
+// Items in one domain group, best first. Used by Quill to guarantee a themed thread and by the
+// repost picker to stay inside AI + wellness.
+function topForDomains(research, domains, n = 10) {
+  const want = new Set(domains)
+  return (research?.results || [])
+    .filter(r => r.tag !== 'reply' && want.has(normalizeDomain(r.domain)))
+    .sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0))
+    .slice(0, n)
+}
+
+// Coerce the LLM's platformFit into a full {x,linkedin,substack} of 0-100 ints. Falls back to the
+// item's overall trendingScore when the model omitted the field entirely, so a missing score never
+// silently reads as 0 and buries an otherwise strong item.
+function normalizeFit(fit, trendingScore) {
+  const fallback = Number.isFinite(trendingScore) ? Math.max(0, Math.min(100, trendingScore)) : 50
+  const out = {}
+  for (const p of FIT_PLATFORMS) {
+    const v = fit && fit[p]
+    out[p] = Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : fallback
+  }
+  return out
+}
+
+// Items ordered by their fit for ONE platform. This is what Quill/Parrot/Heron should call instead
+// of all three slicing the same `results` array and competing for the same top items.
+function topForPlatform(research, platform, n = 15) {
+  const plat = FIT_PLATFORMS.includes(platform) ? platform : 'x'
+  const rows = (research?.results || []).filter(r => r.tag !== 'reply')
+  return [...rows]
+    .sort((a, b) => (b.platformFit?.[plat] ?? 0) - (a.platformFit?.[plat] ?? 0))
+    .slice(0, n)
 }
 
 // Group items by source category and day
@@ -115,7 +236,7 @@ async function fetchAllSources(broadcast, filterSources = null, searchQuery = nu
     log.info(`Dedup: ${allResults.length} raw → ${deduped.length} unique → ${newItems.length} new (${alreadySeenCount} already seen in past runs)`)
   }
 
-  const MAX_PER_SOURCE = skipSeenFilter ? 20 : 6
+  const MAX_PER_SOURCE = skipSeenFilter ? 20 : 10
   const sourceCounts = {}
   const bump = src => { sourceCounts[src] = (sourceCounts[src] || 0) + 1 }
   let balanced
@@ -134,17 +255,42 @@ async function fetchAllSources(broadcast, filterSources = null, searchQuery = nu
     // Scheduled/manual full run — enforce Souvik's ~60% human / ~40% tech mix at the SUPPLY layer,
     // so engagement-sorted AI can't bury discipline/meditation/self-dev/AI-for-humans items.
     // Each item is tagged `topic` by its fetcher; anything untagged (HN/GitHub/arXiv) = 'tech'.
-    const POOL_SIZE = 20
-    const targets = { human: Math.round(POOL_SIZE * 0.6), tech: POOL_SIZE - Math.round(POOL_SIZE * 0.6) }
+    const POOL_SIZE = 40
+    // The supply mix follows the PILLAR WEIGHTS, not a constant. This used to be a hardcoded
+    // 60% human / 40% tech written before pillars existed — a second, contradictory setting that
+    // silently fought whatever the strategy said. Now changing a weight in Settings moves the
+    // research supply too, in one place.
+    const techShare = strategyStore.aiShare(null)          // AI domains -> the 'tech' bucket
+    const techTarget = Math.round(POOL_SIZE * techShare)
+    const targets = { human: POOL_SIZE - techTarget, tech: techTarget }
     const bucketOf = it => (it.topic === 'human' ? 'human' : 'tech')
     const bucketCount = { human: 0, tech: 0 }
     balanced = []
     const chosen = new Set()
+
+    // Reserve room for the AI-TOOLS sources before anything else claims it. GitHub/HN/YouTube are
+    // where actual tools and releases come from, and they return far fewer items than Twitter and
+    // Reddit — so without a floor they get crowded out entirely and the drop turns into whatever
+    // social happened to surface. This is the supply-side half of the fix; the seen-URL TTL in
+    // state/seenUrlsStore.js is the other half.
+    const TOOL_SOURCES = ['github', 'hackernews', 'youtube']
+    const TOOL_FLOOR = 10
+    let toolCount = 0
+    for (const item of newItems) {
+      if (toolCount >= TOOL_FLOOR) break
+      if (!TOOL_SOURCES.includes(item.source)) continue
+      const src = item.source || 'unknown'
+      if ((sourceCounts[src] || 0) >= MAX_PER_SOURCE) continue
+      balanced.push(item); chosen.add(item.url); bump(src); toolCount++
+      bucketCount[bucketOf(item)]++
+    }
+    if (toolCount) log.info(`Reserved ${toolCount} AI-tool item(s) from ${TOOL_SOURCES.join('/')} before balancing`)
     // Human bucket first so it gets first claim on each source's budget; then tech.
     for (const bucket of ['human', 'tech']) {
       for (const item of newItems) {
         if (bucketCount[bucket] >= targets[bucket]) break
         if (bucketOf(item) !== bucket) continue
+        if (chosen.has(item.url)) continue      // already reserved by the AI-tools floor above
         const src = item.source || 'unknown'
         if ((sourceCounts[src] || 0) >= MAX_PER_SOURCE) continue
         balanced.push(item); chosen.add(item.url); bump(src); bucketCount[bucket]++
@@ -167,7 +313,7 @@ async function fetchAllSources(broadcast, filterSources = null, searchQuery = nu
   return { raw: balanced, failed }
 }
 
-async function rankWithLLM(rawItems, instructions, broadcast) {
+async function rankWithLLM(rawItems, instructions, broadcast, platformKeywords = null) {
   if (broadcast) broadcast({ type: 'research_progress', data: { step: 'ranking', source: 'LLM' } })
   log.info(`Sending ${rawItems.length} items to LLM for ranking`)
 
@@ -183,7 +329,7 @@ async function rankWithLLM(rawItems, instructions, broadcast) {
     title: (item.title || '').slice(0, 120),
   }))
 
-  const prompt = buildRankingPrompt(truncated, instructions || {})
+  const prompt = buildRankingPrompt(truncated, instructions || {}, platformKeywords)
 
   let response
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -211,15 +357,28 @@ async function rankWithLLM(rawItems, instructions, broadcast) {
     log.info(`LLM ranking complete — tokens used: ${usage?.prompt_tokens} in / ${usage?.completion_tokens} out`)
 
     const text = response.choices[0].message.content.trim()
+    // gpt-4o-mini occasionally emits a stray backslash (e.g. before an apostrophe) that isn't a
+    // valid JSON escape — "Bad escaped character" from JSON.parse. Escape any backslash that
+    // isn't already starting a valid escape sequence before parsing.
+    const fixEscapes = (s) => s.replace(/\\(?!["\\/bfnrtu])/g, '\\\\')
     let ranked
     try {
       ranked = JSON.parse(text)
     } catch (_) {
-      const match = text.match(/\[[\s\S]*\]/)
-      if (match) ranked = JSON.parse(match[0])
-      else {
-        log.error('LLM returned non-JSON response', { preview: text.slice(0, 200) })
-        throw new Error('LLM returned non-JSON for ranking')
+      try {
+        ranked = JSON.parse(fixEscapes(text))
+      } catch (__) {
+        const match = text.match(/\[[\s\S]*\]/)
+        if (match) {
+          try {
+            ranked = JSON.parse(match[0])
+          } catch (___) {
+            ranked = JSON.parse(fixEscapes(match[0]))
+          }
+        } else {
+          log.error('LLM returned non-JSON response', { preview: text.slice(0, 200) })
+          throw new Error('LLM returned non-JSON for ranking')
+        }
       }
     }
 
@@ -241,23 +400,38 @@ async function rankWithLLM(rawItems, instructions, broadcast) {
         views: orig.views,
         publisher: orig.publisher || item.publisher,
         source: orig.source || item.source,
+        domain: normalizeDomain(item.domain),
+        platformFit: normalizeFit(item.platformFit, item.trendingScore),
       }
     }).filter(Boolean)
 
-    // Guarantee: inject top items from any source the LLM skipped entirely
-    const rankedSources = new Set(ranked.map(r => r.source))
-    const allSources = new Set(rawItems.map(r => r.source))
-    let nextRank = ranked.length + 1
-    for (const src of allSources) {
-      if (rankedSources.has(src)) continue
-      // Find best unranked item from this source (first = highest engagement after sorting)
-      const candidate = rawItems.find(r => r.source === src && !rankedUrls.has((r.url || '').toLowerCase().trim()))
-      if (candidate) {
-        log.info(`Injecting skipped source "${src}" — LLM excluded it entirely`)
-        ranked.push({ rank: nextRank++, ...candidate, trendingScore: 50, postPotential: 'long', why: 'Auto-included: source skipped by LLM' })
-        rankedUrls.add((candidate.url || '').toLowerCase().trim())
-      }
+    // Drop anything the ranker itself labelled off-topic. The prompt already bans these, but a
+    // prompt rule is not a guarantee — and off-topic filler (cannabis history, etymology, ASMR,
+    // game-playing AI) reaching the drop is exactly the failure this exists to stop.
+    // Dropped items are RETURNED, not just logged, so the Raven page can show what was filtered and
+    // why — when a drop feels wrong you need to see whether the filter was too tight or the
+    // sources were thin, without reading logs.
+    const onTopic = onTopicDomains()
+    const offTopic = ranked.filter(r => !onTopic.includes(r.domain))
+    if (offTopic.length) {
+      log.warn(`Dropping ${offTopic.length} off-topic item(s): ${offTopic.map(r => String(r.title).slice(0, 40)).join(' | ')}`)
+      ranked = ranked.filter(r => onTopic.includes(r.domain))
     }
+    ranked._dropped = offTopic.map(r => ({
+      title: r.title, source: r.source, url: r.url, domain: r.domain,
+      reason: `off-topic — labelled "${r.domain}", not one of: ${onTopic.join(', ')}`,
+    }))
+
+    // NOTE — the old "inject top items from any source the LLM skipped entirely" guarantee was
+    // REMOVED here (2026-08-11). It re-added RAW, unclassified items after the off-topic filter had
+    // already run, so they defaulted to domain 'other' and slipped straight through: a live run
+    // produced a YouTube monetisation-policy story and a Dark-Souls-adjacent arXiv paper that way,
+    // right after the filter had correctly cleared the list.
+    //
+    // Its purpose was source diversity when the ranker ignored a whole source. That is now handled
+    // better and earlier, at the supply layer, by the AI-tools floor in fetchAllSources() — which
+    // reserves slots for github/hackernews/youtube BEFORE ranking, instead of bolting an
+    // unvetted item on afterwards.
 
     return ranked
   } catch (err) {
@@ -290,15 +464,28 @@ async function run({ triggeredBy = 'user', triggerLabel = null, instructions = n
     return { runId, triggeredBy, rankedAt: new Date().toISOString(), results: [], byCategory: {}, totalFetched: 0 }
   }
 
-  // Only mark seen on full scheduled/manual runs — not on targeted searches
-  if (!isTargeted) markSeen(raw.map(r => r.url))
+  // Only mark seen on full scheduled/manual runs — not on targeted searches.
+  // Pass whole items, not bare URLs: the source decides how long the URL stays blocked
+  // (state/seenUrlsStore.js — slow-moving AI-tool sources forget sooner).
+  if (!isTargeted) markSeen(raw.map(r => ({ url: r.url, source: r.source })))
 
-  let ranked = await rankWithLLM(raw, instructions, broadcast)
+  // Per-platform keyword priorities ride into the same ranking call — no extra LLM requests.
+  const platformKeywords = {}
+  for (const p of FIT_PLATFORMS) platformKeywords[p] = keywordsStore.terms(null, p)
+
+  let ranked = await rankWithLLM(raw, instructions, broadcast, platformKeywords)
+  // Carried off the array before any slicing loses it — surfaced in the output so the Raven page
+  // can show WHAT the filter removed and why, instead of it only existing in the logs.
+  const dropped = ranked._dropped || []
 
   // Apply topN cap — slice after ranking so we rank everything, then trim
   if (topN && topN > 0) ranked = ranked.slice(0, Math.min(topN, ranked.length))
 
   const byCategory = groupByCategory(ranked)
+  // Same pool, ordered three ways. Each platform manager reads its own list so they stop competing
+  // for the identical top items.
+  const byPlatform = {}
+  for (const p of FIT_PLATFORMS) byPlatform[p] = topForPlatform({ results: ranked }, p, 15).map(r => r.url)
 
   // Raw items fetched per source (BEFORE ranking) — lets /health flag a source that silently returned 0
   // even when it didn't throw (e.g. an API that started 400ing but the fetcher swallowed the error).
@@ -319,6 +506,12 @@ async function run({ triggeredBy = 'user', triggerLabel = null, instructions = n
     totalFetched: raw.length,
     results: ranked,
     byCategory,
+    byPlatform,
+    platformKeywords,
+    // What the topic filter removed, and why. When a drop feels thin or wrong, this is how you tell
+    // whether the filter was too tight or the sources simply had nothing on-subject.
+    dropped,
+    strategy: { positioning: strategyStore.get(null).positioning, onTopicDomains: onTopicDomains() },
   }
 
   writeLatest(output)
@@ -448,4 +641,37 @@ async function findReplyTargets({ target = 30, domains = null, extraKeywords = n
   return output
 }
 
-module.exports = { run, findReplyTargets }
+// ── Read one specific page ────────────────────────────────────────────────────
+// run() is a query-and-rank pipeline across configured sources; it has no notion of "go get this
+// exact URL". But fetching from the outside world is Raven's job, so when Souvik pastes a link the
+// request belongs here rather than in Titto — Titto asks, Raven fetches, the same as every other
+// source. tools/readUrl.js is the implementation, exactly as tools/fetchGitHub.js backs the github
+// source.
+//
+// Returns [{ url, title, text, truncated }] — empty when nothing readable came back.
+async function readLinks(text, { limit = 2, broadcast = null, triggerLabel = '🔗 Link' } = {}) {
+  const urls = extractUrls(text)
+  if (!urls.length) return []
+
+  const pages = await readUrlsIn(text, limit)
+  const ok = pages.length
+  log.info(`Link read — ${ok}/${Math.min(urls.length, limit)} readable${ok ? ` (${pages.reduce((n, p) => n + p.text.length, 0)} chars)` : ''}`)
+
+  activityStore.recordAndBroadcast(broadcast, {
+    agent: 'raven',
+    action: 'read-link',
+    status: ok ? 'done' : 'error',
+    triggerLabel,
+    summary: ok
+      ? `read ${ok} page${ok === 1 ? '' : 's'}: ${pages.map(p => p.title || p.url).join(' · ').slice(0, 140)}`
+      : `could not read: ${urls.slice(0, limit).join(' · ').slice(0, 140)}`,
+    ref: { kind: 'link-read', urls: urls.slice(0, limit) },
+  })
+
+  return pages
+}
+
+module.exports = {
+  run, readLinks, findReplyTargets, topForPlatform, FIT_PLATFORMS,
+  topForDomains, normalizeDomain, classifyDomains, DOMAINS, AI_DOMAINS, onTopicDomains,
+}

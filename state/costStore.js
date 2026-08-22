@@ -43,6 +43,9 @@ function record(entry = {}) {
     cost: entry.cost ?? null,
     promptTokens: entry.promptTokens ?? null,
     completionTokens: entry.completionTokens ?? null,
+    // Image generations are billed per image, not per token — without this the count was being
+    // passed in and silently dropped by this whitelist, leaving image rows with no units at all.
+    images: entry.images ?? null,
   }
   try {
     const entries = readAll()

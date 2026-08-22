@@ -1,9 +1,9 @@
 require('dotenv').config()
 const OpenAI = require('openai')
-const { buildKoelSystemPrompt, buildKoelUserPrompt, buildContextBlock, reloadKnowledge } = require('../prompts/koelWrite')
+const { buildKoelSystemPrompt, buildKoelUserPrompt, buildContextBlock, reloadKnowledge, platformForFormat } = require('../prompts/koelWrite')
 const { buildReplyPrompt } = require('../prompts/koelReply')
 const { buildRepostPrompt } = require('../prompts/koelRepost')
-const { sanitize } = require('../prompts/styleRules')
+const { sanitize, findBannedPhrase, findUngroundedStat } = require('../prompts/styleRules')
 const { appendEntry } = require('../state/koelStore')
 const activityStore = require('../state/activityStore')
 const guard = require('../utils/llmGuard')
@@ -20,16 +20,17 @@ function getOpenAI() {
   return _openai
 }
 
-// Cached at startup — call reload() after editing knowledge files
-let _systemPrompt = null
-function getSystemPrompt() {
-  if (!_systemPrompt) _systemPrompt = buildKoelSystemPrompt()
-  return _systemPrompt
+// One cached system prompt PER PLATFORM — each composes common/ plus only its own knowledge pack.
+// Call reload() after editing any file under sub-agents/koel/.
+let _systemPrompts = {}
+function getSystemPrompt(platform) {
+  if (!_systemPrompts[platform]) _systemPrompts[platform] = buildKoelSystemPrompt(platform)
+  return _systemPrompts[platform]
 }
 
 function reload() {
   reloadKnowledge()
-  _systemPrompt = buildKoelSystemPrompt()
+  _systemPrompts = {}
   log.info('Knowledge files reloaded')
 }
 
@@ -59,16 +60,23 @@ function parseDrafts(text) {
 async function write({ format = 'short', input, inputType = 'freetext', count = 3, extraInstructions = '', broadcast = null, account = null, origin = 'koel', platform = 'x', meta = {}, register = true, triggerLabel = '🖱 Manual' } = {}) {
   if (!input?.trim()) throw new Error('Koel needs an input topic, URL, or instruction')
 
-  log.info(`Writing ${format} post — inputType: ${inputType}, input: "${input.slice(0, 60)}…"`)
-  if (broadcast) broadcast({ type: 'koel_progress', data: { step: 'writing', format } })
+  // The format decides which knowledge pack loads (every format belongs to exactly one platform).
+  // Callers pass `format` reliably; `platform` they did not — Heron never set it, so its Substack
+  // drafts were written with X's entire playbook in context. Deriving from format fixes that
+  // without touching a single caller.
+  const plat = platformForFormat(format, platform)
 
-  // Read-before-write: pull the live profile + voice + approved/rejected for this account.
+  log.info(`Writing ${format} post for ${plat} — inputType: ${inputType}, input: "${input.slice(0, 60)}…"`)
+  if (broadcast) broadcast({ type: 'koel_progress', data: { step: 'writing', format, platform: plat } })
+
+  // Read-before-write: pull the live profile + voice + approved/rejected for this account,
+  // calibrated against work from THIS platform.
   const acct = account || memory.accounts.getActiveAccount()
   ensureProfile(acct)
-  const contextBlock = buildContextBlock(memory.loadContext(acct))
+  const contextBlock = buildContextBlock(memory.loadContext(acct), plat)
 
   const userPrompt = buildKoelUserPrompt({ format, input, inputType, count, extraInstructions })
-  const messages = [{ role: 'system', content: getSystemPrompt() }]
+  const messages = [{ role: 'system', content: getSystemPrompt(plat) }]
   if (contextBlock) messages.push({ role: 'system', content: contextBlock })
   messages.push({ role: 'user', content: userPrompt })
 
@@ -98,7 +106,51 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
 
   const raw = response.choices[0].message.content.trim()
   // Deterministic house-style pass (strips em/en dashes, collapses blank-line runs).
-  const drafts = parseDrafts(raw).map(sanitize)
+  let drafts = parseDrafts(raw).map(sanitize)
+
+  // Practical enforcement of two house-style rules that prompt wording alone doesn't hold:
+  // (1) no INVENTED statistics, (2) no banned AI-slop/corporate phrases. Banned words like
+  // "game-changer"/"unlock" kept leaking through despite a long-standing prompt ban, and fabricated
+  // percentages reached 27% of approved drafts. Mirrors the Heron article word-count expand-pass
+  // pattern: up to 2 deterministic re-asks, bounded, firing only when a real problem is detected.
+  //
+  // Everything the model was actually given, as the grounding corpus for stat checking. A percentage
+  // that appears here is real and must survive; one that doesn't was invented.
+  const sourceMaterial = messages.map(m => (typeof m.content === 'string' ? m.content : '')).join('\n')
+
+  let lastRaw = raw
+  for (let attempt = 1; attempt <= 2 && drafts.length; attempt++) {
+    // This check used to be `missingNumber` — it demanded a number when a batch had none, which on
+    // wellness/self-help topics (where no real figure exists) is a fabrication pump. It now points the
+    // other way: find invented stats and get them removed.
+    const fakeStat = drafts.map(d => findUngroundedStat(d, sourceMaterial)).find(Boolean) || null
+    const badPhrase = drafts.map(findBannedPhrase).find(Boolean) || null
+    if (!fakeStat && !badPhrase) break
+
+    const reasons = [fakeStat && `ungrounded statistic: "${fakeStat}"`, badPhrase && `banned phrase found: "${badPhrase}"`].filter(Boolean)
+    log.warn(`${format} batch failed a house-style check (${reasons.join('; ')}) — re-ask ${attempt}`)
+    try {
+      const asks = []
+      if (fakeStat) asks.push(`One of these drafts states "${fakeStat}", which does NOT appear anywhere in the input material — it was invented. Remove it.
+
+Do not swap in a different percentage, and do not soften it with "up to", "nearly" or "as much as" — that is the same fabrication. Replace the claim with something concrete you actually have: a specific moment, a named thing, a real action, or a countable detail (an age, a date, a count, a timeframe, an amount). If nothing specific is available for that point, cut the claim entirely and make the sentence a direct statement instead — a post with NO number is completely fine and far better than one with an invented figure. Leave every other draft unchanged.`)
+      if (badPhrase) asks.push(`At least one draft used a banned phrase: "${badPhrase}". Rewrite to cut it and anything in the same family (corporate buzzwords, generic inspirational closers like "the future of X is here" or "we're on the brink of a major shift"). Say the specific thing THIS post is actually about, not something that could be pasted onto any other topic.`)
+      const retryMessages = [...messages, { role: 'assistant', content: lastRaw }, { role: 'user', content:
+        `${asks.join('\n\n')}\n\nThe house style rules from your system prompt still fully apply on this rewrite — re-read them. Keep the same format/length rules and the same count. Output in the exact same format as before.` }]
+      const retryRes = await guard.runGuarded(() => getOpenAI().chat.completions.create(
+        { model: 'gpt-4o-mini', messages: retryMessages, temperature: 0.85, max_tokens: 4000 },
+        { maxRetries: 0, timeout: G.TIMEOUT_MS },
+      ))
+      costTracker.priceAndRecord({ agent: origin, action: (meta?.kind || 'write') + '_style_retry', modelId: 'openai/gpt-4o-mini', usage: retryRes.usage })
+      const retryRaw = retryRes.choices[0].message.content.trim()
+      const retryDrafts = parseDrafts(retryRaw).map(sanitize)
+      if (retryDrafts.length === drafts.length) { drafts = retryDrafts; lastRaw = retryRaw } // only replace if shape still matches
+      else break // shape drifted — stop rather than risk a mismatched draft count
+    } catch (err) {
+      log.warn(`Style re-ask ${attempt} failed, keeping current drafts: ${err.message}`)
+      break
+    }
+  }
 
   // Light thread guard: flag (don't fail) if a thread drifted well past the 5–8 tweet target.
   if (format === 'thread') {
@@ -115,7 +167,7 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
         text,
         format,
         origin,
-        platform,
+        platform: plat,   // resolved from format — see platformForFormat()
         meta: { ...meta, input: input.slice(0, 200), inputType },
       })
       return { id: rec.id, text }

@@ -53,6 +53,16 @@ async function runDailyDrop({ broadcast = null, telegramSend = null, telegramSen
     else if (ideas.length && telegramSend) await telegramSend('📝 Article ideas ready — open the dashboard to write one.').catch(() => {})
   } catch (e) { console.warn('[Drop] article ideas failed:', e.message) }
 
+  // 4) Learn from triage. THE feedback loop — and until now it never ran: analyst.analyze() had
+  // only two callers, quill.runWeekly() (the weekly wrap is deactivated) and /perf (needs a manual
+  // paste that never happened). So 18 approvals and 19 rejections WITH reasons sat unread and
+  // insights.json never existed, which meant memory.loadContext() fed Koel a null `insights` on
+  // every single draft. Running it here closes the loop on the signal you actually give.
+  try {
+    const insights = await analyst.analyze({ broadcast })
+    if (insights) console.log(`[Drop] Insights refreshed — focus: [${(insights.focus || []).slice(0, 4).join(', ')}]`)
+  } catch (e) { console.warn('[Drop] analyze failed:', e.message) }
+
   setLastDrop(istToday())
   return { ok: true }
 }

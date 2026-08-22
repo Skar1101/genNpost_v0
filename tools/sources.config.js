@@ -93,6 +93,20 @@ module.exports = [
     requiresKey: false,
     categories: ['cs.AI', 'cs.LG', 'cs.CL'],
   },
+  {
+    // Trending Shorts across ALL of YouTube, searched by the content strategy's pillar queries —
+    // unlike the `youtube` source above, which only polls a fixed channel list and so can never
+    // surface a Short from an account not already on it. Mined for post ideas, not reposted.
+    id: 'youtube-shorts',
+    name: 'YouTube Shorts',
+    enabled: true,
+    tier: 1,
+    category: 'youtube',
+    fetcher: './fetchYouTubeShorts',
+    maxResults: 12,
+    requiresKey: true,
+    envKey: 'YOUTUBE_API_KEY',
+  },
   // Retired 2026-06: fetchNews / fetchAIResearch / fetchWellness — RSS aggregators that failed
   // most runs (dead feeds, 403/404, malformed XML). HN covers tech news; arXiv API covers research.
   // ─── Add new sources below ────────────────────────────────────────────────

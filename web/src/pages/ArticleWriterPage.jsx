@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   useModels, useArticles, useArticle, useGenerateArticle, useRefineArticle, useRevertArticle,
+  useCancelArticle,
 } from '../lib/queries.js'
-import { useWSEvent } from '../lib/ws.js'
+import { useWSEvent, useWSStatus } from '../lib/ws.js'
 import { getToken } from '../lib/api.js'
 
 export default function ArticleWriterPage() {
@@ -18,6 +19,7 @@ export default function ArticleWriterPage() {
   const [showRefine, setShowRefine] = useState(false)
   const [previewV, setPreviewV] = useState(null) // version number being previewed, null = latest
   const boxRef = useRef(null)
+  const wsStatus = useWSStatus()
 
   const models = useModels()
   const articles = useArticles()
@@ -25,6 +27,7 @@ export default function ArticleWriterPage() {
   const generate = useGenerateArticle()
   const refine = useRefineArticle()
   const revert = useRevertArticle()
+  const cancel = useCancelArticle()
 
   useEffect(() => {
     if (!model && models.data?.default) setModel(models.data.default)
@@ -34,25 +37,59 @@ export default function ArticleWriterPage() {
     boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight })
   }, [text])
 
+  // Streaming used to be cleared ONLY by article_done / article_error. If neither ever arrived —
+  // the server restarted mid-stream (node --watch does this on any save), the WebSocket dropped,
+  // the request hung — `streaming` stayed true forever. The "Edit / rewrite" button is gated on
+  // !streaming, so it vanished permanently and the page could never recover, because the record
+  // re-sync effect below is gated the same way.
+  //
+  // This watchdog ends a stream that has gone quiet, restores the controls, and refetches so the
+  // article shows whatever actually made it to disk.
+  const STREAM_IDLE_MS = 90000
+  const idleTimer = useRef(null)
+
+  function stopStreaming({ note = null } = {}) {
+    setStreaming(false)
+    clearTimeout(idleTimer.current)
+    if (note) setText((t) => (t ? t + `\n\n${note}` : note))
+    record.refetch()
+    articles.refetch()
+  }
+
+  function keepAlive() {
+    clearTimeout(idleTimer.current)
+    idleTimer.current = setTimeout(() => {
+      stopStreaming({ note: '⚠️ The writer stopped responding — nothing was saved, and the article below is whatever was last stored. Try again.' })
+    }, STREAM_IDLE_MS)
+  }
+
+  // Clear the timer if the page unmounts mid-stream.
+  useEffect(() => () => clearTimeout(idleTimer.current), [])
+
   useWSEvent('article_start', (data) => {
     if (data.id !== currentId) return
     setStreaming(true)
     setText('')
+    keepAlive()
   })
   useWSEvent('article_token', (data) => {
     if (data.id !== currentId) return
     setText((t) => t + data.delta)
+    keepAlive()   // each token pushes the deadline out
   })
   useWSEvent('article_done', (data) => {
     if (data.id !== currentId) return
-    setStreaming(false)
     setText(data.text)
     setMeta({ sources: data.sources, usage: data.usage, cost: data.cost, model: data.model, version: data.version })
+    // A stopped run still saves what it wrote, so say so rather than letting a short article look
+    // like a bad one.
+    stopStreaming(data.cancelled ? { note: '🛑 Stopped early — the text above was saved and can be edited or rewritten.' } : {})
   })
   useWSEvent('article_error', (data) => {
     if (data.id !== currentId) return
-    setStreaming(false)
-    setText((t) => t + `\n\n⚠️ ${data.message}`)
+    // Nothing was written server-side, so don't leave the error where the article should be —
+    // refetch and show the text that actually exists.
+    stopStreaming({ note: `⚠️ ${data.message}` })
   })
 
   function onGenerate() {
@@ -60,9 +97,17 @@ export default function ArticleWriterPage() {
     setMeta(null)
     setShowRefine(false)
     generate.mutate(
-      { topic, model },
+      { brief: topic, model },
       { onSuccess: (data) => { setCurrentId(data.id); setStreaming(true); setText('') } },
     )
+  }
+
+  // Stop asks the server to abort the upstream call, which actually halts generation rather than
+  // just hiding it. Whatever was written is saved as a version, so article_done still arrives and
+  // ends the stream — no need to clear `streaming` here.
+  function onStop() {
+    if (!currentId || !streaming) return
+    cancel.mutate({ id: currentId })
   }
 
   function onRefine() {
@@ -82,11 +127,23 @@ export default function ArticleWriterPage() {
     setPreviewV(null)
   }
 
+  // A dropped WebSocket while streaming means article_done can never arrive — end the stream rather
+  // than leaving the controls hidden until a reload.
+  useEffect(() => {
+    if (streaming && wsStatus === 'offline') {
+      stopStreaming({ note: '⚠️ Lost connection to the server mid-write. Nothing was saved.' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsStatus, streaming])
+
   // record loads the full versioned article once selected/refetched — always the latest version.
+  // Skipped while streaming so live tokens aren't overwritten by the stale stored copy.
   useEffect(() => {
     if (record.data && !streaming) {
       const versions = record.data.versions || []
-      const last = versions[versions.length - 1]
+      // Prefer the newest version that actually has text — a pre-2026-08-19 failed refine could
+      // leave an empty one, and rendering that made the article look destroyed.
+      const last = [...versions].reverse().find((v) => (v.text || '').trim()) || versions[versions.length - 1]
       if (last) {
         // `sources` lives at the article level, not per-version — every version shares it.
         setText(last.text)
@@ -127,15 +184,23 @@ export default function ArticleWriterPage() {
   return (
     <div className="content">
       <div className="toolbar">
-        <input
-          className="field" style={{ flex: 1, minWidth: 200 }}
-          placeholder="Article topic or angle — e.g. why solo founders should ship ugly v1s"
+        {/* A brief, not just a topic: length, structure, tone and what to avoid all get obeyed now,
+            so the box has to be big enough to write them in. Enter sends, Shift+Enter newlines. */}
+        <textarea
+          className="field" rows={1} style={{ flex: 1, minWidth: 200, resize: 'vertical', minHeight: 38, maxHeight: 160, fontFamily: 'inherit' }}
+          placeholder="Topic — or a full brief: “600 words on morning routines, second person, numbered checklist, no citations”"
           value={topic} onChange={(e) => setTopic(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && onGenerate()}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onGenerate() } }}
         />
-        <button className="btn primary" onClick={onGenerate} disabled={generate.isPending || streaming || !topic.trim()}>
-          {streaming ? '✍️ Writing…' : '✍️ Write Article'}
-        </button>
+        {streaming ? (
+          <button className="btn" onClick={onStop} disabled={cancel.isPending} title="Stop writing — keeps what's been written so far">
+            {cancel.isPending ? '⏳ Stopping…' : '🛑 Stop'}
+          </button>
+        ) : (
+          <button className="btn primary" onClick={onGenerate} disabled={generate.isPending || !topic.trim()}>
+            ✍️ Write Article
+          </button>
+        )}
         <select className="select" style={{ maxWidth: 170, flex: 'none' }} value={currentId || ''} onChange={(e) => openArticle(e.target.value)} title="Past articles">
           <option value="">Past articles…</option>
           {(articles.data?.articles || []).map((a) => <option key={a.id} value={a.id}>{a.title || a.topic}</option>)}
@@ -146,7 +211,7 @@ export default function ArticleWriterPage() {
         <div className="card" style={{ padding: 26, flex: 1, minWidth: 0, maxHeight: '78vh', overflowY: 'auto' }} ref={boxRef}>
           {!text && !streaming ? (
             <div className="placeholder">
-              <p>Give a topic above and I'll write a professional, cited article in your voice — streamed live.<br />Then hit Edit to refine it conversationally, switch models, and export to .md.</p>
+              <p>Give a topic above — or a full brief, and it will be followed.<br />Length, structure, tone, person, what to avoid: whatever you type there outranks the house template.<br />Streams live; hit Stop any time, then Edit to refine, switch models, and export to .md.</p>
             </div>
           ) : (
             <>

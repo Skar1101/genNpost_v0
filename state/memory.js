@@ -97,11 +97,15 @@ function transition(account, id, newState, extra = {}) {
 
   const finalText = d.editedText || d.text
   const hookType = d.meta && d.meta.hookType
-  if (newState === 'queued') approvedDrafts.append(account, { draftId: id, text: finalText, format: d.format, hookType })
-  if (newState === 'rejected') rejectedDrafts.append(account, { draftId: id, text: d.text, format: d.format, reason: extra.reason || d.reason || '' })
+  // `platform` rides along so Koel can calibrate each platform against its OWN approvals/rejections
+  // rather than showing a LinkedIn draft a pile of approved tweets. Entries written before this
+  // existed carry no platform and are treated as X (the only platform Koel wrote for then).
+  const platform = d.platform || 'x'
+  if (newState === 'queued') approvedDrafts.append(account, { draftId: id, text: finalText, format: d.format, platform, hookType })
+  if (newState === 'rejected') rejectedDrafts.append(account, { draftId: id, text: d.text, format: d.format, platform, reason: extra.reason || d.reason || '' })
   if (newState === 'edited') {
-    approvedDrafts.append(account, { draftId: id, text: finalText, format: d.format, edited: true })
-    voiceExamples.append(account, { text: finalText, source: 'edited-draft' })
+    approvedDrafts.append(account, { draftId: id, text: finalText, format: d.format, platform, edited: true })
+    voiceExamples.append(account, { text: finalText, platform, source: 'edited-draft' })
   }
   if (newState === 'measured' && extra.performance) {
     performanceLog.append(account, { draftId: id, text: finalText, ...extra.performance })

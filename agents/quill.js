@@ -14,6 +14,8 @@ const { buildPlanPrompt } = require('../prompts/quillPlan')
 const { buildRefinePrompt } = require('../prompts/quillRefine')
 const { buildArticlePrompt } = require('../prompts/quillArticle')
 const contentVolume = require('../config/contentVolume')
+const fetchWatchlist = require('../tools/fetchWatchlist')
+const strategyStore = require('../state/strategyStore')
 const articleWriter = require('./articleWriter')
 const articlesStore = require('../state/articlesStore')
 const articleIdeasStore = require('../state/articleIdeasStore')
@@ -70,31 +72,57 @@ function telegramPreview(text, max = 280) {
 
 // ── Topic assignment ──────────────────────────────────────────────────────────
 
-async function assignTopics(researchResults) {
-  const top = (researchResults || []).slice(0, 15)
-  const topList = top.map((r, i) => `${i + 1}. [${r.source}] ${r.title}`).join('\n')
-
-  const n = contentVolume.posts.count   // number of punch posts for today's batch (configurable)
+// Picks the PUNCH topics only — the themed thread slots are reserved separately in runDaily(), from
+// their own domains, so they can't be displaced by whatever ranked highest.
+// `researchResults` should already be ordered for the target platform (see raven.topForPlatform).
+async function assignTopics(researchResults, count = null, quota = null, research = null) {
+  const n = count || contentVolume.posts.count
   const example = `[${Array.from({ length: n }, (_, i) => `"topic ${i + 1}"`).join(', ')}]`
+
+  // With a pillar quota, show the candidates GROUPED BY PILLAR and state the exact count wanted
+  // from each. "Aim for a mix" produced whatever the model felt like; naming the numbers and
+  // showing each pillar its own items is what actually holds the split.
+  let topList
+  if (quota?.length && research) {
+    const blocks = quota.map(q => {
+      const items = raven.topForDomains(research, q.domains, 8)
+        .filter(r => (researchResults || []).some(x => x.url === r.url))
+      const lines = items.length
+        ? items.map((r, i) => `   ${i + 1}. [${r.source}] ${r.title}`).join('\n')
+        : '   (nothing on this pillar in today\'s research — propose an original angle for it)'
+      return `${q.label} — pick exactly ${q.n}:\n${lines}`
+    })
+    topList = blocks.join('\n\n')
+  } else {
+    topList = (researchResults || []).slice(0, 15).map((r, i) => `${i + 1}. [${r.source}] ${r.title}`).join('\n')
+  }
 
   const prompt = `You are a content strategist for Souvik — Indian engineer, kidney transplant survivor, 5 medals for India, AI/SaaS builder.
 
 Today's top ranked content:
 ${topList}
 
-Pick ${n} topics for today's X posts — each will become a short, punchy, viral one-liner (not a
-personal story, not long-form). Return ONLY valid JSON:
+Pick ${n} topics for today's X posts. Return ONLY valid JSON:
 
 { "topics": ${example} }
 
 Rules:
-- Span DIFFERENT domains — AI, startup, dev, wellness, AND self-help/personal-development. At least 1-2
-  of the ${n} topics must be self-help/personal-development (discipline, mindset, habits, growth) — raw,
-  striking, not soft self-care fluff. Should NOT all be AI.
-- If none of the items above are genuinely self-help/personal-development, you may propose one general
-  self-help/personal-development angle yourself (it doesn't need to tie back to the list) — this
-  category is required every day regardless of what's in today's research.
-- Pick items that land in ONE punchy, single-idea hit — a sharp take or contrarian angle works better than a story`
+${quota?.length
+  ? `- **The per-pillar counts above are exact, not suggestions.** Pick precisely the number stated
+  under each pillar heading — ${quota.map(q => `${q.n} ${q.label}`).join(', ')}. They total ${n}.
+  Choosing an extra from one pillar and one fewer from another is a failed answer.
+- Where a pillar has no items today, propose an original angle on that pillar's subject instead —
+  still counting toward its number.`
+  : `- ONLY the account's own subjects are allowed: AI, self-development and wellness. Aim for a mix
+  across the ${n}.`}
+- HARD EXCLUDE — never pick: politics or policy of any kind, drugs/alcohol, religion, sports,
+  celebrity, video games, language/etymology trivia, history lessons, home decor, travel, food,
+  lifestyle aesthetics, ASMR or "oddly satisfying" content. If an item above is one of these,
+  skip it even if it's ranked first.
+- If nothing above is genuinely self-development, propose one general self-development angle
+  yourself — that subject is required every day regardless of what's in the research.
+- Each of these lands in ONE punchy, single-idea hit — a sharp take or contrarian angle beats a
+  story. (The day's threads are chosen separately and are not part of this list.)`
 
   const response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
     { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 600 },
@@ -131,17 +159,57 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
   }
 
   const runAt = new Date().toISOString()
-  log.info(`runDaily starting — ${results.length} items`)
+  // Pick from the items that actually suit X, not the global top 15. Quill, Parrot and Heron all
+  // used to slice the same `results` array and so competed for the identical handful of items —
+  // now each reads the shared pool ordered by its own platformFit score.
+  const xTop = raven.topForPlatform(research, 'x', 15)
+  log.info(`runDaily starting — ${results.length} items (${xTop.length} ranked for X)`)
   if (broadcast) broadcast({ type: 'quill_progress', data: { step: 'assigning_topics' } })
 
-  // Step 1: Assign topics
+  // Step 1a: Reserve the themed thread slots FIRST, each from its own pillar's domains, so the
+  // threads always follow the content strategy rather than whatever ranked highest overall.
+  // AI owns slot 1 every day; self-help and wellness alternate in slot 2 (see strategyStore).
+  const themes = contentVolume.posts.themes()
+  log.info(`Thread themes today: ${themes.map(t => t.label).join(' + ') || '(none)'}`)
+  const threadTopics = []
+  const usedUrls = new Set()
+  for (const theme of themes) {
+    const pool = raven.topForDomains(research, theme.domains, 8).filter(r => !usedUrls.has(r.url))
+    if (pool.length) {
+      threadTopics.push(pool[0].title)
+      usedUrls.add(pool[0].url)
+      log.info(`Thread slot "${theme.label}" -> ${String(pool[0].title).slice(0, 60)}`)
+    } else {
+      // No item in that domain today. Rather than silently substituting an off-topic thread, ask
+      // for an original angle on the theme — the subject matters more than the source item.
+      threadTopics.push(`an original ${theme.label} angle worth a thread (no research item today — write from Souvik's own experience and knowledge)`)
+      log.warn(`Thread slot "${theme.label}" had no ${theme.domains.join('/')} item — falling back to an original angle`)
+    }
+  }
+
+  // Step 1b: Fill the remaining punch slots, allocated PER PILLAR by weight.
+  //
+  // Threads count against their own pillar's share — otherwise AI, which owns a thread every day,
+  // would quietly take its weighted share PLUS a free thread on top. At 50/25/25 over 10 posts,
+  // an AI thread and a wellness thread leave 4 more AI, 3 self-help, 1 wellness.
   let assignments
+  const punchNeeded = Math.max(0, contentVolume.posts.count - threadTopics.length)
+  const targets = strategyStore.pillarTargets(null, contentVolume.posts.count)
+  const usedByPillar = {}
+  for (const t of themes) usedByPillar[t.pillarId] = (usedByPillar[t.pillarId] || 0) + 1
+  const quota = targets
+    .map(t => ({ ...t, n: Math.max(0, t.n - (usedByPillar[t.pillarId] || 0)) }))
+    .filter(t => t.n > 0)
+  log.info(`Punch quota by pillar: ${quota.map(q => `${q.label}:${q.n}`).join(' · ') || '(none)'} (${punchNeeded} slots)`)
+
   try {
-    assignments = await assignTopics(results)
+    const rest = xTop.filter(r => !usedUrls.has(r.url))
+    const picked = punchNeeded ? await assignTopics(rest, punchNeeded, quota, research) : { topics: [] }
+    assignments = { topics: [...threadTopics, ...(picked.topics || [])] }
   } catch (err) {
     log.error('Topic assignment failed — using fallback', err)
-    const n = contentVolume.posts.count
-    assignments = { topics: results.slice(0, n).map(r => r.title) }
+    const rest = xTop.filter(r => !usedUrls.has(r.url)).slice(0, punchNeeded).map(r => r.title)
+    assignments = { topics: [...threadTopics, ...rest] }
   }
 
   // Step 2: Build sources section (top 8 ranked items with links)
@@ -196,9 +264,15 @@ async function runDaily({ research, broadcast, telegramSend, telegramSendDraft =
     return batch.length
   }
 
-  // Single batch: 4 punch posts (raw, hook-driven one-liners). Long-form dropped from the automated
-  // drop — still available on-demand via the Koel page / Quill planner.
-  await runBatchSection({ topics: assignments.topics, section: 'punch', header: 'Punch posts', emoji: '⚡', formatFor: () => 'punch' })
+  // Single batch: mostly punch posts (raw, hook-driven one-liners), with the first `threadCount`
+  // topics as threads instead — real audit research (2026-08) showed threads outperform singles for
+  // reach; assignTopics() already picks the first `threadCount` topics with enough depth for one.
+  // Long-form stays dropped from the automated drop — still available on-demand.
+  const threadCount = contentVolume.posts.threadCount || 0
+  await runBatchSection({
+    topics: assignments.topics, section: 'punch', header: 'Posts', emoji: '⚡',
+    formatFor: (i) => i < threadCount ? 'thread' : 'punch',
+  })
 
   // Top sources + viral X links are kept in the run output (web dashboard) but NOT spammed to Telegram.
 
@@ -240,18 +314,81 @@ async function runReposts({ research = null, count = null, account = null, broad
   const n = count || contentVolume.reposts.perDay
   const results = (research && research.results) || (readLatest() && readLatest().results) || []
   const acct = account || memory.accounts.getActiveAccount()
-  const watchlist = new Set((memory.getProfile(acct)?.watchlist || []).map(normalizeHandle).filter(Boolean))
+  const handles = memory.getProfile(acct)?.watchlist || []
+  const watchlist = new Set(handles.map(normalizeHandle).filter(Boolean))
+  const allowedDomains = new Set(contentVolume.reposts.domains || [])
 
-  // Viral X posts from the research (twitter source) — watchlist authors first, then most engaged.
-  const candidates = results.filter(r => r.source === 'twitter' && r.url)
-  const isWatched = r => watchlist.has(normalizeHandle(r.publisher))
+  // A repost is an endorsement, so it has to be on-subject. Only AI and wellness items qualify —
+  // previously ANY twitter item in the research could be reposted, which is how off-topic filler
+  // (drug-policy history, language trivia) ended up being quote-tweeted.
+  const onTopic = r => !allowedDomains.size || allowedDomains.has(raven.normalizeDomain(r.domain))
+
+  // Watchlist posts are FETCHED, not hoped for. The old code only re-ordered whatever the keyword
+  // search returned, and a keyword search almost never surfaces a specific handle — so "watchlist
+  // first" had no practical effect.
+  let watchlistItems = []
+  if (contentVolume.reposts.watchlistFirst !== false && handles.length) {
+    try {
+      const fetched = await fetchWatchlist({ handles })
+      // These never passed through ranking, so they carry no domain. They get the LOOSE filter:
+      // you curated these accounts precisely because they post these subjects, so only clear
+      // violations (politics, religion, finance, promo) drop. The strict domain filter was
+      // discarding ~85% of them, including plainly on-subject self-help.
+      if (contentVolume.reposts.watchlistLooseFilter !== false) {
+        await raven.classifyDomains(fetched, { loose: true })
+        watchlistItems = fetched.filter(i => !i.violation)
+      } else {
+        await raven.classifyDomains(fetched)
+        watchlistItems = fetched.filter(onTopic)
+      }
+      log.info(`Watchlist: ${fetched.length} fetched -> ${watchlistItems.length} kept (${fetched.length - watchlistItems.length} dropped)`)
+    } catch (e) {
+      log.warn('watchlist fetch failed, falling back to research pool only: ' + e.message)
+    }
+  }
+
   const byEngagement = (a, b) => (b.engagement || 0) - (a.engagement || 0)
-  const viral = [
-    ...candidates.filter(isWatched).sort(byEngagement),
-    ...candidates.filter(r => !isWatched(r)).sort(byEngagement),
-  ].slice(0, n)
+  const researchCandidates = results.filter(r => r.source === 'twitter' && r.url && onTopic(r))
+
+  // Watchlist first, then on-topic research items, de-duplicated by URL — but allocated PER PILLAR
+  // by weight, so 5 reposts land ~3 AI / 1 self-help / 1 wellness instead of whichever items
+  // happened to have the highest engagement. Watchlist-first ordering is preserved inside each
+  // pillar's share.
+  const ordered = [...watchlistItems.sort(byEngagement), ...researchCandidates.sort(byEngagement)]
+  const seenUrls = new Set()
+  const viral = []
+  const quota = strategyStore.pillarTargets(null, n)
+  const pillarOf = (item) => {
+    const d = raven.normalizeDomain(item.domain)
+    return quota.find(q => q.domains.includes(d)) || null
+  }
+
+  const takenByPillar = {}
+  for (const item of ordered) {
+    if (viral.length >= n) break
+    const key = (item.url || '').toLowerCase()
+    if (!key || seenUrls.has(key)) continue
+    const p = pillarOf(item)
+    // Unclassifiable items (loose-filtered watchlist posts carry no domain) fill leftover slots in
+    // the backfill pass below rather than eating a pillar's share.
+    if (!p) continue
+    if ((takenByPillar[p.pillarId] || 0) >= p.n) continue
+    seenUrls.add(key); takenByPillar[p.pillarId] = (takenByPillar[p.pillarId] || 0) + 1
+    viral.push(item)
+  }
+  // Backfill: a pillar with nothing today shouldn't shrink the day's repost count.
+  for (const item of ordered) {
+    if (viral.length >= n) break
+    const key = (item.url || '').toLowerCase()
+    if (!key || seenUrls.has(key)) continue
+    seenUrls.add(key)
+    viral.push(item)
+  }
+  if (quota.length) log.info(`Repost quota by pillar: ${quota.map(q => `${q.label}:${q.n}`).join(' · ')} -> filled ${JSON.stringify(takenByPillar)}`)
+
+  log.info(`runReposts candidates — ${watchlistItems.length} from watchlist, ${researchCandidates.length} on-topic from research -> ${viral.length} selected`)
   if (!viral.length) {
-    await tgSend(telegramSend, '⚠️ No viral X posts in the latest research to repost. Run /research first.')
+    await tgSend(telegramSend, `⚠️ Nothing on-topic to repost today (AI or wellness only, watchlist checked). Run /research first.`)
     return { drafts: [], draftRecords: [] }
   }
 
@@ -364,18 +501,21 @@ async function writeArticleFromIdea({ idx, broadcast = null } = {}) {
 // articlesStore — so it shows in the Writer/Article section — and streams article_* events so the web
 // Writer renders it live. This is the ONLY article path for free-text requests; Koel is never used.
 // Returns { id, title, words, cost }.
-async function writeArticleFromTopic({ topic, extraInstructions = '', broadcast = null } = {}) {
+async function writeArticleFromTopic({ topic, extraInstructions = '', referenceText = '', platform = 'x', broadcast = null } = {}) {
   const cleanTopic = String(topic || '').trim()
   if (!cleanTopic) throw new Error('writeArticleFromTopic: topic required')
-  const angle = String(extraInstructions || '').trim()
-  const fullTopic = angle ? `${cleanTopic} — ${angle}` : cleanTopic
+  // Requirements used to be glued onto the topic with an em-dash, so "1200 words, second person"
+  // became part of the article's working title AND its research query. They now travel separately:
+  // the topic stays a topic, the requirements go into the writer's highest-priority override slot.
+  const spec = String(extraInstructions || '').trim()
   const modelId = models.articleDefaultModel()
 
   const rec = articlesStore.create({ topic: cleanTopic, title: cleanTopic, text: '', model: modelId })
   if (broadcast) broadcast({ type: 'article_start', data: { id: rec.id, title: cleanTopic, mode: 'generate' } })
   try {
     const result = await articleWriter.generate({
-      topic: fullTopic, model: modelId,
+      topic: cleanTopic, model: modelId, platform,
+      instructions: spec, referenceText, searchQuery: cleanTopic,
       onToken: broadcast ? (delta) => broadcast({ type: 'article_token', data: { id: rec.id, delta } }) : null,
     })
     articlesStore.updateLatestVersion(rec.id, {

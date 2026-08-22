@@ -30,10 +30,18 @@ function slugify(s) {
 // `platform`: 'x' (default) | 'substack'. subtitle/subject/previewText/imagePrompt are Substack-only
 // fields — always absent/null for X articles, so every existing X-article file on disk keeps parsing
 // and displaying exactly as before (no migration needed).
-function create({ topic, title, text, model, sources = [], usage = null, cost = null, platform = 'x', subtitle = null, subject = null, previewText = null, imagePrompt = null } = {}) {
+// `id` may be supplied so a caller can hand the client an id to stream into WITHOUT persisting an
+// empty record first — the record is then written once, on success. That matters because a process
+// killed mid-generation (node --watch restarts on any file save) can never run a catch block, so
+// anything already on disk is stranded there.
+function newId() {
+  return 'a-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
+}
+
+function create({ id = null, topic, title, text, model, sources = [], usage = null, cost = null, platform = 'x', subtitle = null, subject = null, previewText = null, imagePrompt = null } = {}) {
   ensureDirs()
   const now = new Date().toISOString()
-  const id = 'a-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
+  id = id || newId()
   const record = {
     id,
     title: title || topic || 'Untitled article',
@@ -92,9 +100,39 @@ function updateLatestVersion(id, { text, usage = null, cost = null, sources = nu
 }
 
 // Convenience: latest version text.
+// Drop the newest version. The refine route appends an EMPTY placeholder before doing the work so
+// streamed tokens have a target; when that work fails, the placeholder must come off again or the
+// article is left with a 0-char latest version and looks destroyed. That is exactly what happened
+// to one real article. Never removes the last remaining version.
+function removeLatestVersion(id) {
+  const record = get(id)
+  if (!record?.versions || record.versions.length < 2) return record
+  record.versions.pop()
+  record.updatedAt = new Date().toISOString()
+  writeAtomic(recordPath(id), record)
+  return record
+}
+
+// Delete an article record outright. Used when generation fails before any text exists — the route
+// pre-creates an empty placeholder so the client has an id to stream into, and without this a failed
+// generation leaves a permanent 0-word article in the list.
+function remove(id) {
+  const file = recordPath(id)
+  try { if (fs.existsSync(file)) { fs.unlinkSync(file); return true } } catch (_) { /* ignore */ }
+  return false
+}
+
+// The newest version that actually HAS text. Falling back matters: if a version is ever empty
+// (a pre-2026-08-19 failed refine left them behind), returning '' made every subsequent rewrite
+// fail with "currentText required" — one bad refine permanently bricked the article. Skipping back
+// to the last real text makes that self-healing.
 function latestText(record) {
-  if (!record?.versions?.length) return ''
-  return record.versions[record.versions.length - 1].text || ''
+  const versions = record?.versions || []
+  for (let i = versions.length - 1; i >= 0; i--) {
+    const t = versions[i].text || ''
+    if (t.trim()) return t
+  }
+  return ''
 }
 
 // List all articles, newest first (lightweight — no full version text).
@@ -166,4 +204,4 @@ function exportMarkdown(id) {
   return { file, filename, markdown }
 }
 
-module.exports = { create, get, addVersion, updateLatestVersion, latestText, list, listCostEntries, exportMarkdown, slugify, ARTICLES_DIR, FILES_DIR }
+module.exports = { create, newId, get, addVersion, updateLatestVersion, removeLatestVersion, remove, latestText, list, listCostEntries, exportMarkdown, slugify, ARTICLES_DIR, FILES_DIR }

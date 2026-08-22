@@ -1,13 +1,16 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import AppShell from './layout/AppShell.jsx'
 import TittoDock from './components/TittoDock.jsx'
 import ControlCenter from './pages/ControlCenter.jsx'
 import Queue from './pages/Queue.jsx'
+import LibraryPage from './pages/LibraryPage.jsx'
+import StudioPage from './pages/StudioPage.jsx'
 import TittoPage from './pages/TittoPage.jsx'
 import RavenPage from './pages/RavenPage.jsx'
 import KoelPage from './pages/KoelPage.jsx'
 import QuillPage from './pages/QuillPage.jsx'
 import ArticleWriterPage from './pages/ArticleWriterPage.jsx'
+import ImagePage from './pages/ImagePage.jsx'
 import HeronPage from './pages/HeronPage.jsx'
 import ParrotPage from './pages/ParrotPage.jsx'
 import AnalystPage from './pages/AnalystPage.jsx'
@@ -23,6 +26,7 @@ const REAL_PAGES = {
   'quill-x': QuillPage,
   koel: KoelPage,
   article: ArticleWriterPage,
+  image: ImagePage,
   heron: HeronPage,
   parrot: ParrotPage,
   analyst: AnalystPage,
@@ -36,6 +40,10 @@ export default function App() {
       <Routes>
         <Route path="/" element={<ControlCenter />} />
         <Route path="/queue" element={<Queue />} />
+        <Route path="/library" element={<LibraryPage />} />
+        <Route path="/studio" element={<StudioPage />} />
+        {/* Compose was the old half of this flow — keep the path working. */}
+        <Route path="/compose" element={<Navigate to="/studio" replace />} />
         {portedPages.map((p) => {
           const Real = REAL_PAGES[p.id]
           return <Route key={p.id} path={p.to} element={Real ? <Real /> : <PortedPage meta={p} />} />

@@ -58,7 +58,9 @@ async function assignDailyTopics({ account = null, count = 1 } = {}) {
   const acct = account || memory.accounts.getActiveAccount()
   const research = researchStore.readLatest()
   const results = research?.results || []
-  const top = results.slice(0, 15)
+  // Ordered by LinkedIn fit rather than the global ranking — career/industry items rise, and the
+  // motivational one-liners that suit X sink, which is the correct outcome for this platform.
+  const top = raven.topForPlatform(research, 'linkedin', 15)
   const topList = top.length
     ? top.map((r, i) => `${i + 1}. [${r.source}] ${r.title}`).join('\n')
     : '(no fresh research available — use freetext angles)'

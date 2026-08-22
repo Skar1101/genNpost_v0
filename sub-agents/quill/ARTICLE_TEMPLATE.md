@@ -6,8 +6,8 @@ picked up on the next article generation. Anything passed in the Refine input or
 via `/quill article` will override this template (highest priority).
 
 When you click Article, Quill first runs a Raven search on the topic to pull
-related content from Reddit, GitHub, HN, X, YouTube, and arXiv. Those items become
-the primary citation sources — the article weaves them in as inline Markdown links.
+related content. Social items (X posts, YouTube Shorts) are filtered out of the
+citation set automatically — they can inspire a topic but are never linked.
 
 ---
 
@@ -16,7 +16,12 @@ the primary citation sources — the article weaves them in as inline Markdown l
 
 ## Structure
 1. **Title** — one strong line. No clickbait, no "the surprising truth about…".
-2. **Hook paragraph** — 2–3 sentences. Open with a real number, a specific moment, or a tension. Promise what the reader will get.
+2. **Hook paragraph** — 2–3 sentences. The FIRST SENTENCE must be one of: a specific moment
+   ("Three weeks in, the agent started silently retrying failed calls"), a concrete number, or a
+   flat contrarian claim. It must NOT be a definition, a state-of-the-industry observation, or a
+   sentence containing "in recent years", "has taken center stage", "increasingly", "the rise of",
+   "in today's world", or "numerous companies". If your opener would work on any article about any
+   topic, delete it and start at the specific thing.
 3. **3–4 body sections** with bold subheaders. Each section has 2–4 short paragraphs.
 4. **Closing** — reflection, soft CTA, or honest question. Not a sales pitch.
 
@@ -26,7 +31,11 @@ the primary citation sources — the article weaves them in as inline Markdown l
 - Each new section's opening should briefly reference or build on the previous — never abrupt jumps.
 
 ## Links (citations)
-- All citations are **inline Markdown hyperlinks** woven into prose: `[anchor text](url)`.
+- **NEVER link to a tweet, an X post, or a YouTube Short.** They are not citable sources for
+  long-form, and linking them is the single most common complaint about these articles.
+- Prefer NO links over weak ones. An article with zero citations and a clear argument beats one
+  padded with links to social posts.
+- When you do cite: **inline Markdown hyperlinks** woven into prose, `[anchor text](url)`.
 - Example: "The [recent Anthropic study](https://example.com) showed a 40% drop in…"
 - NEVER use "(Source: …)" plaintext or a reference dump at the end.
 - Cite the URL exactly once per claim, not every mention.
