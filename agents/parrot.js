@@ -7,6 +7,7 @@ const researchStore = require('../state/researchStore')
 const sessionsStore = require('../state/parrotSessionsStore')
 const { listPillars } = require('../state/quillPillarsStore')
 const activityStore = require('../state/activityStore')
+const llm = require('../utils/llm')
 const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 const costTracker = require('../utils/costTracker')
@@ -86,10 +87,7 @@ Rules:
   direct observation, insight, or take on the subject itself, not "in my experience..." narrative.`
 
   try {
-    const response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-      { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.5, max_tokens: 500 },
-      { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-    ))
+    const response = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.5, max_tokens: 500 })
     costTracker.priceAndRecord({ agent: 'parrot', action: 'assign_daily_topics', modelId: 'openai/gpt-4o-mini', usage: response.usage })
 
     const raw = response.choices[0].message.content.trim()
@@ -169,10 +167,7 @@ async function planSuggestions({ broadcast = null, forceFresh = false, triggerLa
   if (broadcast) broadcast({ type: 'parrot_progress', data: { step: 'matching_categories' } })
   const prompt = buildParrotPlanPrompt({ trendingItems })
 
-  const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 1200 },
-    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-  ))
+  const res = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 1200 })
   costTracker.priceAndRecord({ agent: 'parrot', action: 'plan', modelId: 'openai/gpt-4o-mini', usage: res.usage })
   const raw = res.choices[0].message.content.trim()
   const m = raw.match(/\{[\s\S]*\}/)

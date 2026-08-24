@@ -21,6 +21,7 @@ const costTracker = require('../utils/costTracker')
 const schedulerStore = require('../state/schedulerStore')
 const memory = require('../state/memory')
 const { ensureProfile } = require('../state/profileSeed')
+const llm = require('../utils/llm')
 const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 
@@ -1008,16 +1009,13 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
   // response_format is REQUIRED now that history is sent as real turns: the stored assistant replies
   // are plain prose, and without this the model imitates them and answers in prose, which fails the
   // JSON.parse below and silently drops every message into the "Got it. What else do you need?" branch.
-  const response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-    {
-      model: 'gpt-4o-mini',
+  const response = await llm.chat({
+      model: 'openai/gpt-4o-mini',
       messages: buildIntentMessages(augmentedInput, history),
       temperature: 0.2,
       max_tokens: 1200,
       response_format: { type: 'json_object' },
-    },
-    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-  ))
+    })
   costTracker.priceAndRecord({ agent: 'titto', action: 'intent_parse', modelId: 'openai/gpt-4o-mini', usage: response.usage })
 
   let parsed

@@ -70,7 +70,7 @@ function resolveModelId(modelId) {
 }
 
 // Non-streaming completion. Returns { text, usage, modelUsed }.
-async function complete({ modelId, messages, temperature = 0.8, maxTokens = 4000, signal = null } = {}) {
+async function complete({ modelId, messages, temperature = 0.8, maxTokens = 4000, signal = null, responseFormat = null } = {}) {
   const client = getClient()
   const model = resolveModelId(modelId)
   const cappedTokens = Math.min(maxTokens, G.MAX_OUTPUT_TOKENS)
@@ -78,7 +78,10 @@ async function complete({ modelId, messages, temperature = 0.8, maxTokens = 4000
     const t = withTimeout(signal)
     try {
       const res = await client.chat.completions.create(
-        { model, messages, temperature, max_tokens: cappedTokens },
+        {
+          model, messages, temperature, max_tokens: cappedTokens,
+          ...(responseFormat ? { response_format: responseFormat } : {}),
+        },
         { signal: t.signal, maxRetries: G.MAX_RETRIES },
       )
       return {
@@ -119,4 +122,25 @@ async function stream({ modelId, messages, temperature = 0.8, maxTokens = 4000, 
   })
 }
 
-module.exports = { complete, stream, usingOpenRouter, resolveModelId, getClient }
+// OpenAI-SDK-shaped wrapper, so the agents that were calling
+// `getOpenAI().chat.completions.create(...)` directly can route through here without rewriting how
+// they read the result. Those agents were hardwired to OPENAI_API_KEY, so when that account ran out
+// of credits every one of them died (429 "no credits remaining") while OpenRouter sat unused.
+//
+// IMPORTANT: this already runs inside guard.runGuarded via complete(). Do NOT wrap a call to it in
+// runGuarded again — the guard is a plain non-reentrant semaphore, so nesting holds two of the three
+// concurrency slots and stalls until it throws "rate limit hit".
+//
+// Takes OpenAI-style keys (model, max_tokens, response_format); returns an OpenAI-style envelope.
+async function chat({ model, messages, temperature = 0.8, max_tokens = 4000, response_format = null, signal = null } = {}) {
+  const res = await complete({
+    modelId: model, messages, temperature, maxTokens: max_tokens, responseFormat: response_format, signal,
+  })
+  return {
+    choices: [{ message: { content: res.text }, finish_reason: 'stop' }],
+    usage: res.usage,
+    model: res.modelUsed,
+  }
+}
+
+module.exports = { complete, stream, chat, usingOpenRouter, resolveModelId, getClient }

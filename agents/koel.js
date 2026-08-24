@@ -6,6 +6,7 @@ const { buildRepostPrompt } = require('../prompts/koelRepost')
 const { sanitize, findBannedPhrase, findUngroundedStat } = require('../prompts/styleRules')
 const { appendEntry } = require('../state/koelStore')
 const activityStore = require('../state/activityStore')
+const llm = require('../utils/llm')
 const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 const memory = require('../state/memory')
@@ -83,10 +84,8 @@ async function write({ format = 'short', input, inputType = 'freetext', count = 
   let response
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-        { model: 'gpt-4o-mini', messages, temperature: 0.85, max_tokens: 4000 },
-        { maxRetries: 0, timeout: G.TIMEOUT_MS },   // this loop handles retries; guard bounds rate/concurrency
-      ))
+      // This loop handles retries; llm.chat() applies the rate/concurrency guard and the timeout.
+      response = await llm.chat({ model: 'openai/gpt-4o-mini', messages, temperature: 0.85, max_tokens: 4000 })
       break
     } catch (err) {
       const retryable = err.status === 500 || err.status === 503 || err.status === 429
@@ -137,10 +136,7 @@ Do not swap in a different percentage, and do not soften it with "up to", "nearl
       if (badPhrase) asks.push(`At least one draft used a banned phrase: "${badPhrase}". Rewrite to cut it and anything in the same family (corporate buzzwords, generic inspirational closers like "the future of X is here" or "we're on the brink of a major shift"). Say the specific thing THIS post is actually about, not something that could be pasted onto any other topic.`)
       const retryMessages = [...messages, { role: 'assistant', content: lastRaw }, { role: 'user', content:
         `${asks.join('\n\n')}\n\nThe house style rules from your system prompt still fully apply on this rewrite — re-read them. Keep the same format/length rules and the same count. Output in the exact same format as before.` }]
-      const retryRes = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-        { model: 'gpt-4o-mini', messages: retryMessages, temperature: 0.85, max_tokens: 4000 },
-        { maxRetries: 0, timeout: G.TIMEOUT_MS },
-      ))
+      const retryRes = await llm.chat({ model: 'openai/gpt-4o-mini', messages: retryMessages, temperature: 0.85, max_tokens: 4000 })
       costTracker.priceAndRecord({ agent: origin, action: (meta?.kind || 'write') + '_style_retry', modelId: 'openai/gpt-4o-mini', usage: retryRes.usage })
       const retryRaw = retryRes.choices[0].message.content.trim()
       const retryDrafts = parseDrafts(retryRaw).map(sanitize)

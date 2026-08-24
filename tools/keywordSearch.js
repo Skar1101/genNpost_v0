@@ -2,6 +2,7 @@ require('dotenv').config()
 const OpenAI = require('openai')
 const researchStore = require('../state/researchStore')
 const keywordsStore = require('../state/keywordsStore')
+const llm = require('../utils/llm')
 const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 const costTracker = require('../utils/costTracker')
@@ -74,10 +75,7 @@ Rules:
 
 Return ONLY a JSON array of strings.`
 
-  const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 400 },
-    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-  ))
+  const res = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 400 })
   costTracker.priceAndRecord({ agent: 'raven', action: 'keyword_expand', modelId: 'openai/gpt-4o-mini', usage: res.usage })
   const raw = res.choices[0].message.content.trim()
   try {

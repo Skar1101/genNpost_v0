@@ -9,6 +9,7 @@ const { getEnabledDomainIds } = require('../state/replyDomainsStore')
 const { writeLatest, archiveRun } = require('../state/researchStore')
 const replyTargetsStore = require('../state/replyTargetsStore')
 const activityStore = require('../state/activityStore')
+const llm = require('../utils/llm')
 const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 const { filterNew, markSeen } = require('../state/seenUrlsStore')
@@ -98,10 +99,7 @@ ${list}
 Return ONLY a JSON array of ${rows.length} domain strings, in order.`
 
   try {
-    const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-      { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 600 },
-      { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-    ))
+    const res = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 600 })
     costTracker.priceAndRecord({ agent: 'raven', action: loose ? 'classify_loose' : 'classify_domains', modelId: 'openai/gpt-4o-mini', usage: res.usage })
     const raw = res.choices[0].message.content.trim()
     const m = raw.match(/\[[\s\S]*\]/)
@@ -334,10 +332,8 @@ async function rankWithLLM(rawItems, instructions, broadcast, platformKeywords =
   let response
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-        { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 4000 },
-        { maxRetries: 0, timeout: G.TIMEOUT_MS },   // this loop handles retries; guard bounds rate/concurrency
-      ))
+      // This loop handles retries; llm.chat() applies the rate/concurrency guard and the timeout.
+      response = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 4000 })
       break
     } catch (err) {
       const retryable = err.status === 500 || err.status === 503 || err.status === 429

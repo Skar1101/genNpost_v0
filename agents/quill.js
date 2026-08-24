@@ -5,6 +5,7 @@ const raven = require('./raven')
 const analyst = require('./analyst')
 const { appendRun } = require('../state/quillStore')
 const activityStore = require('../state/activityStore')
+const llm = require('../utils/llm')
 const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 const { listArchive, readArchive, readLatest } = require('../state/researchStore')
@@ -124,10 +125,7 @@ ${quota?.length
 - Each of these lands in ONE punchy, single-idea hit — a sharp take or contrarian angle beats a
   story. (The day's threads are chosen separately and are not part of this list.)`
 
-  const response = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 600 },
-    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-  ))
+  const response = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 600 })
   costTracker.priceAndRecord({ agent: 'quill', action: 'assign_topics', modelId: 'openai/gpt-4o-mini', usage: response.usage })
 
   const raw = response.choices[0].message.content.trim()
@@ -438,10 +436,7 @@ Return ONLY JSON:
 
   let raw = []
   try {
-    const r = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-      { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 700 },
-      { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-    ))
+    const r = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 700 })
     costTracker.priceAndRecord({ agent: 'quill', action: 'article_ideas', modelId: 'openai/gpt-4o-mini', usage: r.usage })
     const txt = r.choices[0].message.content.trim()
     const m = txt.match(/\[[\s\S]*\]/)
@@ -577,10 +572,7 @@ Suggest 4 long-form article angles that would go viral on X. Actionable or story
 Return ONLY JSON:
 [{ "title": "...", "angle": "One line pitch", "whyViral": "Why this gets shares" }]`
 
-    const r = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-      { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 600 },
-      { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-    ))
+    const r = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 600 })
     costTracker.priceAndRecord({ agent: 'quill', action: 'weekly_ideas', modelId: 'openai/gpt-4o-mini', usage: r.usage })
     const raw = r.choices[0].message.content.trim()
     const match = raw.match(/\[[\s\S]*\]/)
@@ -684,10 +676,7 @@ async function planSuggestions({ broadcast = null, forceFresh = false, triggerLa
   if (broadcast) broadcast({ type: 'quill_progress', data: { step: 'matching_pillars' } })
   const prompt = buildPlanPrompt({ pillars, trendingItems })
 
-  const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 1500 },
-    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-  ))
+  const res = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 1500 })
   costTracker.priceAndRecord({ agent: 'quill', action: 'plan', modelId: 'openai/gpt-4o-mini', usage: res.usage })
   const raw = res.choices[0].message.content.trim()
   const m = raw.match(/\{[\s\S]*\}/)

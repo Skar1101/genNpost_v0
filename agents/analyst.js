@@ -11,6 +11,7 @@ const articleLessonsStore = require('../state/articleLessonsStore')
 const articleWriter = require('./articleWriter')
 const activityStore = require('../state/activityStore')
 const researchStore = require('../state/researchStore')
+const llm = require('../utils/llm')
 const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
 const logger = require('../utils/logger')
@@ -73,10 +74,7 @@ ${text.slice(0, 6000)}
 Return ONLY a JSON array, no markdown:
 [{ "text": "the tweet text", "impressions": 12000, "likes": 340, "replies": 12, "retweets": 8, "bookmarks": 20 }]`
 
-  const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 1500 },
-    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-  ))
+  const res = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 1500 })
   costTracker.priceAndRecord({ agent: 'analyst', action: 'parse_tweets', modelId: 'openai/gpt-4o-mini', usage: res.usage })
   let rows = []
   try {
@@ -204,10 +202,7 @@ Return ONLY JSON, no markdown:
   "downweight": ["sources or topic keywords to rank LOWER in research"]
 }`
 
-  const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 900 },
-    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-  ))
+  const res = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 900 })
   costTracker.priceAndRecord({ agent: 'analyst', action: 'insights', modelId: 'openai/gpt-4o-mini', usage: res.usage })
   let parsed = {}
   try {
@@ -345,10 +340,7 @@ async function auditBrand({ account = null, screenname = 'skar_connect', broadca
   log.info(`auditBrand: analyzing ${ownTweets.length} real tweets (avg engagement ${avgEngagement.toFixed(1)}) vs ${niche.length} niche comparisons`)
 
   const prompt = buildBrandAuditPrompt({ user, top, bottom, avgEngagement, avgViews, niche })
-  const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-    { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 2000 },
-    { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-  ))
+  const res = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 2000 })
   costTracker.priceAndRecord({ agent: 'analyst', action: 'brand_audit', modelId: 'openai/gpt-4o-mini', usage: res.usage })
 
   const raw = res.choices[0].message.content.trim()
@@ -438,10 +430,7 @@ Rules for your output:
 Return ONLY a JSON array of strings.`
 
   try {
-    const res = await guard.runGuarded(() => getOpenAI().chat.completions.create(
-      { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 700 },
-      { maxRetries: G.MAX_RETRIES, timeout: G.TIMEOUT_MS },
-    ))
+    const res = await llm.chat({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 700 })
     costTracker.priceAndRecord({ agent: 'analyst', action: 'article_lessons', modelId: 'openai/gpt-4o-mini', usage: res.usage })
     const raw = res.choices[0].message.content.trim()
     const m = raw.match(/\[[\s\S]*\]/)
