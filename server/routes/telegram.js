@@ -8,7 +8,7 @@ const articlesStore = require('../../state/articlesStore')
 const assetsStore = require('../../state/assetsStore')
 const finishDraft = require('../../utils/finishDraft')
 const generateImage = require('../../tools/generateImage')
-const { REASONS, actionKeyboard, assetKeyboard, reasonKeyboard, escapeHtml, stripHeader } = require('./telegramCore')
+const { REASONS, actionKeyboard, decidedKeyboard, assetKeyboard, reasonKeyboard, escapeHtml, stripHeader } = require('./telegramCore')
 
 let bot = null
 let _sendDrafts = null
@@ -57,7 +57,7 @@ function init(app, broadcast) {
       if (!d || !d.id) continue
       const body = `📝 Draft (${d.format || 'short'})${d.warn ? ` ${d.warn}` : ''}\n\n${d.text}`
       try {
-        await bot.sendMessage(targetChatId, body, { reply_markup: actionKeyboard(d.id) })
+        await bot.sendMessage(targetChatId, body, { reply_markup: actionKeyboard(d.id, d.text) })
       } catch (e) { console.warn('[Telegram] sendDraft failed:', e.message) }
     }
   }
@@ -364,7 +364,11 @@ function init(app, broadcast) {
 
       if (action === 'a') {
         const updated = memory.transition(acct, id, 'queued')
-        await bot.editMessageText(`✅ Approved\n\n${bodyText}`, { chat_id: chat, message_id: msgId }).catch(() => {})
+        // Keep a keyboard here. editMessageText without reply_markup DROPS the buttons, so approving
+        // used to remove Copy — at the exact moment you want it, since approving is when you go post.
+        await bot.editMessageText(`✅ Approved\n\n${bodyText}`, {
+          chat_id: chat, message_id: msgId, reply_markup: decidedKeyboard(id, bodyText),
+        }).catch(() => {})
         if (isHeronChat && updated?.platform === 'substack') await sendHeronHandoff(updated)
         return ack('Approved — added to your queue')
       }
@@ -373,14 +377,25 @@ function init(app, broadcast) {
         return ack('Pick a reason')
       }
       if (action === 'b') {
-        await bot.editMessageReplyMarkup(actionKeyboard(id), { chat_id: chat, message_id: msgId }).catch(() => {})
+        await bot.editMessageReplyMarkup(actionKeyboard(id, bodyText), { chat_id: chat, message_id: msgId }).catch(() => {})
         return ack()
       }
       if (action === 'rr') {
         const reason = REASONS[code] || 'other'
         memory.transition(acct, id, 'rejected', { reason })
-        await bot.editMessageText(`❌ Rejected (${reason})\n\n${bodyText}`, { chat_id: chat, message_id: msgId }).catch(() => {})
+        await bot.editMessageText(`❌ Rejected (${reason})\n\n${bodyText}`, {
+          chat_id: chat, message_id: msgId, reply_markup: decidedKeyboard(id, bodyText),
+        }).catch(() => {})
         return ack(`Rejected — I'll avoid this`)
+      }
+      // Undo a mis-tapped approve/reject — previously unrecoverable from chat, the message just sat
+      // there decided. Returns the draft to unrated and restores the full action row.
+      if (action === 'u') {
+        memory.transition(acct, id, 'generated')
+        await bot.editMessageText(bodyText, {
+          chat_id: chat, message_id: msgId, reply_markup: actionKeyboard(id, bodyText),
+        }).catch(() => {})
+        return ack('Undone — back to unrated')
       }
       if (action === 'c') {
         // Send the draft as a copyable code block (Telegram shows a tap-to-copy icon)

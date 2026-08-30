@@ -4,15 +4,37 @@
 
 const REASONS = { hook: 'weak hook', voice: 'off-voice', topic: 'wrong topic', seen: 'seen before', other: 'other' }
 
-// One-tap action keyboards (callback_data stays well under Telegram's 64-byte limit)
-function actionKeyboard(id) {
+// Telegram's native copy button (Bot API 7.11+) puts the text straight on the clipboard with no new
+// message. It's capped at 256 characters, so anything longer falls back to the old behaviour —
+// sending the draft as a <pre> block you tap to copy.
+const COPY_TEXT_MAX = 256
+
+function copyButton(id, text) {
+  const t = String(text || '')
+  return (t.length && t.length <= COPY_TEXT_MAX)
+    ? { text: '📋 Copy', copy_text: { text: t } }
+    : { text: '📋 Copy', callback_data: `d|c|${id}` }
+}
+
+// One-tap action keyboards (callback_data stays well under Telegram's 64-byte limit).
+// `text` is optional — pass the draft body to get a real one-tap clipboard copy.
+function actionKeyboard(id, text = '') {
   return { inline_keyboard: [
     [
       { text: '✅ Approve', callback_data: `d|a|${id}` },
       { text: '❌ Reject', callback_data: `d|r|${id}` },
       { text: '✏️ Edit', callback_data: `d|e|${id}` },
     ],
-    [{ text: '📋 Copy', callback_data: `d|c|${id}` }],
+    [copyButton(id, text)],
+  ] }
+}
+
+// Shown AFTER approve/reject. Previously the keyboard was dropped entirely at that point — approving
+// a draft removed the Copy button, which is exactly when you want it, since approving is the moment
+// you go and post the thing. Undo is here because a mis-tap was otherwise unrecoverable from chat.
+function decidedKeyboard(id, text = '') {
+  return { inline_keyboard: [
+    [copyButton(id, text), { text: '↩ Undo', callback_data: `d|u|${id}` }],
   ] }
 }
 
@@ -67,4 +89,4 @@ function chunkForTelegram(text, maxLen = 3500) {
   return chunks
 }
 
-module.exports = { REASONS, actionKeyboard, assetKeyboard, reasonKeyboard, escapeHtml, stripHeader, chunkForTelegram }
+module.exports = { REASONS, actionKeyboard, decidedKeyboard, copyButton, assetKeyboard, reasonKeyboard, escapeHtml, stripHeader, chunkForTelegram }

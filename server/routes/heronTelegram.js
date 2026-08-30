@@ -5,7 +5,7 @@
 const TelegramBot = require('node-telegram-bot-api')
 const memory = require('../../state/memory')
 const articlesStore = require('../../state/articlesStore')
-const { REASONS, actionKeyboard, reasonKeyboard, escapeHtml, stripHeader } = require('./telegramCore')
+const { REASONS, actionKeyboard, decidedKeyboard, reasonKeyboard, escapeHtml, stripHeader } = require('./telegramCore')
 
 let bot = null
 let _sendDrafts = null
@@ -43,7 +43,7 @@ function init(app) {
       if (!d || !d.id) continue
       const body = `📝 Draft (${d.format || 'article'})\n\n${d.text}`
       try {
-        await bot.sendMessage(chatId, body, { reply_markup: actionKeyboard(d.id) })
+        await bot.sendMessage(chatId, body, { reply_markup: actionKeyboard(d.id, d.text) })
       } catch (e) { console.warn('[HeronTelegram] sendDraft failed:', e.message) }
     }
   }
@@ -145,7 +145,7 @@ function init(app) {
         return ack('Pick a reason')
       }
       if (action === 'b') {
-        await bot.editMessageReplyMarkup(actionKeyboard(id), { chat_id: chat, message_id: msgId }).catch(() => {})
+        await bot.editMessageReplyMarkup(actionKeyboard(id, stripHeader(q.message.text)), { chat_id: chat, message_id: msgId }).catch(() => {})
         return ack()
       }
       if (action === 'rr') {
