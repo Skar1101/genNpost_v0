@@ -518,3 +518,77 @@ textarea.field { resize: vertical; line-height: 1.5; }
   .team.g3, .team.g4 { grid-template-columns: 1fr; }
   .titto { flex-wrap: wrap; }
 }
+
+/* ── Post preview ────────────────────────────────────────────────────────────
+   A faithful mock of the finished post. Each platform gets its own chrome because the same words
+   genuinely read differently on each — X threads, LinkedIn folds, Substack is an article. Uses the
+   theme tokens throughout so it follows light/dark like everything else. */
+.pv-wrap { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 16px; }
+.pv-chrome { display: flex; align-items: center; justify-content: space-between; }
+.pv-chrome-label { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.pv-frame { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; box-shadow: var(--shadow); overflow: hidden; }
+
+.pv-avatar { border-radius: 999px; background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; font-weight: 700; flex: none; }
+.pv-name { font-weight: 700; color: var(--ink); }
+.pv-handle { color: var(--faint); }
+.pv-dot { color: var(--faint); }
+.pv-text { white-space: pre-wrap; word-break: break-word; color: var(--ink); line-height: 1.5; margin-top: 2px; }
+.pv-placeholder { color: var(--faint); font-style: italic; }
+
+.pv-media { overflow: hidden; margin-top: 10px; border: 1px solid var(--border); background: var(--surface-2); }
+.pv-img, .pv-video { display: block; width: 100%; max-height: 340px; object-fit: cover; }
+.pv-video { background: #000; }
+
+.pv-linkcard { display: block; margin-top: 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  overflow: hidden; text-decoration: none; color: inherit; background: var(--surface); }
+.pv-linkcard:hover { background: var(--surface-2); }
+.pv-linkcard-img img { display: block; width: 100%; max-height: 180px; object-fit: cover; }
+.pv-linkcard.compact .pv-linkcard-img img { max-height: 120px; }
+.pv-linkcard-body { padding: 10px 12px; }
+.pv-linkcard-host { font-size: 11px; color: var(--faint); text-transform: lowercase; }
+.pv-linkcard-title { font-weight: 600; font-size: 14px; margin-top: 2px; color: var(--ink); }
+.pv-linkcard-desc { font-size: 12px; color: var(--muted); margin-top: 3px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* X — the connector line down the gutter is what makes segments read as one thread */
+.pv-x-tweet { display: flex; gap: 10px; }
+.pv-x-gutter { display: flex; flex-direction: column; align-items: center; flex: none; }
+.pv-thread-line { width: 2px; flex: 1; background: var(--border); margin: 6px 0 -6px; border-radius: 1px; }
+.pv-x-body { flex: 1; min-width: 0; padding-bottom: 14px; }
+.pv-x-head { display: flex; gap: 5px; align-items: baseline; font-size: 14px; flex-wrap: wrap; }
+.pv-x-actions { display: flex; gap: 18px; align-items: center; margin-top: 10px; color: var(--faint); font-size: 12px; }
+.pv-count { margin-left: auto; font-family: var(--font-mono); font-size: 11px; }
+.pv-count.over { color: var(--crit); font-weight: 700; }
+
+/* LinkedIn — the fold at ~140 chars is the thing worth seeing */
+.pv-li-head { display: flex; gap: 10px; align-items: flex-start; }
+.pv-li-headline { font-size: 12px; color: var(--muted); line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pv-li-text { margin-top: 12px; font-size: 14px; }
+.pv-fold { color: var(--faint); }
+.pv-seemore { color: var(--muted); font-weight: 600; cursor: default; }
+.pv-li-actions { display: flex; gap: 14px; margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; flex-wrap: wrap; }
+.pv-note { margin-top: 10px; font-size: 11px; color: var(--warn); }
+
+/* Substack */
+.pv-su-title { font-size: 24px; font-weight: 800; line-height: 1.25; color: var(--ink); }
+.pv-su-byline { font-size: 12px; color: var(--faint); margin-top: 6px; }
+.pv-su-body { margin-top: 14px; font-size: 15px; line-height: 1.65; }
+
+.pv-warnings { display: flex; flex-direction: column; gap: 6px; }
+.pv-warn { font-size: 12px; padding: 7px 10px; border-radius: var(--r-sm); }
+.pv-warn.warn { background: var(--warn-soft); color: var(--warn); }
+.pv-warn.error { background: var(--crit-soft); color: var(--crit); }
+
+/* Studio: preview on the left, compose on the right */
+.studio-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 1100px) { .studio-two { grid-template-columns: 1fr; } .pv-wrap { position: static; } }
+
+/* Media rail galleries — a compact strip of picked-from-earlier images/videos */
+.media-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; margin-top: 10px; }
+.media-thumb { padding: 0; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden;
+  background: var(--surface-2); cursor: pointer; aspect-ratio: 1; }
+.media-thumb:hover { border-color: var(--accent); }
+.media-thumb img, .media-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }

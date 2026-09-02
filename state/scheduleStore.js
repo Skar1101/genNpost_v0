@@ -84,16 +84,25 @@ function grid(account, { startYmd = null, days = 7 } = {}) {
   const slots = getSlots()
   const booked = assetsStore.scheduled(account)
 
+  // A map of instant -> ARRAY. It used to be instant -> one asset, so scheduling two posts to the
+  // same time silently dropped one from the calendar while delivery still sent both.
   const byInstant = {}
-  for (const a of booked) byInstant[a.scheduledFor] = a
+  for (const a of booked) (byInstant[a.scheduledFor] ||= []).push(a)
 
   const out = []
   for (let i = 0; i < days; i++) {
     const ymd = addDaysIST(start, i)
     const cells = slots.map(hhmm => {
       const iso = istDateTimeToISO(ymd, hhmm)
-      const asset = byInstant[iso] || null
-      return { iso, time: hhmm, asset: asset ? summarize(asset) : null, past: new Date(iso) < new Date() }
+      const here = byInstant[iso] || []
+      return {
+        iso, time: hhmm,
+        // `asset` stays for existing callers (Studio's free-slot picker reads it); `assets` is the
+        // full list so a collision is visible rather than hidden.
+        asset: here.length ? summarize(here[0]) : null,
+        assets: here.map(summarize),
+        past: new Date(iso) < new Date(),
+      }
     })
     out.push({ date: ymd, cells })
   }

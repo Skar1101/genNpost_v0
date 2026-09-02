@@ -1,5 +1,6 @@
 const assetsStore = require('../state/assetsStore')
 const imagesStore = require('../state/imagesStore')
+const videosStore = require('../state/videosStore')
 const memory = require('../state/memory')
 const linkedinClient = require('../utils/linkedinClient')
 const activityStore = require('../state/activityStore')
@@ -43,7 +44,10 @@ async function deliverAsset({ account, asset, telegramSend, telegramSendHeronDra
   // ── LinkedIn: real post ────────────────────────────────────────────────────
   if (asset.platform === 'linkedin') {
     try {
-      const { postUrn, url } = await linkedinClient.postToLinkedIn(assetText(asset))
+      // Media is uploaded and attached now — it used to be dropped entirely, so a LinkedIn post
+      // with a picture went out as bare text.
+      const { imagePath, videoPath } = mediaPaths(account, asset)
+      const { postUrn, url } = await linkedinClient.postToLinkedIn({ text: assetText(asset), imagePath, videoPath })
       assetsStore.update(account, asset.id, { state: 'posted', note: 'auto-posted to LinkedIn' })
       activityStore.recordAndBroadcast(null, {
         agent: 'parrot', action: 'post', triggerLabel: '⏰ Slot',
@@ -66,7 +70,7 @@ async function deliverAsset({ account, asset, telegramSend, telegramSendHeronDra
   const header = isSubstack
     ? `🦢 Substack slot — ready to publish`
     : `⏰ X slot — ready to post`
-  const body = `${header}\n\n${copyReadyText(asset)}${imageLine(account, asset)}`
+  const body = `${header}\n\n${copyReadyText(asset)}${imageLine(account, asset)}${videoLine(account, asset)}${linkLine(asset)}`
 
   const send = isSubstack && telegramSendHeronDraft ? telegramSendHeronDraft : telegramSend
   if (!send) {

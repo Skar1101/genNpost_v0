@@ -3,6 +3,7 @@
 // LinkedIn's side (confirmed) — a posted draft can only be deleted and reposted, never corrected.
 const axios = require('axios')
 const linkedinAuth = require('./linkedinAuth')
+const linkedinMedia = require('./linkedinMedia')
 
 const POSTS_URL = 'https://api.linkedin.com/rest/posts'
 // LinkedIn versions its REST API by a YYYYMM string, and only keeps roughly the last 12 months' worth
@@ -14,7 +15,11 @@ const LINKEDIN_API_VERSION = '202606'
 
 // Throws a plain Error with a clear, user-facing message on any failure — the caller (Telegram/API
 // approve handlers) shows this directly rather than a generic "failed" string.
-async function postToLinkedIn(text) {
+// Accepts either a plain string (the original call shape, still used by agents/parrot.js and
+// scheduler/slotDelivery.js) or { text, imagePath, videoPath } to attach media.
+async function postToLinkedIn(input) {
+  const { text, imagePath = null, videoPath = null } =
+    typeof input === 'string' ? { text: input } : (input || {})
   const stored = linkedinAuth.getStoredToken()
   if (!stored?.accessToken) {
     throw new Error('LinkedIn isn\'t connected yet — visit /api/parrot/oauth/start to connect.')
@@ -24,6 +29,20 @@ async function postToLinkedIn(text) {
     throw new Error('LinkedIn token expired — visit /api/parrot/oauth/start to reconnect.')
   }
 
+  // Upload media first — a failure here must abort before anything is posted, so a half-finished
+  // post never reaches the feed. Video wins if both are somehow set.
+  let mediaUrn = null
+  try {
+    if (videoPath) {
+      mediaUrn = await linkedinMedia.uploadVideo({ token: stored.accessToken, version: LINKEDIN_API_VERSION, personUrn: stored.personUrn, filePath: videoPath })
+    } else if (imagePath) {
+      mediaUrn = await linkedinMedia.uploadImage({ token: stored.accessToken, version: LINKEDIN_API_VERSION, personUrn: stored.personUrn, filePath: imagePath })
+    }
+  } catch (err) {
+    const msg = err.response?.data?.message || err.message
+    throw new Error(`LinkedIn media upload failed: ${msg}`)
+  }
+
   const body = {
     author: stored.personUrn,
     commentary: text,
@@ -31,6 +50,7 @@ async function postToLinkedIn(text) {
     distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] },
     lifecycleState: 'PUBLISHED',
     isReshareDisabledByAuthor: false,
+    ...(mediaUrn ? { content: { media: { id: mediaUrn } } } : {}),
   }
 
   let res

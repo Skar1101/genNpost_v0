@@ -44,6 +44,9 @@ export default function SlotGrid({ data, todayYmd, onMove, onOpen, onFill, busyI
             {data.grid.map((day) => {
               const cell = day.cells[rowIdx]
               const asset = cell.asset
+              // A cell can legitimately hold more than one post. `assets` is the full list; the
+              // fallback keeps this working against an older server that only sends `asset`.
+              const here = cell.assets || (asset ? [asset] : [])
               const isOver = overIso === cell.iso
               const busy = busyIso === cell.iso
               return (
@@ -62,19 +65,25 @@ export default function SlotGrid({ data, todayYmd, onMove, onOpen, onFill, busyI
                 >
                   {busy ? (
                     <div className="slot-empty mono">writing…</div>
-                  ) : asset ? (
-                    <div
-                      className={`slot-chip ${PLATFORM_CLASS[asset.platform] || ''} ${asset.state === 'posted' ? 'done' : ''}`}
-                      draggable
-                      onDragStart={() => setDragId(asset.id)}
-                      onDragEnd={() => setDragId(null)}
-                      onClick={(e) => { e.stopPropagation(); onOpen(asset) }}
-                      title={asset.title}
-                    >
-                      <span className="chip-plat mono">{asset.platform === 'linkedin' ? 'in' : asset.platform === 'substack' ? 'sub' : 'x'}</span>
-                      <span className="chip-title">{asset.title}</span>
-                      {asset.imageId && <span className="chip-img">🖼</span>}
-                    </div>
+                  ) : here.length ? (
+                    // Every asset at this instant, not just the first — two posts could share a slot,
+                    // and the calendar used to draw only one while delivery still sent both.
+                    here.map((a) => (
+                      <div
+                        key={a.id}
+                        className={`slot-chip ${PLATFORM_CLASS[a.platform] || ''} ${a.state === 'posted' ? 'done' : ''}`}
+                        draggable
+                        onDragStart={() => setDragId(a.id)}
+                        onDragEnd={() => setDragId(null)}
+                        onClick={(e) => { e.stopPropagation(); onOpen(a) }}
+                        title={a.title}
+                      >
+                        <span className="chip-plat mono">{a.platform === 'linkedin' ? 'in' : a.platform === 'substack' ? 'sub' : 'x'}</span>
+                        <span className="chip-title">{a.title}</span>
+                        {a.videoId && <span className="chip-img">🎬</span>}
+                        {!a.videoId && a.imageId && <span className="chip-img">🖼</span>}
+                      </div>
+                    ))
                   ) : (
                     <div className="slot-empty">{cell.past ? '' : '+'}</div>
                   )}
@@ -92,7 +101,13 @@ export default function SlotGrid({ data, todayYmd, onMove, onOpen, onFill, busyI
           </div>
           <div className="choice-row" style={{ gap: 8, flexWrap: 'wrap' }}>
             {data.offGrid.map((o) => (
-              <button key={o.asset.id} className="btn sm" onClick={() => onOpen(o.asset)}>
+              <button
+                key={o.asset.id} className="btn sm"
+                draggable
+                onDragStart={() => setDragId(o.asset.id)}
+                onDragEnd={() => setDragId(null)}
+                onClick={() => onOpen(o.asset)}
+              >
                 {o.date} {o.time} · {o.asset.platform} · {o.asset.title.slice(0, 30)}
               </button>
             ))}

@@ -53,6 +53,18 @@ function assetKeyboard(id) {
   ] }
 }
 
+// Publishing to LinkedIn is irreversible and immediate, so the Studio button now ASKS here first
+// instead of posting straight from the web UI. Its own 'pub|' namespace, separate from drafts ('d|')
+// and slot assets ('as|'), because approving here means "publish for real right now".
+function publishKeyboard(id) {
+  return { inline_keyboard: [
+    [
+      { text: '✅ Approve & post', callback_data: `pub|a|${id}` },
+      { text: '❌ Cancel', callback_data: `pub|c|${id}` },
+    ],
+  ] }
+}
+
 function reasonKeyboard(id) {
   return { inline_keyboard: [
     [{ text: 'weak hook', callback_data: `d|rr|${id}|hook` }, { text: 'off-voice', callback_data: `d|rr|${id}|voice` }],
@@ -89,4 +101,4 @@ function chunkForTelegram(text, maxLen = 3500) {
   return chunks
 }
 
-module.exports = { REASONS, actionKeyboard, decidedKeyboard, copyButton, assetKeyboard, reasonKeyboard, escapeHtml, stripHeader, chunkForTelegram }
+module.exports = { REASONS, actionKeyboard, decidedKeyboard, copyButton, assetKeyboard, publishKeyboard, reasonKeyboard, escapeHtml, stripHeader, chunkForTelegram }

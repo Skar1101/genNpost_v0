@@ -19,6 +19,8 @@ const activityStore = require('../../state/activityStore')
 const articleWriter = require('../../agents/articleWriter')
 const articlesStore = require('../../state/articlesStore')
 const inflight = require('../../utils/inflight')
+const videosStore = require('../../state/videosStore')
+const { readLinkCard } = require('../../tools/readUrl')
 const heron = require('../../agents/heron')
 const heronTopicsStore = require('../../state/heronTopicsStore')
 const parrot = require('../../agents/parrot')
@@ -687,7 +689,7 @@ router.get('/assets/:id', (req, res) => {
 router.post('/assets', (req, res) => {
   try {
     const account = memory.accounts.getActiveAccount()
-    const { text = '', segments = null, platform = 'x', origin = 'manual', imageId = null, meta = {} } = req.body || {}
+    const { text = '', segments = null, platform = 'x', origin = 'manual', imageId = null, videoId = null, link = null, meta = {} } = req.body || {}
     if (!text.trim() && !(segments && segments.length)) return res.status(400).json({ error: 'text or segments required' })
 
     const polish = req.body?.polish ?? (origin !== 'manual')
@@ -698,7 +700,10 @@ router.post('/assets', (req, res) => {
       finished = finishDraft.finish({ text, platform })
       finalSegments = polish ? finished.polishedSegments : finished.segments
     }
-    if (imageId) finalSegments = finalSegments.map((s, i) => (i === 0 ? { ...s, imageId } : s))
+    // All media rides on segment 0 — a thread's later parts never carry their own.
+    if (imageId || videoId || link) {
+      finalSegments = finalSegments.map((s, i) => (i === 0 ? { ...s, imageId, videoId, link } : s))
+    }
 
     const asset = assetsStore.create(account, {
       segments: finalSegments, platform, origin, meta,
@@ -817,6 +822,16 @@ router.post('/assets/:id/send', async (req, res) => {
     const asset = assetsStore.get(account, req.params.id)
     if (!asset) return res.status(404).json({ error: 'asset not found' })
 
+    // Publishing is approved in Telegram, not from this button. LinkedIn posts for real and can't
+    // be edited or undone afterwards, so the web UI asks rather than acts; X and Substack go through
+    // the same gate for consistency and because the approval card is where the copy button lives.
+    const askToPublish = req.app.locals.telegramSendPublishRequest
+    if (askToPublish) {
+      await askToPublish({ account, asset })
+      return res.json({ ok: true, mode: 'awaiting_approval', asset })
+    }
+
+    // No Telegram configured — fall back to delivering directly, or nothing could ever be published.
     const result = await slotDelivery.deliverAsset({
       account,
       asset,
@@ -896,6 +911,56 @@ router.post('/images/upload', (req, res) => {
     logger.source('api').error('image upload failed', err)
     res.status(400).json({ error: err.message })
   }
+})
+
+// ── Video ─────────────────────────────────────────────────────────────────────
+// POST /api/videos/upload — RAW BINARY body (not base64 JSON like images: base64 inflates ~33% and
+// the JSON cap is 15mb). express.raw() is mounted for this path only, in server/index.js.
+// Pass the real type in Content-Type, and the original filename in X-Filename.
+router.post('/videos/upload', (req, res) => {
+  try {
+    const contentType = req.get('content-type') || ''
+    if (!Buffer.isBuffer(req.body) || !req.body.length) {
+      return res.status(400).json({ error: 'Send the video as a raw binary body with a video/* Content-Type' })
+    }
+    if (!videosStore.isSupported(contentType)) {
+      return res.status(415).json({ error: `Unsupported type "${contentType}" — use mp4, mov or webm` })
+    }
+    const account = memory.accounts.getActiveAccount()
+    const video = videosStore.save({
+      data: req.body,
+      contentType,
+      account,
+      platform: req.get('x-platform') || 'x',
+      filename: req.get('x-filename') || null,
+    })
+    res.json({ ok: true, video })
+  } catch (err) {
+    logger.source('api').error('video upload failed', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// GET /api/videos — the gallery
+router.get('/videos', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  res.json({ videos: videosStore.list(account).slice().reverse() })
+})
+
+// DELETE /api/videos/:id
+router.delete('/videos/:id', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  if (!videosStore.remove(account, req.params.id)) return res.status(404).json({ error: 'video not found' })
+  res.json({ ok: true })
+})
+
+// POST /api/link-card  body: { url } → { title, description, image, siteName } for the preview card
+router.post('/link-card', async (req, res) => {
+  const url = String(req.body?.url || '').trim()
+  if (!url) return res.status(400).json({ error: 'url required' })
+  const card = await readLinkCard(url)
+  if (!card) return res.status(422).json({ error: "Couldn't read that page's preview info" })
+  res.json({ ok: true, card })
 })
 
 // POST /api/images/:id/verdict  body: { verdict: 'approved' | 'rejected' | null }

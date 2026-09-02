@@ -48,7 +48,15 @@ function create(account, { segments = [], platform = 'x', origin = 'manual', met
   const acct = accounts.slug(account || accounts.getActiveAccount())
   const now = new Date().toISOString()
   const id = 'as-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
-  const clean = (segments || []).map(s => ({ text: String(s.text || ''), imageId: s.imageId || null }))
+  // Media fields are whitelisted explicitly: anything not named here is dropped, which is why
+  // videoId and link have to be listed rather than spread — a bare {...s} would let arbitrary
+  // client-supplied keys into the stored record.
+  const clean = (segments || []).map(s => ({
+    text: String(s.text || ''),
+    imageId: s.imageId || null,
+    videoId: s.videoId || null,
+    link: s.link || null,
+  }))
 
   const rec = {
     id,
@@ -88,7 +96,12 @@ function update(account, id, { segments = null, platform = null, state = null, w
   if (!rec) return null
 
   if (segments) {
-    const clean = segments.map(s => ({ text: String(s.text || ''), imageId: s.imageId || null }))
+    const clean = segments.map(s => ({
+      text: String(s.text || ''),
+      imageId: s.imageId || null,
+      videoId: s.videoId || null,
+      link: s.link || null,
+    }))
     rec.segments = clean
     rec.title = titleFrom(clean)
     rec.versions.push({ v: rec.versions.length + 1, segments: clean, note, createdAt: new Date().toISOString() })

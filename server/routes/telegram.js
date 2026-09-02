@@ -8,11 +8,12 @@ const articlesStore = require('../../state/articlesStore')
 const assetsStore = require('../../state/assetsStore')
 const finishDraft = require('../../utils/finishDraft')
 const generateImage = require('../../tools/generateImage')
-const { REASONS, actionKeyboard, decidedKeyboard, assetKeyboard, reasonKeyboard, escapeHtml, stripHeader } = require('./telegramCore')
+const { REASONS, actionKeyboard, decidedKeyboard, assetKeyboard, publishKeyboard, reasonKeyboard, escapeHtml, stripHeader } = require('./telegramCore')
 
 let bot = null
 let _sendDrafts = null
 let _sendAssetCard = null
+let _sendPublishRequest = null
 let _sendReplyTargets = null
 let _sendArticleIdeas = null
 // Only set when Heron is configured in "same bot, second chat" mode (HERON_TELEGRAM_CHAT_ID set,
@@ -77,6 +78,24 @@ function init(app, broadcast) {
     }
   }
   _sendAssetCard = sendAssetCard
+
+  // Studio's publish button routes through here instead of posting directly. Nothing goes live
+  // until the Approve tap below.
+  const sendPublishRequest = async ({ asset }) => {
+    // Show exactly what will go out, threads numbered the same way the slot card does it.
+    const text = asset.segments.length === 1
+      ? asset.segments[0].text
+      : asset.segments.map((sg, i) => `[${i + 1}/${asset.segments.length}]\n${sg.text}`).join('\n\n———\n\n')
+    const target = asset.platform === 'substack' && heronChatId ? heronChatId : chatId
+    if (!target || !bot) throw new Error('Telegram is not configured — cannot ask for approval')
+    const header = asset.platform === 'linkedin'
+      ? '❗ Publish to LinkedIn? This posts for real, immediately.'
+      : `❗ Publish this ${asset.platform === 'substack' ? 'Substack' : 'X'} post?`
+    await bot.sendMessage(target, `${header}
+
+${text}`, { reply_markup: publishKeyboard(asset.id) })
+  }
+  _sendPublishRequest = sendPublishRequest
 
   // Heron delivery in same-bot mode — draft cards to the Heron chat, plus a short hand-off ping on
   // Approve. Articles: one line only (the full text/image prompt live in the Heron dashboard — no
@@ -326,6 +345,43 @@ function init(app, broadcast) {
         return
       }
 
+      // ❗ Publish approval (pub|<action>|<id>) — Studio's publish button asks here first rather than
+      // posting from the web UI. For LinkedIn this tap is what actually puts it on the feed, which is
+      // irreversible, so nothing happens until it.
+      if (parts[0] === 'pub') {
+        const [, action, assetId] = parts
+        const acct3 = memory.accounts.getActiveAccount()
+        const asset = assetsStore.get(acct3, assetId)
+        if (!asset) return ack('That post is gone')
+        const msgId3 = q.message.message_id
+
+        if (action === 'c') {
+          await bot.editMessageText(`❌ Cancelled — nothing was posted.
+
+${q.message.text}`, { chat_id: chat, message_id: msgId3 }).catch(() => {})
+          return ack('Cancelled')
+        }
+        if (action === 'a') {
+          await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chat, message_id: msgId3 }).catch(() => {})
+          const slotDelivery = require('../../scheduler/slotDelivery')
+          const result = await slotDelivery.deliverAsset({
+            account: acct3,
+            asset,
+            telegramSend: sendToUser,
+            telegramSendHeronDraft: sendHeronDraft,
+            sendAssetCard,
+          })
+          const done = result.ok
+            ? (result.mode === 'posted' ? '✅ Posted to LinkedIn' : '✅ Sent — copy-ready above')
+            : `⚠️ Failed: ${result.error || 'delivery error'}`
+          await bot.editMessageText(`${done}
+
+${q.message.text}`, { chat_id: chat, message_id: msgId3 }).catch(() => {})
+          return ack(result.ok ? 'Done' : 'Failed — see the message')
+        }
+        return ack()
+      }
+
       // 📅 Slot-delivered library assets (as|<action>|<id>) — see scheduler/slotDelivery.js.
       // "Posted" is the only signal that anything shipped on X/Substack while the timeline ingest
       // stays deferred, so it also drives the learning loop via voiceExamples.
@@ -477,6 +533,7 @@ function getHeronHandoffSender() {
 }
 
 module.exports = {
+  getPublishRequestSender: () => _sendPublishRequest,
   init, getSendFn, getDraftSender, getAssetCardSender, getReplyTargetSender, getArticleIdeaSender,
   getHeronDraftSender, getHeronHandoffSender,
 }

@@ -17,10 +17,19 @@ const server = http.createServer(app)
 // the compose page, Telegram photo buffers). That avoids adding a multipart dependency for what is
 // a single-user app.
 app.use(express.json({ limit: '15mb' }))
+// Video is the one thing too big for the JSON path: it's uploaded as raw binary on its own route,
+// which keeps the no-multipart-dependency choice above intact.
+app.use('/api/videos/upload', express.raw({ type: ['video/*', 'application/octet-stream'], limit: '200mb' }))
 
 // Generated + uploaded images. They live outside web/dist because they are user data, not build
 // output — a rebuild must never wipe them. Long cache is safe: filenames are content-unique ids.
 app.use('/assets/images', express.static(path.join(__dirname, '..', 'state', 'data', 'assets', 'images'), {
+  maxAge: '30d',
+  setHeaders(res) { res.setHeader('Cache-Control', 'public, max-age=2592000, immutable') },
+}))
+// Uploaded video. Same reasoning as images, but served with range support (express.static handles
+// Range requests already) so a preview can scrub without downloading the whole file.
+app.use('/assets/videos', express.static(path.join(__dirname, '..', 'state', 'data', 'assets', 'videos'), {
   maxAge: '30d',
   setHeaders(res) { res.setHeader('Cache-Control', 'public, max-age=2592000, immutable') },
 }))
@@ -61,11 +70,13 @@ const telegramSendReplyTargets = telegramResult ? telegram.getReplyTargetSender(
 const telegramSendArticleIdeas = telegramResult ? telegram.getArticleIdeaSender() : null
 // Slot-delivered library assets, with their "Posted ✅" button (scheduler/slotDelivery.js).
 const telegramSendAssetCard = telegramResult ? telegram.getAssetCardSender() : null
+const telegramSendPublishRequest = telegramResult ? telegram.getPublishRequestSender() : null
 app.locals.telegramSend = telegramSend
 app.locals.telegramSendDraft = telegramSendDraft
 app.locals.telegramSendReplyTargets = telegramSendReplyTargets
 app.locals.telegramSendArticleIdeas = telegramSendArticleIdeas
 app.locals.telegramSendAssetCard = telegramSendAssetCard
+app.locals.telegramSendPublishRequest = telegramSendPublishRequest
 
 // Init Telegram (Heron delivery — either a fully separate bot, or the main bot in "same bot, second
 // chat" mode. heronTelegram.js only actually boots a second bot/polling loop when HERON_TELEGRAM_BOT_TOKEN

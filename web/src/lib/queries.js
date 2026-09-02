@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, apiText } from './api.js'
+import { api, apiText, getToken } from './api.js'
 
 // ── Queue (draft lifecycle) ────────────────────────────────────────────────────
 
@@ -586,4 +586,33 @@ export function useActivity(limit = 100) {
 
 export function useExpenses(days = 30) {
   return useQuery({ queryKey: ['expenses', days], queryFn: () => api(`/expenses?days=${days}`) })
+}
+
+// ── Video + link card (Studio media rail) ────────────────────────────────────
+export function useVideos() {
+  return useQuery({ queryKey: ['videos'], queryFn: () => api('/videos') })
+}
+
+// Video goes up as RAW BINARY, not through api() — base64 in JSON inflates ~33% and the JSON body
+// cap is 15mb, which a video blows past immediately.
+export function useUploadVideo() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (file) => {
+      const token = getToken()
+      const headers = { 'Content-Type': file.type, 'X-Filename': encodeURIComponent(file.name || 'video') }
+      if (token) headers.Authorization = `Bearer ${token}`
+      const res = await fetch('/api/videos/upload', { method: 'POST', headers, body: file })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`)
+      return data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['videos'] }),
+  })
+}
+
+export function useLinkCard() {
+  return useMutation({
+    mutationFn: ({ url }) => api('/link-card', { method: 'POST', body: { url } }),
+  })
 }

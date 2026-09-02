@@ -106,4 +106,15 @@ function remove(account, id) {
   return true
 }
 
-module.exports = { save, get, list, setVerdict, approved, remove, IMAGES_DIR, ID_RE, safeFilename }
+// Absolute path on disk — what the LinkedIn upload needs to stream the bytes. Goes through the same
+// traversal guard as everything else that turns a stored filename back into a path.
+function pathFor(account, id) {
+  const rec = get(account, id)
+  if (!rec) return null
+  const safe = safeFilename(rec.filename)
+  if (!safe) return null
+  const p = path.join(IMAGES_DIR, safe)
+  return fs.existsSync(p) ? p : null
+}
+
+module.exports = { save, get, list, setVerdict, approved, remove, pathFor, IMAGES_DIR, ID_RE, safeFilename }

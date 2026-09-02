@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import ImagePanel from '../components/ImagePanel.jsx'
+import MediaRail from '../components/MediaRail.jsx'
+import PostPreview from '../components/PostPreview.jsx'
 import {
   useAssets, useCreateAsset, useUpdateAsset, usePreviewAsset, useGenerateAssetText,
-  useSendAsset, useSchedule, useReschedule, useImages, useRevertAsset, useAdaptAsset,
+  useSendAsset, useSchedule, useReschedule, useImages, useRevertAsset, useAdaptAsset, useProfile,
 } from '../lib/queries.js'
 
 const PLATFORMS = [
@@ -29,6 +30,7 @@ export default function StudioPage() {
 
   const assetsQ = useAssets()
   const imagesQ = useImages()
+  const profileQ = useProfile()
   const scheduleQ = useSchedule({ days: 7 })
   const create = useCreateAsset()
   const update = useUpdateAsset()
@@ -42,6 +44,8 @@ export default function StudioPage() {
   const [platform, setPlatform] = useState('x')
   const [text, setText] = useState('')
   const [image, setImage] = useState(null)
+  const [video, setVideo] = useState(null)
+  const [link, setLink] = useState(null)
   const [brief, setBrief] = useState('')
   const [assetId, setAssetId] = useState(editingId || null)
   const [dirty, setDirty] = useState(false)
@@ -62,6 +66,8 @@ export default function StudioPage() {
     setText(a.segments.map((s) => s.text).join('\n\n'))
     const imgId = a.segments?.[0]?.imageId
     setImage(imgId ? (imagesQ.data?.images || []).find((i) => i.id === imgId) || null : null)
+    setVideo(a.segments?.[0]?.video || null)
+    setLink(a.segments?.[0]?.link || null)
     setDirty(false)
   }, [editingId, assetsQ.data, imagesQ.data])
 
@@ -80,9 +86,12 @@ export default function StudioPage() {
   function edit(fn) { fn(); setDirty(true); setNote('') }
 
   function save() {
-    const body = { text, platform, origin: 'manual', polish: false, imageId: image?.id || null }
+    const body = { text, platform, origin: 'manual', polish: false, imageId: image?.id || null, videoId: video?.id || null, link }
     if (assetId) {
-      const segs = (pv?.segments || [{ text }]).map((s, i) => ({ text: s.text, imageId: i === 0 ? image?.id || null : null }))
+      // Media rides on segment 0 — the same convention the image already used.
+      const segs = (pv?.segments || [{ text }]).map((s, i) => (i === 0
+        ? { text: s.text, imageId: image?.id || null, videoId: video?.id || null, link: link || null }
+        : { text: s.text, imageId: null }))
       update.mutate({ id: assetId, segments: segs, platform }, {
         onSuccess: () => { setDirty(false); setNote('Updated') },
       })
@@ -138,13 +147,26 @@ export default function StudioPage() {
         <button className="btn sm" onClick={() => navigate('/library')}>Library →</button>
         {assetId && (
           <button className="btn sm" onClick={() => {
-            setAssetId(null); setText(''); setImage(null); setSuggestions(null)
+            setAssetId(null); setText(''); setImage(null); setVideo(null); setLink(null); setSuggestions(null)
             setDirty(false); setNote(''); loadedFor.current = null; setParams({}, { replace: true })
           }}>New</button>
         )}
       </div>
 
-      <div className="studio-grid">
+      <div className="studio-two">
+        {/* ── LEFT · what it will actually look like ────────────── */}
+        <PostPreview
+          platform={platform}
+          segments={text.trim() ? (segments.length ? segments : [{ text }]) : []}
+          image={image}
+          video={video}
+          link={link}
+          profile={profileQ.data?.profile || null}
+          warnings={warnings}
+        />
+
+        {/* ── RIGHT · compose, media, publish ────────────────── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
         {/* ── 1 · CONTENT ─────────────────────────────────────────── */}
         <div className="card studio-panel">
           <div className="studio-panel-head">
@@ -180,25 +202,6 @@ export default function StudioPage() {
           </div>
           {genText.isError && <div className="hint" style={{ color: 'var(--crit)', marginTop: 6 }}>{genText.error?.message}</div>}
 
-          {/* Preview + warnings. Informational only — nothing here blocks saving. */}
-          {text.trim() && (
-            <div style={{ marginTop: 12 }}>
-              <div className="hint" style={{ marginBottom: 6 }}>
-                Preview{segments.length > 1 ? ` · splits into ${segments.length}` : ''}
-              </div>
-              {segments.map((s, i) => (
-                <div key={i} style={{ marginBottom: 8 }}>
-                  {segments.length > 1 && <div className="hint">{platform === 'x' ? `Tweet ${i + 1}` : `Part ${i + 1}`}</div>}
-                  <div className="msg titto" style={{ maxWidth: '100%', whiteSpace: 'pre-wrap' }}>{s.text}</div>
-                </div>
-              ))}
-              {warnings.map((w, i) => (
-                <div key={i} className="hint" style={{ color: w.level === 'error' ? 'var(--crit)' : 'var(--muted)' }}>
-                  {w.level === 'error' ? '✗' : '!'} {w.message}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* ── 2 · IMAGE ───────────────────────────────────────────── */}
@@ -313,6 +316,7 @@ export default function StudioPage() {
             {send.isError && <div className="hint" style={{ color: 'var(--crit)', marginTop: 6 }}>{send.error?.message}</div>}
             {note && !send.isError && <div className="hint" style={{ marginTop: 6, color: 'var(--good)' }}>{note}</div>}
           </div>
+        </div>
         </div>
       </div>
     </div>

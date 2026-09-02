@@ -212,4 +212,56 @@ function formatLinkedContent(pages = []) {
   ].filter(Boolean).join('\n')).join('\n\n')
 }
 
-module.exports = { readUrl, readUrlsIn, extractUrls, formatLinkedContent }
+// ── Link card ─────────────────────────────────────────────────────────────────
+// The metadata X and LinkedIn use to render a link preview. Reads <meta> rather than body text, so
+// it deliberately does NOT go through the article-extraction path or its 400-char content floor —
+// a page can be a perfectly good link card while having no readable article body at all.
+// Reuses the same UA, timeout, redirect cap and SSRF guard as readUrl.
+async function readLinkCard(url) {
+  try {
+    const u = new URL(url)
+    if (!/^https?:$/.test(u.protocol) || isBlockedHost(u.hostname)) return null
+
+    const res = await axios.get(url, {
+      timeout: TIMEOUT_MS,
+      maxRedirects: 3,
+      maxContentLength: MAX_BYTES,
+      responseType: 'text',
+      headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml' },
+      validateStatus: (s) => s >= 200 && s < 400,
+    })
+
+    const $ = cheerio.load(String(res.data || ''))
+    const meta = (...names) => {
+      for (const n of names) {
+        const v = $(`meta[property="${n}"]`).attr('content') || $(`meta[name="${n}"]`).attr('content')
+        if (v && v.trim()) return v.trim()
+      }
+      return ''
+    }
+
+    const title = meta('og:title', 'twitter:title') || $('title').first().text().trim()
+    const description = meta('og:description', 'twitter:description', 'description')
+    let image = meta('og:image', 'og:image:url', 'twitter:image', 'twitter:image:src')
+    // og:image is often a path or protocol-relative — resolve against the page so <img> works.
+    if (image) { try { image = new URL(image, u.origin).href } catch (_) { image = '' } }
+    const siteName = meta('og:site_name') || u.hostname.replace(/^www\./, '')
+
+    if (!title && !description && !image) {
+      logger.warn(`No link-card metadata on ${url}`)
+      return null
+    }
+    return {
+      url,
+      title: title.slice(0, 200),
+      description: description.slice(0, 300),
+      image: image || null,
+      siteName: siteName.slice(0, 80),
+    }
+  } catch (err) {
+    logger.warn(`Link card failed for ${url}: ${err.message}`)
+    return null
+  }
+}
+
+module.exports = { readUrl, readUrlsIn, extractUrls, formatLinkedContent, readLinkCard }
