@@ -63,7 +63,14 @@ export default function StudioPage() {
     loadedFor.current = editingId
     setAssetId(a.id)
     setPlatform(a.platform)
-    setText(a.segments.map((s) => s.text).join('\n\n'))
+    // Put the "Tweet N/" markers back when loading a thread. Splitting CONSUMES them
+    // (utils/finishDraft.js), so joining the stored segments with blank lines produced text that no
+    // longer re-split — a saved 3-part thread reopened as one 581-character post, which is neither
+    // what was stored nor postable. Rebuilding with markers makes the round trip lossless and keeps
+    // the editor in the same format you'd author a thread in.
+    setText(a.platform === 'x' && a.segments.length > 1
+      ? a.segments.map((s, i) => `Tweet ${i + 1}/ ${s.text}`).join('\n\n')
+      : a.segments.map((s) => s.text).join('\n\n'))
     const imgId = a.segments?.[0]?.imageId
     setImage(imgId ? (imagesQ.data?.images || []).find((i) => i.id === imgId) || null : null)
     setVideo(a.segments?.[0]?.video || null)
@@ -204,8 +211,11 @@ export default function StudioPage() {
 
         </div>
 
-        {/* ── 2 · IMAGE ───────────────────────────────────────────── */}
-        <ImagePanel platform={platform} text={text} image={image} onChange={(img) => edit(() => setImage(img))} />
+        {/* ── 2 · MEDIA · picture / video / link ──────────────────── */}
+        <MediaRail
+          platform={platform} text={text} image={image} video={video} link={link}
+          onChange={(m) => edit(() => { setImage(m.image); setVideo(m.video); setLink(m.link) })}
+        />
 
         {/* ── 3 · PUBLISH ─────────────────────────────────────────── */}
         <div className="card studio-panel">
