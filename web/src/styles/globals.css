@@ -523,7 +523,7 @@ textarea.field { resize: vertical; line-height: 1.5; }
    A faithful mock of the finished post. Each platform gets its own chrome because the same words
    genuinely read differently on each — X threads, LinkedIn folds, Substack is an article. Uses the
    theme tokens throughout so it follows light/dark like everything else. */
-.pv-wrap { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 16px; }
+.pv-wrap { display: flex; flex-direction: column; gap: 10px; }
 .pv-chrome { display: flex; align-items: center; justify-content: space-between; }
 .pv-chrome-label { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
 .pv-frame { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; box-shadow: var(--shadow); overflow: hidden; }
@@ -584,7 +584,9 @@ textarea.field { resize: vertical; line-height: 1.5; }
 
 /* Studio: preview on the left, compose on the right */
 .studio-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
-@media (max-width: 1100px) { .studio-two { grid-template-columns: 1fr; } .pv-wrap { position: static; } }
+/* Preview + publish travel together as one sticky column: you approve what you can see. */
+.studio-right { display: flex; flex-direction: column; gap: 16px; min-width: 0; position: sticky; top: 16px; }
+@media (max-width: 1100px) { .studio-two { grid-template-columns: 1fr; } .studio-right { position: static; } }
 
 /* Media rail galleries — a compact strip of picked-from-earlier images/videos */
 .media-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; margin-top: 10px; }

@@ -161,18 +161,7 @@ export default function StudioPage() {
       </div>
 
       <div className="studio-two">
-        {/* ── LEFT · what it will actually look like ────────────── */}
-        <PostPreview
-          platform={platform}
-          segments={text.trim() ? (segments.length ? segments : [{ text }]) : []}
-          image={image}
-          video={video}
-          link={link}
-          profile={profileQ.data?.profile || null}
-          warnings={warnings}
-        />
-
-        {/* ── RIGHT · compose, media, publish ────────────────── */}
+        {/* ── LEFT · compose: write it, then give it media ───────── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
         {/* ── 1 · CONTENT ─────────────────────────────────────────── */}
         <div className="card studio-panel">
@@ -217,7 +206,21 @@ export default function StudioPage() {
           onChange={(m) => edit(() => { setImage(m.image); setVideo(m.video); setLink(m.link) })}
         />
 
-        {/* ── 3 · PUBLISH ─────────────────────────────────────────── */}
+        </div>
+
+        {/* ── RIGHT · the finished post, with publishing directly under it ── */}
+        <div className="studio-right">
+        <PostPreview
+          platform={platform}
+          segments={text.trim() ? (segments.length ? segments : [{ text }]) : []}
+          image={image}
+          video={video}
+          link={link}
+          profile={profileQ.data?.profile || null}
+          warnings={warnings}
+        />
+
+        {/* ── PUBLISH · sits beneath the preview, so you approve what you see ── */}
         <div className="card studio-panel">
           <div className="studio-panel-head">
             <span className="studio-panel-title">Publish</span>
