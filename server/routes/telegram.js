@@ -6,6 +6,8 @@ const quill = require('../../agents/quill')
 const replyTargetsStore = require('../../state/replyTargetsStore')
 const articlesStore = require('../../state/articlesStore')
 const assetsStore = require('../../state/assetsStore')
+const imagesStore = require('../../state/imagesStore')
+const videosStore = require('../../state/videosStore')
 const finishDraft = require('../../utils/finishDraft')
 const generateImage = require('../../tools/generateImage')
 const { REASONS, actionKeyboard, decidedKeyboard, assetKeyboard, publishKeyboard, reasonKeyboard, escapeHtml, stripHeader } = require('./telegramCore')
@@ -70,11 +72,38 @@ function init(app, broadcast) {
   const sendAssetCard = async ({ asset, text, substack = false }) => {
     const target = substack && heronChatId ? heronChatId : chatId
     if (!target || !bot) return
+
+    // Send the actual picture/video, not a link to it. X and Substack can't be posted to from here,
+    // so this card IS the deliverable — you copy the text and save the image straight out of the
+    // chat. Previously only text went out, and the image line degraded to "open the Library to
+    // download it" whenever PUBLIC_URL was unset (which it is), so the picture never arrived at all.
+    const acct = memory.accounts.getActiveAccount()
+    const seg = asset.segments?.[0] || {}
+    let mediaPath = null
+    let kind = null
     try {
+      if (seg.videoId) { mediaPath = videosStore.pathFor(acct, seg.videoId); kind = 'video' }
+      else if (seg.imageId) { mediaPath = imagesStore.pathFor(acct, seg.imageId); kind = 'photo' }
+    } catch (_) { mediaPath = null }
+
+    // Telegram caps a media caption at 1024 chars; longer posts get the media first, then the full
+    // text as its own message so nothing is truncated.
+    const CAPTION_MAX = 1024
+    try {
+      if (mediaPath && text.length <= CAPTION_MAX) {
+        const opts = { caption: text, reply_markup: assetKeyboard(asset.id) }
+        if (kind === 'video') await bot.sendVideo(target, mediaPath, opts)
+        else await bot.sendPhoto(target, mediaPath, opts)
+        return
+      }
+      if (mediaPath) {
+        if (kind === 'video') await bot.sendVideo(target, mediaPath)
+        else await bot.sendPhoto(target, mediaPath)
+      }
       await bot.sendMessage(target, text, { reply_markup: assetKeyboard(asset.id) })
     } catch (e) {
       console.warn('[Telegram] sendAssetCard failed:', e.message)
-      try { await bot.sendMessage(target, text) } catch (_) {}
+      try { await bot.sendMessage(target, text, { reply_markup: assetKeyboard(asset.id) }) } catch (_) {}
     }
   }
   _sendAssetCard = sendAssetCard

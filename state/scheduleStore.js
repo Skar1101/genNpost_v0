@@ -76,46 +76,68 @@ function addDaysIST(ymd, n) {
 }
 
 /**
- * The calendar grid: `days` IST days starting at `startYmd`, each with every slot time, marked
- * with whatever asset occupies it.
+ * The calendar grid: `days` IST days starting at `startYmd`, as HOUR rows — the way a normal
+ * calendar works.
+ *
+ * It used to render only four fixed slot times, which meant a post could sit at 13:00 or 17:30 and
+ * nowhere in between, one platform's post blocked the same cell for every other platform, and
+ * anything at a custom time fell off the grid into a separate list. Hours fix all three: every
+ * instant belongs in exactly one bucket, and a bucket holds as many posts as you put in it.
+ *
+ * `fromHour`/`toHour` just bound what's DRAWN. Anything scheduled outside that window still comes
+ * back — the window widens to include it rather than hiding it.
  */
-function grid(account, { startYmd = null, days = 7 } = {}) {
+function grid(account, { startYmd = null, days = 7, fromHour = 6, toHour = 23 } = {}) {
   const start = startYmd || istToday()
-  const slots = getSlots()
   const booked = assetsStore.scheduled(account)
+  const endYmd = addDaysIST(start, days - 1)
 
-  // A map of instant -> ARRAY. It used to be instant -> one asset, so scheduling two posts to the
-  // same time silently dropped one from the calendar while delivery still sent both.
-  const byInstant = {}
-  for (const a of booked) (byInstant[a.scheduledFor] ||= []).push(a)
+  // Everything scheduled inside the visible date range, bucketed by the hour it falls in.
+  const inRange = booked.filter(a => {
+    const d = istDateOf(a.scheduledFor)
+    return d >= start && d <= endYmd
+  })
 
+  const byBucket = {}
+  for (const a of inRange) {
+    const key = `${istDateOf(a.scheduledFor)} ${istTimeOf(a.scheduledFor).slice(0, 2)}`
+    ;(byBucket[key] ||= []).push(a)
+  }
+
+  // Never hide a post just because it sits outside the default window.
+  let lo = Math.max(0, Math.min(23, fromHour))
+  let hi = Math.max(0, Math.min(23, toHour))
+  for (const a of inRange) {
+    const h = Number(istTimeOf(a.scheduledFor).slice(0, 2))
+    if (h < lo) lo = h
+    if (h > hi) hi = h
+  }
+
+  const hours = []
+  for (let h = lo; h <= hi; h++) hours.push(String(h).padStart(2, '0') + ':00')
+
+  const now = new Date()
   const out = []
   for (let i = 0; i < days; i++) {
     const ymd = addDaysIST(start, i)
-    const cells = slots.map(hhmm => {
+    const cells = hours.map(hhmm => {
       const iso = istDateTimeToISO(ymd, hhmm)
-      const here = byInstant[iso] || []
+      const here = (byBucket[`${ymd} ${hhmm.slice(0, 2)}`] || [])
+        .sort((x, y) => new Date(x.scheduledFor) - new Date(y.scheduledFor))
       return {
-        iso, time: hhmm,
-        // `asset` stays for existing callers (Studio's free-slot picker reads it); `assets` is the
-        // full list so a collision is visible rather than hidden.
+        iso,
+        time: hhmm,
+        // `asset` is kept for older callers; `assets` is the real answer — a bucket holds any number.
         asset: here.length ? summarize(here[0]) : null,
         assets: here.map(summarize),
-        past: new Date(iso) < new Date(),
+        past: new Date(iso) < now,
       }
     })
     out.push({ date: ymd, cells })
   }
 
-  // Anything scheduled to a time that isn't on the grid (dragged to a custom instant, or scheduled
-  // before the slot times changed) still has to be visible — otherwise it silently disappears.
-  const gridInstants = new Set(out.flatMap(d => d.cells.map(c => c.iso)))
-  const offGrid = booked
-    .filter(a => !gridInstants.has(a.scheduledFor))
-    .filter(a => istDateOf(a.scheduledFor) >= start && istDateOf(a.scheduledFor) <= addDaysIST(start, days - 1))
-    .map(a => ({ iso: a.scheduledFor, time: istTimeOf(a.scheduledFor), date: istDateOf(a.scheduledFor), asset: summarize(a) }))
-
-  return { start, days, slots, grid: out, offGrid }
+  // Kept for API shape compatibility. Nothing can be off-grid now: every instant lands in an hour.
+  return { start, days, slots: hours, hours, grid: out, offGrid: [] }
 }
 
 function summarize(a) {

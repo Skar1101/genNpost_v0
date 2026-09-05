@@ -594,3 +594,13 @@ textarea.field { resize: vertical; line-height: 1.5; }
   background: var(--surface-2); cursor: pointer; aspect-ratio: 1; }
 .media-thumb:hover { border-color: var(--accent); }
 .media-thumb img, .media-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Calendar: hour rows rather than four fixed slots, so any time is schedulable and an hour can
+   hold several posts across different platforms. Scrolls vertically so a full day fits. */
+.cal-scroll { max-height: 62vh; overflow-y: auto; overflow-x: auto; }
+.cal-scroll .slot-dayhead { position: sticky; top: 0; z-index: 2; background: var(--surface); }
+.cal-scroll .slot-corner { position: sticky; top: 0; left: 0; z-index: 3; background: var(--surface); }
+.cal-scroll .slot-time { position: sticky; left: 0; z-index: 1; background: var(--surface); }
+/* Several posts in one hour stack rather than one hiding the others. */
+.slot-cell { display: flex; flex-direction: column; gap: 3px; }
+.slot-cell .slot-chip + .slot-chip { margin-top: 0; }

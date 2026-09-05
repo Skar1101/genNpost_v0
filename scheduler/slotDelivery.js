@@ -70,7 +70,11 @@ async function deliverAsset({ account, asset, telegramSend, telegramSendHeronDra
   const header = isSubstack
     ? `🦢 Substack slot — ready to publish`
     : `⏰ X slot — ready to post`
-  const body = `${header}\n\n${copyReadyText(asset)}${imageLine(account, asset)}${videoLine(account, asset)}${linkLine(asset)}`
+  // No image/video URL line here any more: sendAssetCard attaches the real file, so a link would
+  // duplicate it (and PUBLIC_URL is usually unset, which made that line useless anyway).
+  const body = `${header}
+
+${copyReadyText(asset)}${linkLine(asset)}`
 
   const send = isSubstack && telegramSendHeronDraft ? telegramSendHeronDraft : telegramSend
   if (!send) {

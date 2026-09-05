@@ -12,9 +12,13 @@ function dayLabel(ymd) {
   }
 }
 
-// The week grid. Drag a scheduled asset onto any cell to move it; click an empty cell to write
-// something into that slot. Everything is keyed by the cell's real ISO instant, so drag targets
-// carry no ambiguity about timezone.
+// The week calendar — hour rows, like any normal calendar. Drag a post onto any hour to move it;
+// click an hour to write something into it. Everything is keyed by the cell's real ISO instant, so
+// drag targets carry no timezone ambiguity.
+//
+// An hour holds as many posts as you put in it, across any mix of platforms: a bucket used to be a
+// single fixed slot that one post could occupy, so scheduling X at 13:00 blocked LinkedIn at 13:00,
+// and anything at 13:37 disappeared off the grid entirely.
 export default function SlotGrid({ data, todayYmd, onMove, onOpen, onFill, busyIso }) {
   const [dragId, setDragId] = useState(null)
   const [overIso, setOverIso] = useState(null)
@@ -22,7 +26,7 @@ export default function SlotGrid({ data, todayYmd, onMove, onOpen, onFill, busyI
   if (!data?.grid?.length) return null
 
   return (
-    <div className="slot-grid-wrap">
+    <div className="slot-grid-wrap cal-scroll">
       <div className="slot-grid" style={{ gridTemplateColumns: `64px repeat(${data.grid.length}, minmax(120px, 1fr))` }}>
         {/* header row */}
         <div className="slot-corner" />
@@ -52,7 +56,7 @@ export default function SlotGrid({ data, todayYmd, onMove, onOpen, onFill, busyI
               return (
                 <div
                   key={cell.iso}
-                  className={`slot-cell ${cell.past && !asset ? 'past' : ''} ${isOver ? 'over' : ''}`}
+                  className={`slot-cell ${cell.past && !here.length ? 'past' : ''} ${isOver ? 'over' : ''}`}
                   onDragOver={(e) => { e.preventDefault(); setOverIso(cell.iso) }}
                   onDragLeave={() => setOverIso((c) => (c === cell.iso ? null : c))}
                   onDrop={(e) => {
@@ -61,7 +65,7 @@ export default function SlotGrid({ data, todayYmd, onMove, onOpen, onFill, busyI
                     if (dragId && dragId !== asset?.id) onMove(dragId, cell.iso)
                     setDragId(null)
                   }}
-                  onClick={() => { if (!asset && !busy) onFill(cell.iso) }}
+                  onClick={() => { if (!busy) onFill(cell.iso) }}
                 >
                   {busy ? (
                     <div className="slot-empty mono">writing…</div>
@@ -84,8 +88,9 @@ export default function SlotGrid({ data, todayYmd, onMove, onOpen, onFill, busyI
                         {!a.videoId && a.imageId && <span className="chip-img">🖼</span>}
                       </div>
                     ))
-                  ) : (
-                    <div className="slot-empty">{cell.past ? '' : '+'}</div>
+                  ) : null}
+                  {!busy && !cell.past && (
+                    <div className="slot-empty">+</div>
                   )}
                 </div>
               )
