@@ -1,4 +1,4 @@
-# TinySparrow
+# GenNpost
 
 A personal, draft-only AI social media manager for X, LinkedIn and Substack.
 
