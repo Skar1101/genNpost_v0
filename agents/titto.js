@@ -24,6 +24,7 @@ const { ensureProfile } = require('../state/profileSeed')
 const llm = require('../utils/llm')
 const guard = require('../utils/llmGuard')
 const G = require('../config/guardrails')
+const vision = require('../utils/vision')
 
 let _openai = null
 function getOpenAI() {
@@ -769,7 +770,13 @@ function launchWrite({ format, input, inputType, count = 3, extraInstructions = 
     })
 }
 
-async function handleMessage({ text, sessionId = 'default', broadcast = null, telegramSend = null, telegramSendDraft = null, telegramSendReplyTargets = null, telegramSendArticleIdeas = null, telegramSendParrotDraft = null }) {
+// `image` (optional): { buffer, contentType } — a photo attached to this message (Telegram only,
+// today). When the intent turns out to be a groundable write request (write_post / write_linkedin_post),
+// it's described via utils/vision.js and folded into the writer's instructions so the draft is
+// actually about what's in the photo, not just the caption words. The caller (server/routes/telegram.js)
+// checks the returned `imageUsed` flag to know whether the photo was handled here or should fall back
+// to its own default (saving the photo + caption to the library as-is).
+async function handleMessage({ text, sessionId = 'default', broadcast = null, telegramSend = null, telegramSendDraft = null, telegramSendReplyTargets = null, telegramSendArticleIdeas = null, telegramSendParrotDraft = null, image = null }) {
   const input = text.trim()
 
   // A confirmation we're waiting on ("Want me to write that? — yes"). Runs the proposed action only
@@ -1001,7 +1008,14 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
       '═══ END LINKED PAGE ═══',
     ].filter(Boolean).join('\n')).join('\n\n')
     : ''
-  const augmentedInput = `${input}${linkedStub}`
+  // A photo attached to this message — tell the classifier so "based on this picture"/"from this
+  // photo" resolves to write_post/write_linkedin_post (referring to an EXISTING attached image),
+  // not generate_image (making a NEW one). Without this hint the classifier has no way to know a
+  // photo exists at all, and "write a post based on this picture" reads as an image request.
+  const imageStub = image?.buffer
+    ? '\n\n(A photo is attached to this message. Souvik is referring to THIS existing photo, not asking you to generate a new image — never choose generate_image when a photo is attached and he is asking you to write something.)'
+    : ''
+  const augmentedInput = `${input}${imageStub}${linkedStub}`
 
   const history = getMessages(sessionId)
   // max_tokens caps the WHOLE JSON payload, so 400 truncated any long extraInstructions before it
@@ -1169,6 +1183,20 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
     const req = parsed.koelRequest
     const fmt = req.format || 'short'
 
+    // A photo attached to this message: describe it and fold that into the instructions, so the
+    // draft is grounded in what's actually in the picture, not just the caption. A description also
+    // counts as a real angle, so it skips the interview-first question below on its own.
+    let imageUsed = false
+    if (image?.buffer) {
+      try {
+        const description = await vision.describeImage({ buffer: image.buffer, contentType: image.contentType, instruction: input })
+        req.extraInstructions = [req.extraInstructions, `What the attached photo actually shows: ${description}`].filter(Boolean).join('\n\n')
+        imageUsed = true
+      } catch (err) {
+        console.error('[Titto] vision describe failed:', err.message)
+      }
+    }
+
     // Interview-first: bare topic with no angle → ask 1–2 questions before drafting.
     if (isThinWrite(req)) {
       pendingWrite[sessionId] = { format: fmt, input: req.input, inputType: req.inputType || 'topic', count: req.count || 3, askedAt: Date.now() }
@@ -1177,12 +1205,12 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
       // message in history twice (the store's dedupe only collapses CONSECUTIVE duplicates, and the
       // assistant reply sits between them). Store the question that was actually shown instead.
       appendMessage(sessionId, 'assistant', q)
-      return { reply: q, action: 'interview' }
+      return { reply: q, action: 'interview', imageUsed }
     }
 
     const confirmReply = parsed.reply + `\n\nAsking Koel to write a ${fmt} post now…`
     launchWrite({ format: fmt, input: req.input, inputType: req.inputType, count: req.count || 3, extraInstructions: req.extraInstructions || '', broadcast, telegramSendDraft })
-    return { reply: confirmReply, action: 'koel_writing' }
+    return { reply: confirmReply, action: 'koel_writing', imageUsed }
   }
 
   // ── write_linkedin_post — drafts via Parrot and hands off to Parrot's OWN Telegram bot for the
@@ -1194,6 +1222,18 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
     if (!req.topic?.trim()) {
       return { reply: "What should the LinkedIn post be about?", action: null }
     }
+
+    let imageUsed = false
+    if (image?.buffer) {
+      try {
+        const description = await vision.describeImage({ buffer: image.buffer, contentType: image.contentType, instruction: input })
+        req.extraInstructions = [req.extraInstructions, `What the attached photo actually shows: ${description}`].filter(Boolean).join('\n\n')
+        imageUsed = true
+      } catch (err) {
+        console.error('[Titto] vision describe failed:', err.message)
+      }
+    }
+
     const runParrot = () => {
       logDispatch({
         agent: 'parrot', action: 'write',
@@ -1216,12 +1256,12 @@ async function handleMessage({ text, sessionId = 'default', broadcast = null, te
     // LinkedIn is the one surface that can post for real — never dispatch it off a question.
     if (!isExplicitCommand(input)) {
       pendingAction[sessionId] = { run: runParrot, label: `LinkedIn post on "${req.topic}"`, askedAt: Date.now() }
-      return { reply: `Want me to have Parrot draft a LinkedIn post on ${req.topic}? Say "yes" and I'll start it.`, action: 'awaiting_confirm' }
+      return { reply: `Want me to have Parrot draft a LinkedIn post on ${req.topic}? Say "yes" and I'll start it.`, action: 'awaiting_confirm', imageUsed }
     }
     const res = runParrot()
     // `input` is already in history from the classifier block; store the reply that was shown.
     appendMessage(sessionId, 'assistant', res.reply)
-    return res
+    return { ...res, imageUsed }
   }
 
   // ── write_from_list (write posts based on last research results) ─

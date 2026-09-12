@@ -4,3 +4,4 @@ state/data/
 logs/
 *.log
 web/dist/
+backups/

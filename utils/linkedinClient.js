@@ -16,15 +16,16 @@ const LINKEDIN_API_VERSION = '202606'
 // Throws a plain Error with a clear, user-facing message on any failure — the caller (Telegram/API
 // approve handlers) shows this directly rather than a generic "failed" string.
 // Accepts either a plain string (the original call shape, still used by agents/parrot.js and
-// scheduler/slotDelivery.js) or { text, imagePath, videoPath } to attach media.
+// scheduler/slotDelivery.js) or { text, imagePath, videoPath, account } to attach media and/or post
+// as a specific account. account defaults to the active account, same as before, when omitted.
 async function postToLinkedIn(input) {
-  const { text, imagePath = null, videoPath = null } =
+  const { text, imagePath = null, videoPath = null, account = null } =
     typeof input === 'string' ? { text: input } : (input || {})
-  const stored = linkedinAuth.getStoredToken()
+  const stored = linkedinAuth.getStoredToken(account)
   if (!stored?.accessToken) {
     throw new Error('LinkedIn isn\'t connected yet — visit /api/parrot/oauth/start to connect.')
   }
-  const status = linkedinAuth.tokenStatus()
+  const status = linkedinAuth.tokenStatus({ account })
   if (!status.valid) {
     throw new Error('LinkedIn token expired — visit /api/parrot/oauth/start to reconnect.')
   }

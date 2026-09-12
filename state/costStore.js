@@ -31,7 +31,12 @@ function writeAll(entries) {
 let _counter = 0
 
 // Record one priced call. Assigns id + ts, prepends (newest first), trims, returns it.
-// entry: { agent, action, model, cost, promptTokens, completionTokens }
+// entry: { agent, action, model, cost, promptTokens, completionTokens, account? }
+// `account` is optional and additive — entries logged before this field existed, or by call sites
+// that haven't been updated to pass it, simply have account: null and are excluded from any
+// per-account total (see totalForAccount below). The shared log itself stays one global file: with
+// exactly one real account today there's nothing to gain from splitting it, and it avoids a data
+// migration entirely. Split it per-account only once a second tenant actually exists.
 function record(entry = {}) {
   const now = new Date()
   const item = {
@@ -46,6 +51,7 @@ function record(entry = {}) {
     // Image generations are billed per image, not per token — without this the count was being
     // passed in and silently dropped by this whitelist, leaving image rows with no units at all.
     images: entry.images ?? null,
+    account: entry.account || null,
   }
   try {
     const entries = readAll()
@@ -59,4 +65,14 @@ function list(limit = MAX_ENTRIES) {
   return readAll().slice(0, limit)
 }
 
-module.exports = { record, list }
+// Total spend for one account since a given ISO timestamp. Entries with no account tag (everything
+// logged before per-account tagging, or by a call site not yet updated to pass it) are excluded —
+// safe under-counting rather than attributing untagged spend to the wrong tenant.
+function totalForAccount(account, sinceIso) {
+  if (!account) return 0
+  return readAll()
+    .filter(e => e.account === account && (!sinceIso || e.ts >= sinceIso))
+    .reduce((s, e) => s + (e.cost || 0), 0)
+}
+
+module.exports = { record, list, totalForAccount }

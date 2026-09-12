@@ -111,7 +111,7 @@ async function postApprovedDraft(draft) {
   if (!draft) return { ok: false, error: 'No draft record to post' }
   const text = draft.editedText || draft.text
   try {
-    const { postUrn, url } = await linkedinClient.postToLinkedIn(text)
+    const { postUrn, url } = await linkedinClient.postToLinkedIn({ text, account: draft.account })
     // Both transitions fire together, only after a confirmed real post — 'queued' first so the
     // learning loop (approvedDrafts → Koel's context, same as every other approved draft) sees it,
     // then 'posted' for postedAt.

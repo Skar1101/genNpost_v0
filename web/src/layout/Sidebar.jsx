@@ -9,7 +9,7 @@ export default function Sidebar() {
       <div className="brand">
         <Sparrow className="mark" />
         <div>
-          <div className="brand-name">TinySparrow</div>
+          <div className="brand-name">genNpost</div>
           <div className="brand-sub">SOCIAL MEDIA MANAGER</div>
         </div>
       </div>

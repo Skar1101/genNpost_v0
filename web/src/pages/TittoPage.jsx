@@ -9,6 +9,7 @@ import TittoChat from '../components/TittoChat.jsx'
 const REF_ROUTE = {
   research: '/agent/raven', replies: '/agent/raven', tools: '/agent/titto',
   quill: '/agent/quill-x', koel: '/agent/koel', insights: '/agent/analyst',
+  settings: '/system/settings',
 }
 
 function timeAgo(iso) {

@@ -3,6 +3,7 @@ const titto = require('../../agents/titto')
 const memory = require('../../state/memory')
 const koel = require('../../agents/koel')
 const quill = require('../../agents/quill')
+const parrot = require('../../agents/parrot')
 const replyTargetsStore = require('../../state/replyTargetsStore')
 const articlesStore = require('../../state/articlesStore')
 const assetsStore = require('../../state/assetsStore')
@@ -10,6 +11,7 @@ const imagesStore = require('../../state/imagesStore')
 const videosStore = require('../../state/videosStore')
 const finishDraft = require('../../utils/finishDraft')
 const generateImage = require('../../tools/generateImage')
+const chrono = require('chrono-node')
 const { REASONS, actionKeyboard, decidedKeyboard, assetKeyboard, publishKeyboard, reasonKeyboard, escapeHtml, stripHeader } = require('./telegramCore')
 
 let bot = null
@@ -18,21 +20,27 @@ let _sendAssetCard = null
 let _sendPublishRequest = null
 let _sendReplyTargets = null
 let _sendArticleIdeas = null
-// Only set when Heron is configured in "same bot, second chat" mode (HERON_TELEGRAM_CHAT_ID set,
-// HERON_TELEGRAM_BOT_TOKEN left empty) — see heronTelegram.js for the fully-separate-bot mode instead.
+// Set whenever Heron/Parrot don't have their own dedicated bot token — the default, merged setup.
+// See heronTelegram.js / parrotTelegram.js for the fully-separate-bot opt-in instead.
 let _sendHeronDraft = null
 let _sendHeronHandoff = null
+let _sendParrotDraft = null
 
 function init(app, broadcast) {
   const token = process.env.TELEGRAM_BOT_TOKEN
   const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL
   const chatId = process.env.TELEGRAM_CHAT_ID
-  const heronChatId = process.env.HERON_TELEGRAM_CHAT_ID
-  // "Same bot, second chat" mode: Heron has a chat id but no separate bot token of its own — this
-  // bot instance handles Heron delivery + inbound too, instead of heronTelegram.js booting a second
-  // polling loop against the same token (which Telegram's API doesn't allow — only one active
-  // long-poll per token at a time).
-  const heronSameBot = !process.env.HERON_TELEGRAM_BOT_TOKEN && !!heronChatId
+  // Titto is the one Telegram bot for the user by default: unless HERON_TELEGRAM_BOT_TOKEN /
+  // PARROT_TELEGRAM_BOT_TOKEN are explicitly set (a dedicated separate bot), Heron and Parrot both
+  // merge into this bot. A distinct HERON_TELEGRAM_CHAT_ID / PARROT_TELEGRAM_CHAT_ID still lets you
+  // route their content to a different chat/channel while staying on the one bot token; leaving those
+  // unset merges everything — content and inbound commands — into the single main chat.
+  const heronDistinctChatId = process.env.HERON_TELEGRAM_CHAT_ID || null
+  const heronChatId = heronDistinctChatId || chatId
+  const heronSameBot = !process.env.HERON_TELEGRAM_BOT_TOKEN
+  const parrotDistinctChatId = process.env.PARROT_TELEGRAM_CHAT_ID || null
+  const parrotChatId = parrotDistinctChatId || chatId
+  const parrotSameBot = !process.env.PARROT_TELEGRAM_BOT_TOKEN
 
   if (!token) {
     console.warn('[Telegram] No TELEGRAM_BOT_TOKEN — Telegram disabled')
@@ -150,6 +158,36 @@ ${text}`, { reply_markup: publishKeyboard(asset.id) })
     console.log(`[Telegram] Heron same-bot mode active — routing Heron content to chat ${heronChatId}`)
   }
 
+  // Parrot (LinkedIn) same-bot mode — this is the one draft type where Approve posts for real and
+  // immediately, so its keyboard/copy always spells that out, unlike the generic actionKeyboard.
+  function parrotActionKeyboard(id) {
+    return { inline_keyboard: [
+      [
+        { text: '✅ Approve & Post to LinkedIn', callback_data: `d|a|${id}` },
+        { text: '❌ Reject', callback_data: `d|r|${id}` },
+      ],
+      [
+        { text: '✏️ Edit', callback_data: `d|e|${id}` },
+        { text: '📋 Copy', callback_data: `d|c|${id}` },
+      ],
+    ] }
+  }
+  const sendParrotDraft = async (drafts, opts = {}) => {
+    if (!parrotChatId || !bot || !Array.isArray(drafts)) return
+    if (opts.header) { try { await bot.sendMessage(parrotChatId, opts.header) } catch (_) {} }
+    for (const d of drafts) {
+      if (!d || !d.id) continue
+      const body = `📝 Draft (${d.format || 'linkedin'}) — ⚡ Approve posts this to LinkedIn immediately\n\n${d.text}`
+      try {
+        await bot.sendMessage(parrotChatId, body, { reply_markup: parrotActionKeyboard(d.id) })
+      } catch (e) { console.warn('[Telegram] sendParrotDraft failed:', e.message) }
+    }
+  }
+  if (parrotSameBot) {
+    _sendParrotDraft = sendParrotDraft
+    console.log(`[Telegram] Parrot same-bot mode active — routing LinkedIn drafts to chat ${parrotChatId}`)
+  }
+
   // Send reply targets, each with a "💬 Draft reply" button (rd|<idx> = index into the saved qualified list).
   // targets: [{ idx, title, impressions, i2c, ageMinutes, url }]
   const sendReplyTargets = async (targets, opts = {}) => {
@@ -182,6 +220,10 @@ ${text}`, { reply_markup: publishKeyboard(asset.id) })
 
   // Edit-reply flow state: when the user taps ✏️ Edit, the next plain message is the new text.
   const pendingEdit = {}
+  // Reschedule flow state: when the user taps 🕐 Change time on a scheduled-post card, the next
+  // plain message is parsed as a date/time (chrono-node — handles "tomorrow 9am", "friday 6pm",
+  // explicit "2026-09-20 14:00", etc.) and becomes that asset's new scheduledFor.
+  const pendingReschedule = {}
 
   if (webhookUrl && webhookUrl.trim()) {
     bot = new TelegramBot(token)
@@ -220,9 +262,13 @@ ${text}`, { reply_markup: publishKeyboard(asset.id) })
       return
     }
 
-    const isHeronChat = heronSameBot && incomingChatId === String(heronChatId)
+    // Only a genuinely distinct Heron/Parrot chat counts as "isHeronChat"/"isParrotChat" — when no
+    // dedicated chat id is set, heronChatId/parrotChatId fall back to the main chatId, and this stays
+    // false so Titto's own command routing below still runs on the merged single chat.
+    const isHeronChat = heronSameBot && !!heronDistinctChatId && incomingChatId === String(heronDistinctChatId)
+    const isParrotChat = parrotSameBot && !!parrotDistinctChatId && incomingChatId === String(parrotDistinctChatId)
     const isMainChat = !!chatId && incomingChatId === String(chatId)
-    if (chatId && !isMainChat && !isHeronChat) {
+    if (chatId && !isMainChat && !isHeronChat && !isParrotChat) {
       console.warn('[Telegram] Message from unknown chat, ignoring')
       return
     }
@@ -241,16 +287,16 @@ ${text}`, { reply_markup: publishKeyboard(asset.id) })
       return { platform: isHeronChat ? 'substack' : 'x', text: body }
     }
 
-    const saveManual = async ({ body, photoFileId }) => {
+    // `preDownloaded`: reuse a buffer already fetched for the vision-routing attempt below, instead
+    // of downloading the same photo from Telegram's CDN twice.
+    const saveManual = async ({ body, photoFileId, preDownloaded = null }) => {
       const { platform, text: clean } = savePlatform(body || '')
       const acct = memory.accounts.getActiveAccount()
       let imageId = null
 
       if (photoFileId) {
         try {
-          const link = await bot.getFileLink(photoFileId)
-          const resp = await fetch(link)
-          const buf = Buffer.from(await resp.arrayBuffer())
+          const buf = preDownloaded || Buffer.from(await (await fetch(await bot.getFileLink(photoFileId))).arrayBuffer())
           imageId = generateImage.saveUpload({ data: buf, contentType: 'image/jpeg', platform, account: acct }).id
         } catch (e) {
           console.warn('[Telegram] photo download failed:', e.message)
@@ -278,7 +324,48 @@ ${text}`, { reply_markup: publishKeyboard(asset.id) })
 
     if (msg.photo?.length) {
       // Highest-resolution variant is last in the array.
-      await saveManual({ body: msg.caption || '', photoFileId: msg.photo[msg.photo.length - 1].file_id })
+      const photoFileId = msg.photo[msg.photo.length - 1].file_id
+      const caption = msg.caption || ''
+
+      // Download once up front — reused below whichever path this takes.
+      let imageBuf = null
+      try {
+        imageBuf = Buffer.from(await (await fetch(await bot.getFileLink(photoFileId))).arrayBuffer())
+      } catch (e) {
+        console.warn('[Telegram] photo download failed:', e.message)
+      }
+
+      // A caption that reads as an instruction ("write a post about this", "make a linkedin post
+      // from this pic") asks Titto to generate something grounded in the photo, rather than filing
+      // the photo itself into the library as-is (the old, and still the default, behavior for a
+      // caption that's just the post text). Titto's own classifier decides which this is — if it
+      // resolves to a groundable write intent, it sets `imageUsed` and handles delivery itself
+      // (including sending the draft back to Telegram for approval); anything else falls through to
+      // the manual save below, unchanged from before.
+      if (caption.trim() && !isHeronChat && !isParrotChat) {
+        try {
+          const result = await titto.handleMessage({
+            text: caption,
+            sessionId: `telegram-${incomingChatId}`,
+            broadcast,
+            telegramSend: sendToUser,
+            telegramSendDraft: sendDrafts,
+            telegramSendReplyTargets: sendReplyTargets,
+            telegramSendArticleIdeas: sendArticleIdeas,
+            telegramSendParrotDraft: app.locals.telegramSendParrotDraft,
+            image: imageBuf ? { buffer: imageBuf, contentType: 'image/jpeg' } : null,
+          })
+          if (result.imageUsed) {
+            if (result.reply) await sendToUser(result.reply)
+            return
+          }
+        } catch (err) {
+          console.error('[Telegram] photo→Titto handling error:', err.message)
+          // Falls through to the manual save below rather than losing the photo entirely.
+        }
+      }
+
+      await saveManual({ body: caption, photoFileId, preDownloaded: imageBuf })
       return
     }
     if (/^\/save\b/i.test(text)) {
@@ -300,9 +387,33 @@ ${text}`, { reply_markup: publishKeyboard(asset.id) })
       return
     }
 
-    // The Heron chat is Heron-only — no Titto command routing there (matches heronTelegram.js's
-    // fully-separate-bot mode, which never wires Titto in at all).
-    if (isHeronChat) return
+    // If awaiting a new time (tapped 🕐 Change time on a scheduled-post card), treat this message as
+    // the time itself — parsed with chrono-node so "tomorrow 9am", "friday 6pm", "in 2 hours", or an
+    // explicit "2026-09-20 14:00" all work, not just HH:mm.
+    if (pendingReschedule[incomingChatId] && text && !text.startsWith('/')) {
+      const { assetId } = pendingReschedule[incomingChatId]
+      delete pendingReschedule[incomingChatId]
+      const when = chrono.parseDate(text, new Date(), { forwardDate: true })
+      if (!when) {
+        await sendToChat(incomingChatId, `Couldn't understand that as a time — tap 🕐 Change time again and try something like "tomorrow 9am", "friday 6pm", or "2026-09-20 14:00".`)
+        return
+      }
+      try {
+        const acct = memory.accounts.getActiveAccount()
+        const updated = assetsStore.setSchedule(acct, assetId, when.toISOString())
+        if (!updated) { await sendToChat(incomingChatId, 'That post is gone — nothing to reschedule.'); return }
+        const label = when.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })
+        await sendToChat(incomingChatId, `✅ Rescheduled for ${label} IST.`)
+      } catch (e) {
+        await sendToChat(incomingChatId, 'Could not reschedule: ' + e.message)
+      }
+      return
+    }
+
+    // A distinct Heron/Parrot chat is content-only — no Titto command routing there (matches
+    // heronTelegram.js/parrotTelegram.js's fully-separate-bot mode, which never wires Titto in at
+    // all). On the merged single-chat default this is always false, so Titto handles everything.
+    if (isHeronChat || isParrotChat) return
 
     try {
       // Read lazily off app.locals (not captured at init time) — parrotTelegram.js's init() runs
@@ -331,9 +442,10 @@ ${text}`, { reply_markup: publishKeyboard(asset.id) })
     const ack = (text) => bot.answerCallbackQuery(q.id, text ? { text } : undefined).catch(() => {})
     try {
       const chat = String(q.message?.chat?.id)
-      const isHeronChat = heronSameBot && chat === String(heronChatId)
+      const isHeronChat = heronSameBot && !!heronDistinctChatId && chat === String(heronDistinctChatId)
+      const isParrotChat = parrotSameBot && !!parrotDistinctChatId && chat === String(parrotDistinctChatId)
       const isMainChat = !!chatId && chat === String(chatId)
-      if (chatId && !isMainChat && !isHeronChat) return ack()
+      if (chatId && !isMainChat && !isHeronChat && !isParrotChat) return ack()
       const parts = (q.data || '').split('|')
 
       // 💬 Draft reply for a saved reply target (rd|<idx>)
@@ -438,6 +550,11 @@ ${q.message.text}`, { chat_id: chat, message_id: msgId3 }).catch(() => {})
           await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chat, message_id: msgId2 }).catch(() => {})
           return ack('Snoozed an hour — I\'ll send it again')
         }
+        if (action === 't') {
+          pendingReschedule[chat] = { assetId, at: Date.now() }
+          await bot.sendMessage(chat, '🕐 When should this go out instead? Reply with a time — e.g. "tomorrow 9am", "friday 6pm", or "2026-09-20 14:00".').catch(() => {})
+          return ack('Reply with a new time')
+        }
         return ack()
       }
 
@@ -446,8 +563,28 @@ ${q.message.text}`, { chat_id: chat, message_id: msgId3 }).catch(() => {})
       const acct = memory.accounts.getActiveAccount()
       const msgId = q.message.message_id
       const bodyText = stripHeader(q.message.text)
+      // LinkedIn drafts always get the "posts for real" keyboard/copy, on any chat — Approve there
+      // is never a plain queue action, it's the actual publish.
+      const draftRec0 = memory.getDraft(acct, id)
+      const isLinkedIn = draftRec0?.platform === 'linkedin'
+      const kb = (draftId, body) => (isLinkedIn ? parrotActionKeyboard(draftId) : actionKeyboard(draftId, body))
 
       if (action === 'a') {
+        if (isLinkedIn) {
+          // Post FIRST, transition only on success — a failed post leaves the draft untouched
+          // (still 'generated'), so this same Approve button works as retry with no extra UI needed.
+          await bot.editMessageText(`⏳ Posting to LinkedIn…\n\n${bodyText}`, { chat_id: chat, message_id: msgId }).catch(() => {})
+          const result = await parrot.postApprovedDraft(draftRec0)
+          if (result.ok) {
+            const linkLine = result.url ? `\n\n↗ ${result.url}` : ''
+            await bot.editMessageText(`✅ Posted to LinkedIn${linkLine}\n\n${bodyText}`, { chat_id: chat, message_id: msgId }).catch(() => {})
+            return ack('Posted to LinkedIn')
+          }
+          await bot.editMessageText(`⚠️ LinkedIn post failed: ${result.error}\n\nStill in your queue — tap Approve again to retry.\n\n${bodyText}`, {
+            chat_id: chat, message_id: msgId, reply_markup: parrotActionKeyboard(id),
+          }).catch(() => {})
+          return ack('LinkedIn post failed — tap Approve to retry')
+        }
         const updated = memory.transition(acct, id, 'queued')
         // Keep a keyboard here. editMessageText without reply_markup DROPS the buttons, so approving
         // used to remove Copy — at the exact moment you want it, since approving is when you go post.
@@ -462,7 +599,7 @@ ${q.message.text}`, { chat_id: chat, message_id: msgId3 }).catch(() => {})
         return ack('Pick a reason')
       }
       if (action === 'b') {
-        await bot.editMessageReplyMarkup(actionKeyboard(id, bodyText), { chat_id: chat, message_id: msgId }).catch(() => {})
+        await bot.editMessageReplyMarkup(kb(id, bodyText), { chat_id: chat, message_id: msgId }).catch(() => {})
         return ack()
       }
       if (action === 'rr') {
@@ -478,7 +615,7 @@ ${q.message.text}`, { chat_id: chat, message_id: msgId3 }).catch(() => {})
       if (action === 'u') {
         memory.transition(acct, id, 'generated')
         await bot.editMessageText(bodyText, {
-          chat_id: chat, message_id: msgId, reply_markup: actionKeyboard(id, bodyText),
+          chat_id: chat, message_id: msgId, reply_markup: kb(id, bodyText),
         }).catch(() => {})
         return ack('Undone — back to unrated')
       }
@@ -561,8 +698,15 @@ function getHeronHandoffSender() {
   return _sendHeronHandoff
 }
 
+// Returns the Parrot (LinkedIn) draft sender, but ONLY when this bot owns Parrot delivery (same-bot
+// mode — PARROT_TELEGRAM_BOT_TOKEN empty, the default). Null otherwise, so server/index.js knows a
+// dedicated Parrot bot is responsible instead (or Parrot's own is unconfigured too).
+function getParrotDraftSender() {
+  return _sendParrotDraft
+}
+
 module.exports = {
   getPublishRequestSender: () => _sendPublishRequest,
   init, getSendFn, getDraftSender, getAssetCardSender, getReplyTargetSender, getArticleIdeaSender,
-  getHeronDraftSender, getHeronHandoffSender,
+  getHeronDraftSender, getHeronHandoffSender, getParrotDraftSender,
 }

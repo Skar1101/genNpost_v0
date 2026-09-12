@@ -87,15 +87,17 @@ const telegramSendHeronHandoff = telegram.getHeronHandoffSender() || (heronTeleg
 app.locals.telegramSendHeronDraft = telegramSendHeronDraft
 app.locals.telegramSendHeronHandoff = telegramSendHeronHandoff
 
-// Init Telegram (Parrot — LinkedIn). Always a fully separate, dedicated bot (no same-bot fallback
-// mode like Heron's — this is the one bot where Approve triggers a real platform post, so it stays
-// on its own dedicated channel by design). No-ops cleanly if PARROT_TELEGRAM_BOT_TOKEN is unset.
+// Init Telegram (Parrot — LinkedIn). Either a fully separate bot (PARROT_TELEGRAM_BOT_TOKEN set), or
+// the main bot in same-bot mode (the default — Titto is the one Telegram bot for the user unless a
+// dedicated Parrot bot is explicitly configured). parrotTelegram.js only actually boots a second
+// bot/polling loop when PARROT_TELEGRAM_BOT_TOKEN is set; otherwise it no-ops and telegram.js's own
+// getter below resolves instead. Approve still triggers a real, immediate LinkedIn post either way.
 const parrotTelegramResult = parrotTelegram.init(app)
-const telegramSendParrotDraft = parrotTelegramResult ? parrotTelegram.getParrotDraftSender() : null
+const telegramSendParrotDraft = telegram.getParrotDraftSender() || (parrotTelegramResult ? parrotTelegram.getParrotDraftSender() : null)
 app.locals.telegramSendParrotDraft = telegramSendParrotDraft
 
 // Init scheduler
-initScheduler(ws.broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft, telegramSendParrotDraft, telegramSendAssetCard)
+initScheduler(ws.broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft, telegramSendParrotDraft, telegramSendAssetCard, telegramSendPublishRequest)
 
 // Catch-all → serve the React app's index.html (no-store so a new build is always picked up)
 app.get('*', (req, res) => {

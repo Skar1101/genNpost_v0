@@ -339,6 +339,27 @@ export function useSaveProfile() {
   })
 }
 
+// First-run bootstrap: infers voice + starter pillars from a niche + optional sample posts,
+// pre-filling Settings instead of a blank form. Also refreshes strategy since pillars change.
+export function useBootstrapProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ niche, samples }) => api('/profile/bootstrap', { method: 'POST', body: { niche, samples } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+      queryClient.invalidateQueries({ queryKey: ['strategy'] })
+    },
+  })
+}
+
+export function useSkipBootstrap() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api('/profile/skip-bootstrap', { method: 'POST' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['profile'] }),
+  })
+}
+
 export function useReplyDomains() {
   return useQuery({ queryKey: ['reply-domains'], queryFn: () => api('/replies/domains') })
 }

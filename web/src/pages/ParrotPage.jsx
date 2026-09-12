@@ -222,7 +222,7 @@ function WriteSection() {
           <div className="placeholder">
             <p>Give a topic and I'll write a professional, thought-leadership LinkedIn post — sent to Parrot's
             Telegram bot with Approve/Reject/Edit buttons. <b>Approve posts it to LinkedIn immediately</b> —
-            this is the one agent in TinySparrow where that's real, not a draft hand-off.</p>
+            this is the one agent in genNpost where that's real, not a draft hand-off.</p>
           </div>
         </div>
       ) : (

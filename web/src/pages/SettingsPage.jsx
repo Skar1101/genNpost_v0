@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useProfile, useSaveProfile, useReplyDomains, useSaveReplyDomains, useExpenses } from '../lib/queries.js'
+import { useProfile, useSaveProfile, useReplyDomains, useSaveReplyDomains, useExpenses, useBootstrapProfile, useSkipBootstrap } from '../lib/queries.js'
 import KeywordsCard from '../components/KeywordsCard.jsx'
 import StrategyCard from '../components/StrategyCard.jsx'
 import ArticlePreferencesCard from '../components/ArticlePreferencesCard.jsx'
@@ -65,6 +65,64 @@ function daysAgoKey(n) {
   return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
 }
 
+// Shown once, only while profile.onboarded === false. Infers voice + 3 niche-fit starter pillars
+// from a niche description + optional sample posts (one LLM call, see agents/bootstrap.js), so a
+// brand-new account opens pre-filled instead of the placeholder AI/self-help/wellness defaults.
+// Purely additive — skipping it just leaves the current defaults in place for manual editing.
+function BootstrapBanner({ initialNiche, onDone }) {
+  const [niche, setNiche] = useState(initialNiche || '')
+  const [samplesText, setSamplesText] = useState('')
+  const bootstrapProfile = useBootstrapProfile()
+  const skipBootstrap = useSkipBootstrap()
+
+  function generate() {
+    const samples = linesToArray(samplesText)
+    bootstrapProfile.mutate({ niche, samples }, { onSuccess: onDone })
+  }
+
+  return (
+    <div className="card" style={{ padding: 18, marginBottom: 18, border: '1px solid var(--accent)' }}>
+      <div style={{ fontWeight: 650, fontSize: 14, marginBottom: 4 }}>🌱 Set up your profile in one step</div>
+      <p className="hint" style={{ marginBottom: 12 }}>
+        Tell us your niche and paste a few posts you've written elsewhere — we'll draft your voice and
+        starter content pillars for you to review, instead of you filling in every field by hand.
+      </p>
+      <div style={{ marginBottom: 12 }}>
+        <div className="hint" style={{ marginBottom: 4 }}>Niche/domain</div>
+        <input
+          className="field"
+          value={niche}
+          onChange={(e) => setNiche(e.target.value)}
+          placeholder="e.g. B2B SaaS marketing, personal finance for founders"
+        />
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        <div className="hint" style={{ marginBottom: 4 }}>Sample posts (optional) — one per line</div>
+        <textarea
+          className="field"
+          rows={4}
+          value={samplesText}
+          onChange={(e) => setSamplesText(e.target.value)}
+          placeholder="Paste a few things you've written elsewhere — even rough ones help us learn your voice"
+        />
+      </div>
+      <div className="choice-row" style={{ gap: 10 }}>
+        <button className="btn primary" onClick={generate} disabled={!niche.trim() || bootstrapProfile.isPending}>
+          {bootstrapProfile.isPending ? 'Generating…' : 'Generate my profile'}
+        </button>
+        <button className="btn" onClick={() => skipBootstrap.mutate(undefined, { onSuccess: onDone })} disabled={skipBootstrap.isPending}>
+          Skip — I'll fill this in myself
+        </button>
+      </div>
+      {bootstrapProfile.isError && (
+        <p className="hint" style={{ color: 'var(--crit)', marginTop: 8 }}>
+          {bootstrapProfile.error?.message || 'Something went wrong — try again, or skip and fill it in manually.'}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function ExpensesCard() {
   const [window_, setWindow] = useState(30)
   // Always fetch the widest window once; 7d/30d/90d totals + the visible list are all derived
@@ -91,7 +149,7 @@ function ExpensesCard() {
   const windowTotal = agentRows.reduce((s, [, c]) => s + c, 0)
 
   return (
-    <div className="card" style={{ padding: 18, marginTop: 18 }}>
+    <div className="card" style={{ padding: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{ fontWeight: 650, fontSize: 14 }}>Expenses</div>
         <select className="select" style={{ marginLeft: 'auto', width: 100 }} value={window_} onChange={(e) => setWindow(Number(e.target.value))}>
@@ -161,6 +219,13 @@ function ExpensesCard() {
   )
 }
 
+const TABS = [
+  { id: 'profile', label: 'Profile & Voice' },
+  { id: 'pillars', label: 'Content Pillars' },
+  { id: 'platforms', label: 'Platforms' },
+  { id: 'expenses', label: 'Expenses' },
+]
+
 export default function SettingsPage() {
   const profileQ = useProfile()
   const saveProfile = useSaveProfile()
@@ -169,6 +234,7 @@ export default function SettingsPage() {
 
   const [form, setForm] = useState(emptyForm())
   const [saved, setSaved] = useState(false)
+  const [tab, setTab] = useState('profile')
 
   useEffect(() => {
     if (profileQ.data?.profile) setForm(profileToForm(profileQ.data.profile))
@@ -192,114 +258,143 @@ export default function SettingsPage() {
 
   if (profileQ.isLoading) return <div className="content"><div className="card placeholder"><p>Loading profile…</p></div></div>
 
+  const showBootstrap = profileQ.data?.profile?.onboarded === false
+
   return (
     <div className="content">
-      <div className="card" style={{ padding: 18, marginBottom: 18 }}>
-        <div style={{ fontWeight: 650, fontSize: 14, marginBottom: 14 }}>Creator profile</div>
+      {showBootstrap && (
+        <BootstrapBanner initialNiche={form.identity.niche} onDone={() => profileQ.refetch()} />
+      )}
 
-        <div className="choice-row" style={{ gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-          <div style={{ flex: '1 1 200px' }}>
-            <div className="hint" style={{ marginBottom: 4 }}>Name</div>
-            <input className="field" value={form.identity.name} onChange={(e) => set('identity', 'name', e.target.value)} />
-          </div>
-          <div style={{ flex: '1 1 200px' }}>
-            <div className="hint" style={{ marginBottom: 4 }}>X handle</div>
-            <input className="field" value={form.identity.handle} onChange={(e) => set('identity', 'handle', e.target.value)} placeholder="skar_connect" />
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <div className="hint" style={{ marginBottom: 4 }}>Niche</div>
-          <textarea className="field" rows={2} value={form.identity.niche} onChange={(e) => set('identity', 'niche', e.target.value)} />
-        </div>
-
-        <div className="choice-row" style={{ gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-          <div style={{ flex: '1 1 200px' }}>
-            <div className="hint" style={{ marginBottom: 4 }}>Audience</div>
-            <input className="field" value={form.identity.audience} onChange={(e) => set('identity', 'audience', e.target.value)} />
-          </div>
-          <div style={{ flex: '1 1 200px' }}>
-            <div className="hint" style={{ marginBottom: 4 }}>Goal</div>
-            <input className="field" value={form.identity.goal} onChange={(e) => set('identity', 'goal', e.target.value)} placeholder="20k followers" />
-          </div>
-          <div style={{ flex: '1 1 140px' }}>
-            <div className="hint" style={{ marginBottom: 4 }}>Deadline</div>
-            <input className="field" value={form.identity.deadline} onChange={(e) => set('identity', 'deadline', e.target.value)} placeholder="2026-12-31" />
-          </div>
-        </div>
-
-        <div className="choice-row" style={{ gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-          <div style={{ flex: '1 1 160px' }}>
-            <div className="hint" style={{ marginBottom: 4 }}>Current followers</div>
-            <input className="field" type="number" value={form.baseline.followers} onChange={(e) => set('baseline', 'followers', e.target.value)} />
-          </div>
-          <div style={{ flex: '1 1 160px' }}>
-            <div className="hint" style={{ marginBottom: 4 }}>Avg impressions</div>
-            <input className="field" type="number" value={form.baseline.avgImpressions} onChange={(e) => set('baseline', 'avgImpressions', e.target.value)} />
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <div className="hint" style={{ marginBottom: 4 }}>Voice description</div>
-          <textarea className="field" rows={2} value={form.voice.description} onChange={(e) => set('voice', 'description', e.target.value)} />
-        </div>
-
-        <div className="choice-row" style={{ gap: 12, marginBottom: 14 }}>
-          <div style={{ flex: 1 }}>
-            <div className="hint" style={{ marginBottom: 4 }}>Voice do's (one per line)</div>
-            <textarea className="field" rows={4} value={form.voice.doRules} onChange={(e) => set('voice', 'doRules', e.target.value)} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div className="hint" style={{ marginBottom: 4 }}>Voice don'ts (one per line)</div>
-            <textarea className="field" rows={4} value={form.voice.dontRules} onChange={(e) => set('voice', 'dontRules', e.target.value)} />
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <div className="hint" style={{ marginBottom: 4 }}>Watchlist — handle or full profile link, one per line. Reposts prioritize these.</div>
-          <textarea className="field" rows={2} placeholder="garyvee&#10;https://x.com/SahilBloom" value={form.watchlist} onChange={(e) => set('watchlist', null, e.target.value)} />
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <div className="hint" style={{ marginBottom: 4 }}>Best tweets — links or text, one per line (calibrates voice)</div>
-          <textarea className="field" rows={3} value={form.bestTweets} onChange={(e) => set('bestTweets', null, e.target.value)} />
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <div className="hint" style={{ marginBottom: 4 }}>Restrictions — topics/words to avoid, one per line</div>
-          <textarea className="field" rows={2} value={form.restrictions} onChange={(e) => set('restrictions', null, e.target.value)} />
-        </div>
-
-        <button className="btn primary" onClick={save} disabled={saveProfile.isPending}>
-          {saveProfile.isPending ? 'Saving…' : saved ? '✓ Saved' : 'Save profile'}
-        </button>
-      </div>
-
-      <div className="card" style={{ padding: 18 }}>
-        <div style={{ fontWeight: 650, fontSize: 14, marginBottom: 4 }}>Reply-search domains</div>
-        <p className="hint" style={{ marginBottom: 12 }}>Core domains are always on. Toggle the optional ones — they widen every /replies run.</p>
-        <div className="choice-row">
-          {(domainsQ.data?.domains || []).map((d) => (
-            <button
-              key={d.id}
-              className={`choice-btn${d.enabled ? ' is-active' : ''}`}
-              disabled={d.core || saveDomains.isPending}
-              title={d.core ? 'Core domain — always on' : undefined}
-              onClick={() => toggleDomain(d.id, d.enabled)}
-            >
-              {d.core ? '🔒 ' : ''}{d.label}
+      <div className="toolbar" style={{ marginBottom: 18 }}>
+        <div className="tabs">
+          {TABS.map((t) => (
+            <button key={t.id} className={tab === t.id ? 'is-active' : ''} onClick={() => setTab(t.id)}>
+              {t.label}
             </button>
           ))}
         </div>
       </div>
 
-      <StrategyCard />
+      {tab === 'profile' && (
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontWeight: 650, fontSize: 14, marginBottom: 14 }}>Creator profile</div>
 
-      <ArticlePreferencesCard />
+          <div className="choice-row" style={{ gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div style={{ flex: '1 1 200px' }}>
+              <div className="hint" style={{ marginBottom: 4 }}>Name</div>
+              <input className="field" value={form.identity.name} onChange={(e) => set('identity', 'name', e.target.value)} />
+            </div>
+            <div style={{ flex: '1 1 200px' }}>
+              <div className="hint" style={{ marginBottom: 4 }}>X handle</div>
+              <input className="field" value={form.identity.handle} onChange={(e) => set('identity', 'handle', e.target.value)} placeholder="skar_connect" />
+            </div>
+          </div>
 
-      <KeywordsCard />
+          <div style={{ marginBottom: 14 }}>
+            <div className="hint" style={{ marginBottom: 4 }}>Niche — the topic area you post about</div>
+            <textarea className="field" rows={2} value={form.identity.niche} onChange={(e) => set('identity', 'niche', e.target.value)} placeholder="e.g. B2B SaaS growth, personal finance for founders" />
+          </div>
 
-      <ExpensesCard />
+          <div className="choice-row" style={{ gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div style={{ flex: '1 1 200px' }}>
+              <div className="hint" style={{ marginBottom: 4 }}>Audience — who you're writing for</div>
+              <input className="field" value={form.identity.audience} onChange={(e) => set('identity', 'audience', e.target.value)} placeholder="e.g. early-stage SaaS founders" />
+            </div>
+            <div style={{ flex: '1 1 200px' }}>
+              <div className="hint" style={{ marginBottom: 4 }}>Goal</div>
+              <input className="field" value={form.identity.goal} onChange={(e) => set('identity', 'goal', e.target.value)} placeholder="20k followers" />
+            </div>
+            <div style={{ flex: '1 1 140px' }}>
+              <div className="hint" style={{ marginBottom: 4 }}>Deadline (optional)</div>
+              <input className="field" value={form.identity.deadline} onChange={(e) => set('identity', 'deadline', e.target.value)} placeholder="2026-12-31" />
+            </div>
+          </div>
+
+          <div className="choice-row" style={{ gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div style={{ flex: '1 1 160px' }}>
+              <div className="hint" style={{ marginBottom: 4 }}>Current followers</div>
+              <input className="field" type="number" value={form.baseline.followers} onChange={(e) => set('baseline', 'followers', e.target.value)} />
+            </div>
+            <div style={{ flex: '1 1 160px' }}>
+              <div className="hint" style={{ marginBottom: 4 }}>Avg impressions</div>
+              <input className="field" type="number" value={form.baseline.avgImpressions} onChange={(e) => set('baseline', 'avgImpressions', e.target.value)} />
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 4, fontWeight: 600, fontSize: 12.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.03em' }}>
+            Voice & calibration
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <div className="hint" style={{ marginBottom: 4 }}>Voice description</div>
+            <textarea className="field" rows={2} value={form.voice.description} onChange={(e) => set('voice', 'description', e.target.value)} />
+          </div>
+
+          <div className="choice-row" style={{ gap: 12, marginBottom: 14 }}>
+            <div style={{ flex: 1 }}>
+              <div className="hint" style={{ marginBottom: 4 }}>Voice do's (one per line)</div>
+              <textarea className="field" rows={4} value={form.voice.doRules} onChange={(e) => set('voice', 'doRules', e.target.value)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div className="hint" style={{ marginBottom: 4 }}>Voice don'ts (one per line)</div>
+              <textarea className="field" rows={4} value={form.voice.dontRules} onChange={(e) => set('voice', 'dontRules', e.target.value)} />
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <div className="hint" style={{ marginBottom: 4 }}>Watchlist — handle or full profile link, one per line. Reposts prioritize these.</div>
+            <textarea className="field" rows={2} placeholder="garyvee&#10;https://x.com/SahilBloom" value={form.watchlist} onChange={(e) => set('watchlist', null, e.target.value)} />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <div className="hint" style={{ marginBottom: 4 }}>Best tweets — links or text, one per line (calibrates voice)</div>
+            <textarea className="field" rows={3} value={form.bestTweets} onChange={(e) => set('bestTweets', null, e.target.value)} />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <div className="hint" style={{ marginBottom: 4 }}>Restrictions — topics/words to avoid, one per line</div>
+            <textarea className="field" rows={2} value={form.restrictions} onChange={(e) => set('restrictions', null, e.target.value)} />
+          </div>
+
+          <button className="btn primary" onClick={save} disabled={saveProfile.isPending}>
+            {saveProfile.isPending ? 'Saving…' : saved ? '✓ Saved' : 'Save profile'}
+          </button>
+        </div>
+      )}
+
+      {tab === 'pillars' && (
+        <>
+          <div className="card" style={{ padding: 18, marginBottom: 18 }}>
+            <div style={{ fontWeight: 650, fontSize: 14, marginBottom: 4 }}>Reply-search domains</div>
+            <p className="hint" style={{ marginBottom: 12 }}>Core domains are always on. Toggle the optional ones — they widen every /replies run.</p>
+            <div className="choice-row">
+              {(domainsQ.data?.domains || []).map((d) => (
+                <button
+                  key={d.id}
+                  className={`choice-btn${d.enabled ? ' is-active' : ''}`}
+                  disabled={d.core || saveDomains.isPending}
+                  title={d.core ? 'Core domain — always on' : undefined}
+                  onClick={() => toggleDomain(d.id, d.enabled)}
+                >
+                  {d.core ? '🔒 ' : ''}{d.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <StrategyCard />
+        </>
+      )}
+
+      {tab === 'platforms' && (
+        <>
+          <ArticlePreferencesCard />
+          <KeywordsCard />
+        </>
+      )}
+
+      {tab === 'expenses' && <ExpensesCard />}
     </div>
   )
 }

@@ -4,10 +4,14 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* genNpost brand palette — emerald/mint primary, replacing the prior purple accent. Surfaces, text
+   and semantic (good/warn/crit) tokens are unchanged; only the brand accent moved. See PIVOT_PLAN.txt
+   "Branding & visual design" for the source reference. */
 :root {
-  --bg: #FFFFFF; --surface: #F8F9FB; --surface-2: #F1F3F6; --surface-3: #E8EBF0; --border: #E2E6EB;
+  --bg: #FFFFFF; --canvas: #F3FAF6; --surface: #F8F9FB; --surface-2: #F1F3F6; --surface-3: #E8EBF0; --border: #E2E6EB;
   --ink: #1A1D23; --muted: #4A5568; --faint: #9AA3B0;
-  --accent: #6C5CE7; --accent-ink: #FFFFFF; --accent-soft: rgba(108,92,231,.10);
+  --accent: #3AA876; --accent-ink: #FFFFFF; --accent-soft: rgba(58,168,118,.10);
+  --cta: #EF7D1A; --cta-ink: #FFFFFF; --cta-soft: rgba(239,125,26,.12);
   --good: #00B894; --good-soft: rgba(0,184,148,.10);
   --warn: #F59F00; --warn-soft: rgba(245,159,0,.10);
   --crit: #E03131; --crit-soft: rgba(224,49,49,.10);
@@ -19,26 +23,29 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #15161C; --surface: #1C1E26; --surface-2: #23262F; --surface-3: #2B2F3A; --border: #333747;
+    --bg: #15161C; --canvas: #15161C; --surface: #1C1E26; --surface-2: #23262F; --surface-3: #2B2F3A; --border: #333747;
     --ink: #E7E9F2; --muted: #9AA3B0; --faint: #6B7280;
-    --accent: #8B7FF2; --accent-ink: #15161C; --accent-soft: rgba(139,127,242,.18);
+    --accent: #34C48C; --accent-ink: #0F1512; --accent-soft: rgba(52,196,140,.18);
+    --cta: #FF9142; --cta-ink: #1A1200; --cta-soft: rgba(255,145,66,.18);
     --good: #2DD4A8; --good-soft: rgba(45,212,168,.16); --warn: #F7B84F; --warn-soft: rgba(247,184,79,.16);
     --crit: #F0616B; --crit-soft: rgba(240,97,107,.16); --idle: #6B7280;
     --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.28);
   }
 }
 :root[data-theme="light"] {
-  --bg: #FFFFFF; --surface: #F8F9FB; --surface-2: #F1F3F6; --surface-3: #E8EBF0; --border: #E2E6EB;
+  --bg: #FFFFFF; --canvas: #F3FAF6; --surface: #F8F9FB; --surface-2: #F1F3F6; --surface-3: #E8EBF0; --border: #E2E6EB;
   --ink: #1A1D23; --muted: #4A5568; --faint: #9AA3B0;
-  --accent: #6C5CE7; --accent-ink: #FFFFFF; --accent-soft: rgba(108,92,231,.10);
+  --accent: #3AA876; --accent-ink: #FFFFFF; --accent-soft: rgba(58,168,118,.10);
+  --cta: #EF7D1A; --cta-ink: #FFFFFF; --cta-soft: rgba(239,125,26,.12);
   --good: #00B894; --good-soft: rgba(0,184,148,.10); --warn: #F59F00; --warn-soft: rgba(245,159,0,.10);
   --crit: #E03131; --crit-soft: rgba(224,49,49,.10); --idle: #9AA3B0;
   --shadow: 0 1px 2px rgba(25,29,44,.06), 0 6px 20px rgba(25,29,44,.06);
 }
 :root[data-theme="dark"] {
-  --bg: #15161C; --surface: #1C1E26; --surface-2: #23262F; --surface-3: #2B2F3A; --border: #333747;
+  --bg: #15161C; --canvas: #15161C; --surface: #1C1E26; --surface-2: #23262F; --surface-3: #2B2F3A; --border: #333747;
   --ink: #E7E9F2; --muted: #9AA3B0; --faint: #6B7280;
-  --accent: #8B7FF2; --accent-ink: #15161C; --accent-soft: rgba(139,127,242,.18);
+  --accent: #34C48C; --accent-ink: #0F1512; --accent-soft: rgba(52,196,140,.18);
+  --cta: #FF9142; --cta-ink: #1A1200; --cta-soft: rgba(255,145,66,.18);
   --good: #2DD4A8; --good-soft: rgba(45,212,168,.16); --warn: #F7B84F; --warn-soft: rgba(247,184,79,.16);
   --crit: #F0616B; --crit-soft: rgba(240,97,107,.16); --idle: #6B7280;
   --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.28);
@@ -155,7 +162,9 @@
 .raven-row-drafts { padding: 0 14px 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
 
 body {
-  margin: 0; background: var(--bg); color: var(--ink);
+  /* Page canvas is a soft mint tint (--canvas), not flat white — cards stay crisp on --surface/--bg
+     so they visibly "float" instead of the whole app reading as one undifferentiated white sheet. */
+  margin: 0; background: var(--canvas); color: var(--ink);
   font-family: var(--font-sans); font-size: 14px; line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -171,11 +180,15 @@ a { color: inherit; text-decoration: none; }
 
 .app { display: grid; grid-template-columns: 244px 1fr; min-height: 100vh; }
 
-.sidebar { background: var(--surface); border-right: 1px solid var(--border);
+/* "Structured & tinted" dashboard direction (picked 2026-09-12 from a 3-option design canvas,
+   testbed: Scheduler page) — a soft two-stop tint on the sidebar and a solid, shadowed active state
+   instead of a flat tint, applied here so it cascades to every page automatically. */
+.sidebar { background: linear-gradient(180deg, var(--canvas), var(--surface));
+  border-right: 1px solid var(--border);
   display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 14px; }
-.brand .mark { width: 30px; height: 30px; flex: none; color: var(--accent);
-  background: var(--accent-soft); border-radius: 9px; padding: 5px; }
+.brand .mark { width: 30px; height: 30px; flex: none; color: var(--accent-ink);
+  background: var(--accent); border-radius: 9px; padding: 5px; box-shadow: 0 4px 10px var(--accent-soft); }
 .brand-name { font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
 .brand-sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); letter-spacing: .04em; }
 
@@ -186,11 +199,12 @@ a { color: inherit; text-decoration: none; }
   border: 0; background: none; color: var(--muted); text-align: left;
   padding: 7px 10px; border-radius: var(--r-sm); font-size: 13.5px; line-height: 1.2; }
 .nav-item:hover { background: var(--surface-2); color: var(--ink); }
-.nav-item.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.nav-item.is-active { background: var(--accent); color: var(--accent-ink); font-weight: 700;
+  box-shadow: 0 3px 10px var(--accent-soft); }
 .nav-item .lbl { flex: 1; }
 .nav-item .sub { font-family: var(--font-mono); font-size: 10px; color: var(--faint); letter-spacing: .02em; }
-.nav-item.is-active .sub { color: var(--accent); opacity: .8; }
-.nav-badge { font-family: var(--font-mono); font-size: 11px; background: var(--accent); color: var(--accent-ink);
+.nav-item.is-active .sub { color: var(--accent-ink); opacity: .75; }
+.nav-badge { font-family: var(--font-mono); font-size: 11px; background: var(--cta); color: var(--cta-ink);
   border-radius: 20px; padding: 1px 7px; font-variant-numeric: tabular-nums; }
 .sdot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--idle); }
 .sdot.good { background: var(--good); } .sdot.warn { background: var(--warn); } .sdot.crit { background: var(--crit); }
@@ -220,13 +234,26 @@ a { color: inherit; text-decoration: none; }
 .section:first-child { margin-top: 6px; }
 .section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
 .section-head .eyebrow { flex: 1; }
+/* Opt-in icon badge for a section header (Direction B, "structured & tinted") — a small colored
+   tile before the title, using the same decorative-accent tints documented for the brand palette
+   (never a fill color, always a light tint + a matching stroke). Switches align-items to center so
+   the icon and title sit on the same visual line. */
+.section-head.with-icon { align-items: center; }
+.section-icon { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center;
+  justify-content: center; flex: none; }
+.section-icon.tone-green  { background: var(--accent-soft); }
+.section-icon.tone-amber  { background: rgba(245,184,76,.18); }
+.section-icon.tone-purple { background: rgba(108,92,231,.14); }
+.section-title { flex: 1; font-size: 13px; font-weight: 700; color: var(--ink); }
 .link-btn { border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 12.5px; padding: 0; }
 .link-btn:hover { text-decoration: underline; }
 
 .btn { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border);
   background: var(--surface); color: var(--ink); border-radius: 8px; padding: 7px 13px; font-size: 13px; font-weight: 550; }
 .btn:hover { border-color: var(--faint); }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+/* CTAs/primary buttons use the dedicated --cta orange, not the green --accent — green stays the
+   foundation color (nav, badges, canvas); orange is reserved for "click this" actions specifically. */
+.btn.primary { background: var(--cta); color: var(--cta-ink); border-color: transparent; }
 .btn.primary:hover { filter: brightness(1.06); }
 .btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 7px; }
 .btn.ghost { background: transparent; }
@@ -259,10 +286,10 @@ a { color: inherit; text-decoration: none; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow); }
 
 .titto { display: flex; align-items: center; gap: 14px; padding: 14px 16px;
-  background: linear-gradient(100deg, var(--accent-soft), var(--surface) 72%);
+  background: linear-gradient(120deg, var(--accent-soft), color-mix(in srgb, var(--accent) 2%, var(--surface)));
   border-color: color-mix(in srgb, var(--accent) 26%, var(--border)); }
-.titto .mark { width: 38px; height: 38px; flex: none; color: var(--accent); background: var(--surface);
-  border-radius: 10px; padding: 7px; border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border)); }
+.titto .mark { width: 38px; height: 38px; flex: none; color: var(--accent-ink); background: var(--accent);
+  border-radius: 10px; padding: 7px; box-shadow: 0 4px 10px var(--accent-soft); }
 .titto .who { flex: 1; min-width: 0; }
 .titto .name { font-weight: 650; font-size: 13.5px; }
 .titto .name span { font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); font-weight: 500; margin-left: 8px; letter-spacing: .04em; }

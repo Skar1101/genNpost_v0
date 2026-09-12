@@ -38,6 +38,7 @@ const scheduleStore = require('../../state/scheduleStore')
 const slotDelivery = require('../../scheduler/slotDelivery')
 const articleTemplateStore = require('../../state/articleTemplateStore')
 const articleLessonsStore = require('../../state/articleLessonsStore')
+const bootstrap = require('../../agents/bootstrap')
 const linkedinAuth = require('../../utils/linkedinAuth')
 const analyst = require('../../agents/analyst')
 const costStore = require('../../state/costStore')
@@ -1513,6 +1514,36 @@ router.put('/profile', (req, res) => {
     res.json({ account, profile: saved })
   } catch (err) {
     logger.error('[API] Profile save failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/profile/bootstrap  body: { niche, samples? } — first-run AI setup: infers voice +
+// starter pillars from a niche + optional sample posts instead of a blank manual form.
+router.post('/profile/bootstrap', async (req, res) => {
+  const { niche, samples } = req.body || {}
+  if (!niche?.trim()) return res.status(400).json({ error: 'niche is required' })
+  const account = memory.accounts.getActiveAccount()
+  const broadcast = req.app.locals.broadcast
+  try {
+    const { profile, strategy } = await bootstrap.bootstrapProfile({ account, niche, samples, broadcast })
+    res.json({ account, profile, strategy })
+  } catch (err) {
+    logger.error('[API] Profile bootstrap failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/profile/skip-bootstrap — dismiss the first-run bootstrap without generating anything;
+// flips onboarded so Settings stops offering it, leaving all fields as whatever they are today.
+router.post('/profile/skip-bootstrap', (req, res) => {
+  const account = memory.accounts.getActiveAccount()
+  try {
+    const current = ensureProfile(account)
+    const saved = memory.saveProfile(account, { ...current, onboarded: true })
+    res.json({ account, profile: saved })
+  } catch (err) {
+    logger.error('[API] Profile bootstrap skip failed', err)
     res.status(500).json({ error: err.message })
   }
 })

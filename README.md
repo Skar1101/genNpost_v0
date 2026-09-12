@@ -69,7 +69,8 @@ Library, Raven, Writer, Settings, and Titto's chat and activity feed.
 ## Documentation
 
 - **[USE.md](USE.md)** — how to actually use it, step by step
-- **[IMPLEMENTATION.md](IMPLEMENTATION.md)** — architecture, status, and the fix log
+- **[PIVOT_PLAN.txt](PIVOT_PLAN.txt)** — current product status: what's done, partial, or pending
+- **[archive/IMPLEMENTATION.md](archive/IMPLEMENTATION.md)** — archived engineering changelog (pre-pivot build history, root-cause fixes, verified metrics)
 
 ## Your data
 

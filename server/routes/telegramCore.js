@@ -50,6 +50,9 @@ function assetKeyboard(id) {
       { text: '✅ Posted', callback_data: `as|p|${id}` },
       { text: '⏰ Snooze 1h', callback_data: `as|s|${id}` },
     ],
+    [
+      { text: '🕐 Change time', callback_data: `as|t|${id}` },
+    ],
   ] }
 }
 

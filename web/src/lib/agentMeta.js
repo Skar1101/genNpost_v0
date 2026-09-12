@@ -12,4 +12,5 @@ export const AGENT_META = {
   insights: { label: 'Analyst', cls: 'insights' },
   analyst: { label: 'Analyst', cls: 'insights' },
   titto: { label: 'Titto', cls: 'titto' },
+  bootstrap: { label: 'Setup', cls: 'titto' },
 }

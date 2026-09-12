@@ -51,6 +51,7 @@ export default function StudioPage() {
   const [dirty, setDirty] = useState(false)
   const [suggestions, setSuggestions] = useState(null)
   const [note, setNote] = useState('')
+  const [customTime, setCustomTime] = useState('')
   const loadedFor = useRef(null)
 
   const asset = (assetsQ.data?.assets || []).find((a) => a.id === assetId) || null
@@ -92,7 +93,9 @@ export default function StudioPage() {
 
   function edit(fn) { fn(); setDirty(true); setNote('') }
 
-  function save() {
+  // `onDone(id)` fires after a successful save (create or update) — lets scheduleAt() below save an
+  // unsaved draft first, then schedule the asset it just created, in one user action.
+  function save(onDone) {
     const body = { text, platform, origin: 'manual', polish: false, imageId: image?.id || null, videoId: video?.id || null, link }
     if (assetId) {
       // Media rides on segment 0 — the same convention the image already used.
@@ -100,7 +103,7 @@ export default function StudioPage() {
         ? { text: s.text, imageId: image?.id || null, videoId: video?.id || null, link: link || null }
         : { text: s.text, imageId: null }))
       update.mutate({ id: assetId, segments: segs, platform }, {
-        onSuccess: () => { setDirty(false); setNote('Updated') },
+        onSuccess: () => { setDirty(false); setNote('Updated'); onDone?.(assetId) },
       })
     } else {
       create.mutate(body, {
@@ -111,9 +114,19 @@ export default function StudioPage() {
           setDirty(false)
           setNote('Saved to library')
           setSuggestions(d.suggestions?.changes?.length ? d.suggestions : null)
+          onDone?.(d.asset.id)
         },
       })
     }
+  }
+
+  // Schedule from anywhere, including a draft that was never explicitly saved — the Studio "Save it
+  // first" gate meant picking a time on a fresh, unsaved post did nothing visible at all. Now picking
+  // a time saves it (if needed) and schedules it in one step.
+  function scheduleAt(iso) {
+    if (assetId && !dirty) { reschedule.mutate({ assetId, scheduledFor: iso }); return }
+    if (!iso) return // nothing to unschedule on a draft that was never saved/scheduled
+    save((id) => reschedule.mutate({ assetId: id, scheduledFor: iso }))
   }
 
   function applyPolish() {
@@ -250,8 +263,8 @@ export default function StudioPage() {
 
           <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 12 }}>
             <div className="hint" style={{ marginBottom: 6 }}>Schedule</div>
-            {!assetId ? (
-              <div className="hint">Save it first.</div>
+            {!text.trim() ? (
+              <div className="hint">Write something first.</div>
             ) : (
               <>
                 {asset?.scheduledFor && (
@@ -261,15 +274,35 @@ export default function StudioPage() {
                 )}
                 <select
                   className="field"
-                  value={asset?.scheduledFor || ''}
-                  onChange={(e) => reschedule.mutate({ assetId, scheduledFor: e.target.value || null })}
+                  value={asset?.scheduledFor && !dirty ? asset.scheduledFor : ''}
+                  onChange={(e) => scheduleAt(e.target.value || null)}
                 >
-                  <option value="">Not scheduled</option>
-                  {asset?.scheduledFor && !freeSlots.some((s) => s.iso === asset.scheduledFor) && (
+                  <option value="">{assetId ? 'Not scheduled' : 'Pick a time…'}</option>
+                  {asset?.scheduledFor && !dirty && !freeSlots.some((s) => s.iso === asset.scheduledFor) && (
                     <option value={asset.scheduledFor}>{fmtSlot(asset.scheduledFor)} (current)</option>
                   )}
                   {freeSlots.map((s) => <option key={s.iso} value={s.iso}>{fmtSlot(s.iso)}</option>)}
                 </select>
+
+                {/* Free pick — the dropdown above only offers empty top-of-the-hour slots within the
+                    next week; this lets you schedule any exact date/time, any distance out. */}
+                <div className="choice-row" style={{ gap: 6, marginTop: 8 }}>
+                  <input
+                    type="datetime-local"
+                    className="field" style={{ flex: 1 }}
+                    value={customTime}
+                    onChange={(e) => setCustomTime(e.target.value)}
+                  />
+                  <button
+                    className="btn sm"
+                    disabled={!customTime || reschedule.isPending || create.isPending || update.isPending}
+                    onClick={() => { scheduleAt(new Date(customTime).toISOString()); setCustomTime('') }}
+                  >
+                    Set
+                  </button>
+                </div>
+
+                {reschedule.isError && <div className="hint" style={{ color: 'var(--crit)', marginTop: 6 }}>{reschedule.error?.message}</div>}
                 <div className="hint" style={{ marginTop: 6 }}>
                   {platform === 'linkedin'
                     ? 'LinkedIn posts for real at its slot.'

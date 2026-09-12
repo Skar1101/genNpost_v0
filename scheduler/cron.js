@@ -54,8 +54,8 @@ function rescheduleDynamic() {
   registerDynamicJobs()
 }
 
-function initScheduler(broadcast, telegramSend, telegramSendDraft = null, telegramSendArticleIdeas = null, telegramSendHeronDraft = null, telegramSendParrotDraft = null, sendAssetCard = null) {
-  _ctx = { broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft, telegramSendParrotDraft, sendAssetCard }
+function initScheduler(broadcast, telegramSend, telegramSendDraft = null, telegramSendArticleIdeas = null, telegramSendHeronDraft = null, telegramSendParrotDraft = null, sendAssetCard = null, telegramSendPublishRequest = null) {
+  _ctx = { broadcast, telegramSend, telegramSendDraft, telegramSendArticleIdeas, telegramSendHeronDraft, telegramSendParrotDraft, sendAssetCard, telegramSendPublishRequest }
   registerDynamicJobs()
 
   const istHm = String(Math.floor(dailyDrop.istMinutes() / 60)).padStart(2, '0') + ':' + String(dailyDrop.istMinutes() % 60).padStart(2, '0')
@@ -76,8 +76,9 @@ function initScheduler(broadcast, telegramSend, telegramSendDraft = null, telegr
     .catch(() => {})
   // Scheduled library assets whose slot has come due. Rides the SAME tick as the catch-ups rather
   // than adding a job — a 30-minute granularity is right for "post around 1pm", and an asset leaves
-  // 'scheduled' the moment it's delivered, so repeated calls can't double-send.
-  const slots = (why) => slotDelivery.deliverDue({ telegramSend, telegramSendHeronDraft, sendAssetCard })
+  // 'scheduled' the moment it's delivered (or handed off for approval), so repeated calls can't
+  // double-send or double-ask.
+  const slots = (why) => slotDelivery.deliverDue({ telegramSend, telegramSendHeronDraft, sendAssetCard, telegramSendPublishRequest })
     .then(r => { if (r && r.delivered) console.log(`[Scheduler] Delivered ${r.delivered} scheduled asset(s) (${why})${r.failed ? `, ${r.failed} failed` : ''}`) })
     .catch(e => console.warn('[Scheduler] slot delivery failed:', e.message))
 

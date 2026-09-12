@@ -182,7 +182,7 @@ next drop. Ignoring them means the volume goes up and the quality doesn't.
   Quill (pillars + plan + 🔎 Latest search), Writer (articles), Titto (chat + activity), Logs.
 - **Your data:** `state/data/accounts/skar_connect/` — `profile.json`, `approved-drafts.json`,
   `rejected-drafts.json`, `draft-queue.json`, `insights.json`, …
-- **Status / roadmap:** `IMPLEMENTATION.md` · **This guide:** `USE.md`.
+- **Status / roadmap:** `PIVOT_PLAN.txt` · **Engineering history (archived):** `archive/IMPLEMENTATION.md` · **This guide:** `USE.md`.
 
 ---
 

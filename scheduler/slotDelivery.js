@@ -8,7 +8,7 @@ const logger = require('../utils/logger')
 const log = logger.source('slots')
 
 // What happens when a scheduled slot comes due. Platform routing is deliberate and asymmetric,
-// matching the hard stop in IMPLEMENTATION.md:
+// matching the hard stop in PIVOT_PLAN.txt's "HARD RULES" section:
 //
 //   LinkedIn — posts for real. This is the one written exception, already live via Parrot.
 //   X        — Telegram nudge with the finished text, copy-ready, plus a "Posted ✅" button.
@@ -47,7 +47,7 @@ async function deliverAsset({ account, asset, telegramSend, telegramSendHeronDra
       // Media is uploaded and attached now — it used to be dropped entirely, so a LinkedIn post
       // with a picture went out as bare text.
       const { imagePath, videoPath } = mediaPaths(account, asset)
-      const { postUrn, url } = await linkedinClient.postToLinkedIn({ text: assetText(asset), imagePath, videoPath })
+      const { postUrn, url } = await linkedinClient.postToLinkedIn({ text: assetText(asset), imagePath, videoPath, account })
       assetsStore.update(account, asset.id, { state: 'posted', note: 'auto-posted to LinkedIn' })
       activityStore.recordAndBroadcast(null, {
         agent: 'parrot', action: 'post', triggerLabel: '⏰ Slot',
@@ -102,9 +102,17 @@ ${copyReadyText(asset)}${linkLine(asset)}`
 /**
  * Deliver everything whose slot has passed. Called from the existing 30-minute tick in
  * scheduler/cron.js — no new job. Safe to call repeatedly: an asset leaves 'scheduled' as soon as
- * it's delivered, so it can't go out twice.
+ * it's delivered (or handed off for approval), so it can't go out twice or get asked twice.
+ *
+ * LinkedIn is the one platform that can post for real and unattended, so a due LinkedIn asset is
+ * NOT posted straight from here — it's handed to the same Telegram approval gate Studio's manual
+ * "Send" button already uses (telegramSendPublishRequest, see server/routes/api.js's
+ * POST /assets/:id/send and server/routes/telegram.js's sendPublishRequest). Nothing goes out
+ * unattended; the actual post happens later when the Approve tap calls deliverAsset directly.
+ * X/Substack never auto-post regardless, so they keep going straight through deliverAsset's
+ * existing handoff path.
  */
-async function deliverDue({ account = null, telegramSend = null, telegramSendHeronDraft = null, sendAssetCard = null } = {}) {
+async function deliverDue({ account = null, telegramSend = null, telegramSendHeronDraft = null, sendAssetCard = null, telegramSendPublishRequest = null } = {}) {
   const acct = account || memory.accounts.getActiveAccount()
   const due = assetsStore.dueBefore(acct, new Date().toISOString())
   if (!due.length) return { delivered: 0, failed: 0 }
@@ -112,6 +120,21 @@ async function deliverDue({ account = null, telegramSend = null, telegramSendHer
   log.info(`${due.length} scheduled asset(s) due`)
   let delivered = 0, failed = 0
   for (const asset of due) {
+    if (asset.platform === 'linkedin' && telegramSendPublishRequest) {
+      try {
+        await telegramSendPublishRequest({ account: acct, asset })
+        // Out of 'scheduled' so the next tick doesn't ask again; 'ready' matches the state a
+        // reviewed-and-awaiting-publish asset already sits in elsewhere (e.g. Studio).
+        assetsStore.update(acct, asset.id, { state: 'ready', note: 'awaiting Telegram approval to post' })
+        log.info(`LinkedIn slot asset ${asset.id} sent for Telegram approval (not auto-posted)`)
+        delivered++
+        continue
+      } catch (err) {
+        log.error(`LinkedIn slot approval request failed for ${asset.id}: ${err.message}`)
+        failed++
+        continue
+      }
+    }
     const r = await deliverAsset({ account: acct, asset, telegramSend, telegramSendHeronDraft, sendAssetCard })
     if (r.ok) delivered++; else failed++
   }

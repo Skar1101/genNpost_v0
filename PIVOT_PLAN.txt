@@ -1,0 +1,503 @@
+genNpost PIVOT PLAN: FROM PERSONAL TOOL TO PUBLIC PRODUCT
+
+(Product name: genNpost -- exact casing. "Titto" remains the internal orchestrator agent name used
+throughout the codebase -- this is a public branding decision, not a code rename.)
+
+This is now the single source of truth for pivot status. IMPLEMENTATION.md (the old engineering
+changelog covering the app's full build history) has been archived to archive/IMPLEMENTATION.md --
+its pivot-relevant facts are folded in below (see HARD RULES + OUTSTANDING FROM PRE-PIVOT WORK); the
+rest of it is historical engineering detail, kept for reference, not needed to understand where the
+product stands today.
+
+Legend: ✅ done · 🟡 partial · ⬜ not started · ⏭️ skipped by decision (not a gap -- a deliberate call)
+
+
+STATUS SUMMARY (last compiled 2026-09-12 -- see the matching marker on each item below for detail)
+
+✅ DONE
+  - Step 0  -- Telegram approval gate before scheduled LinkedIn posts fire
+  - Step 1  -- Image generation default-on in the calendar/slot-generate flow
+  - Step 4  -- Per-account LinkedIn OAuth (code-level; not yet load-bearing, V0 is single-user)
+  - Settings page rebuilt as tabs + AI-assisted first-run profile bootstrap
+  - Product renamed genNpost across all user-visible text
+  - Public landing page built at /welcome (did not exist before)
+  - Dashboard color theme: green foundation + soft mint canvas tint (replacing purple/flat white)
+  - Landing page + IA overhaul: orange CTA color, restructured /welcome (hero/how-it-works/why-
+    genNpost/FAQ/final CTA), nav restructure (Titto pinned top, Studio + Library promoted, Platforms
+    de-emphasized), Control Center + Schedules merged into one "Scheduler" page
+  - Studio stays the content-generation surface (unchanged, reconfirmed)
+  - Docs consolidated: IMPLEMENTATION.md archived, this file is now the one status tracker
+  - Step 5.5 -- Single Telegram bot consolidation: Titto's bot is now the default for Heron + Parrot
+    too (dedicated bot/chat per agent is opt-in, not required)
+
+🟡 PARTIAL
+  - Step 5 -- Cost entries can carry an account tag + a per-account spend query exists; NOT done:
+    threading `account` through the ~20 existing cost-recording call sites, and no budget cap is
+    actually enforced anywhere yet (tracking exists, enforcement doesn't)
+
+⏭️ SKIPPED BY DECISION (2026-09-12: not building multi-user support in V0)
+  - Step 2   -- Telegram-chat-ID-as-identity / auto-provisioning
+  - Step 3   -- Per-tenant SQLite migration
+
+⬜ NOT STARTED
+  - Step 6 -- Invite-only beta launch
+  - Step 7 -- Post-beta (Stripe billing, real X auto-post, Instagram)
+  - Deploy to a 24/7 server -- DEPLOY.md has a ready Oracle Cloud plan, never executed; today the app
+    only runs while a laptop is on
+  - Heron's manual queue (paste your own already-written Substack post, Heron still preps an image
+    prompt for it) -- designed, not built
+  - Parrot's own auto-run toggle is still OFF by default in the Scheduler -- flip on when ready for
+    the daily LinkedIn drop to run itself
+  - Security decision: if the dashboard is ever accessed from more than this one machine, decide
+    localhost-bind-only vs. token-based auth (API_TOKEN exists and works, just not turned on)
+  - Verification gap: dragging a slot on the Scheduler's calendar grid has not been literally
+    drag-tested since the merge (code was moved unchanged, so risk is low, but it's unverified)
+
+
+HARD RULES (carried forward from the pre-pivot build -- do not relitigate these without a real reason)
+
+  - NEVER automate the X account. No code path may post, reply, comment, like, or retweet on/from X,
+    automatically or otherwise -- draft-only, permanently. This is a hard stop, not a current
+    limitation to eventually lift.
+  - LinkedIn (Parrot) is the ONE confirmed, explicit, written exception to that rule -- real automated
+    posting on Telegram Approve. Scoped to LinkedIn only; X and Substack are unaffected.
+  - Substack (Heron) stays draft-only by deliberate choice, not a technical gap: no official Substack
+    publish API exists, and every "post to Substack" tool that exists is an unofficial,
+    session-cookie-authenticated workaround against Substack's own Terms of Use. No Substack
+    credentials of any kind are stored anywhere in this codebase, and none should be.
+
+
+CONTEXT
+
+The new product goal: a multi-agentic platform for busy professionals, founders, and hustlers with little time for content creation, that:
+  1. Researches trending topics per the user's domain
+  2. Learns the user's context/taste over time
+  3. Generates text+picture content for multiple platforms and schedules it on a calendar
+  4. Is controlled via Telegram
+  5. Auto-posts on allowed platforms
+
+Codebase investigation found the vision is much closer to already-built than a fresh product would be:
+
+  1. Research trending topics per domain
+     STATE: Real. Raven agent (agents/raven.js) does ranked research, writes state/data/research-latest.json.
+
+  2. Learn user taste/context
+     STATE: Real. state/memory.js persists profile.json, voice-examples.json, approved-drafts.json,
+     rejected-drafts.json (with reasons), performance-log.json. memory.loadContext() feeds Koel's prompt
+     (prompts/koelWrite.js:77). Telegram approve/reject actions write back into this memory
+     (server/routes/telegram.js:427,470). This is a genuine feedback loop, not a stub.
+
+  3. Multi-platform text+picture, scheduled on calendar
+     STATE: Mostly real. Koel has per-platform prompt packs for LinkedIn/X/Substack (sub-agents/koel/).
+     Calendar (web/src/components/SlotGrid.jsx + state/scheduleStore.js + state/assetsStore.js) is a
+     genuine drag-drop hourly grid, not a mockup. Image generation (tools/generateImage.js) is wired into
+     the calendar-generate flow but is an opt-in checkbox, not default-on.
+
+  4. Control via Telegram
+     STATE: Real but asymmetric. Draft-queue approve/reject and one-tap "send now" both work.
+     GAP: calendar/slot-scheduled posts are NOT gated by a Telegram approval at fire time --
+     scheduler/slotDelivery.js auto-fires LinkedIn posts unattended when a slot's time arrives, with no
+     final human check.
+
+  5. Auto-post on allowed platforms
+     STATE: Real for LinkedIn only. Real OAuth + REST publish (utils/linkedinClient.js). X and Substack
+     push a ready-to-copy draft to Telegram instead of posting via API (X now charges $0.015-$0.20/post
+     at the API level, which is why this wasn't automated).
+
+So the actual work is NOT "build the vision from scratch" -- it's (a) closing a real safety gap,
+(b) two scoping decisions already made with the user, and (c) turning a working single-user tool into a
+usable multi-user product with minimal new infrastructure.
+
+Decisions made with the user:
+  - X stays manual copy-paste for v0 (no new per-post API cost, no new integration). Market this honestly
+    as "LinkedIn auto-posts, X is one-tap-ready" rather than "auto-post everywhere."
+  - Instagram is deferred to v1 -- Meta Graph API + business account + app review is an external,
+    unpredictable blocker not worth risking the launch date on.
+  - [2026-09-12] V0 will NOT support multiple users/tenants. This retroactively takes Steps 2, 3, and
+    5.5 out of scope (see their markers below) and makes Step 5's enforcement piece moot for now --
+    the app stays single-account, and effort goes into polish/UX (landing page + IA overhaul, see below)
+    instead of multi-tenancy plumbing nobody needs yet.
+
+
+MARKET FIT
+
+Confirmed via research: there is real, active demand for exactly this combination ("clear whitespace
+opportunity for AI agents targeting time-constrained founders," 81% of marketing-tech leaders piloting AI
+agents, tailored per-platform AI content outperforming generic AI content by 2.4x engagement). Existing
+competitors each cover only one slice:
+
+  - Schedulers (Buffer, Postiz): distribute content you already wrote -- no research, no taste-learning.
+  - Ghostwriters (Taplio, Supergrow, Typefully, TweetHunter): single-platform (LinkedIn or X), no deep
+    trending-topic research feeding them, most rely on browser-session automation (ToS/ban risk) rather
+    than official APIs.
+  - Repurposers (Blotato, Repurpose.io): format one input into many platforms -- no ideation/research
+    step, commoditized category.
+  - Brand-voice platforms (Jasper): enterprise-oriented, not chat-first, not built for a solo founder's
+    Telegram workflow.
+  - ClimbX -- the closest direct competitor found: research your niche -> voice-matched drafts ->
+    engagement suggestions -> learns from edits/performance -> schedule. X-only, web-dashboard-first
+    (not chat-first), $29-39/mo. genNpost's multi-platform + Telegram-first angle is real
+    differentiation against it, not just against the broader category.
+  - Mira, Postiz, Hermes Agent -- reviewed for structural/UX inspiration (see LANDING PAGE + IA
+    OVERHAUL below), not direct feature-for-feature competitors.
+
+No player found combines: trending-topic research -> persisted taste-memory -> multi-platform draft
+generation with images -> visual calendar -> chat-based control -> real auto-post, in one product. That
+full stack is what's already built here -- it's a genuine differentiator, not a hypothesis to validate
+from zero.
+
+Risk flags to carry into launch:
+  - Silently auto-firing a real professional's LinkedIn post with no last-second human check is a trust
+    risk for this exact ICP (people protecting real reputations) -- must be fixed before onboarding
+    anyone but the current single user. [FIXED -- see Step 0]
+  - "Understand user taste" is a real, valuable subsystem already -- worth foregrounding in marketing,
+    not just a footnote feature.
+
+
+SUGGESTED CHANGES, STEP BY STEP
+
+✅ Step 0 -- Safety fix (do first, small, isolated)
+  Add a Telegram pre-publish approval gate to scheduler/slotDelivery.js before a slot fires for LinkedIn
+  (currently posts unattended). Reuse the existing approve/reject button pattern from the draft-queue flow
+  (server/routes/telegram.js:450-474) rather than building a new UI. Required before letting anyone but
+  the current user near the calendar's auto-fire path.
+
+✅ Step 1 -- Default-on image generation
+  Flip the "Generate an image too" checkbox in FillSlotModal/calendar-generate flow
+  (server/routes/api.js:630-654) to default-on, matching the vision's "text and picture" baseline. Surface
+  a per-image cost estimate in the UI before generation (reuses existing tools/generateImage.js provider
+  plumbing -- no new integration).
+
+⏭️ Step 2 -- Telegram-chat-ID-as-identity (skip building a login system)
+  SKIPPED BY DECISION (2026-09-12: not building multi-user support in V0, see HARD RULES/CONTEXT above).
+  Extend state/accounts.js (which already has an account-slug concept, currently hardcoded to one
+  default) so a new Telegram chat ID auto-provisions its own account slug and isolated state folder on
+  first contact. This removes the need for a separate auth/login system for v0 entirely.
+
+⏭️ Step 3 -- Per-tenant data isolation
+  SKIPPED BY DECISION (same 2026-09-12 call).
+  Migrate the JSON stores under each account's folder (scheduleStore, assetsStore, memory, costStore,
+  etc.) to one SQLite file per tenant -- a natural extension of the existing per-account-folder layout,
+  not a Postgres rewrite. Gets real transactional safety for concurrent multi-user writes without new
+  infra to manage.
+
+✅ Step 4 -- Per-user LinkedIn OAuth (code-level done; not yet load-bearing, V0 stays single-user)
+  Generalize the existing single-account LinkedIn OAuth flow (utils/linkedinAuth.js,
+  /api/parrot/oauth/start /callback) to store one token per account slug instead of one global token.
+  Required before a second real user can connect their own LinkedIn.
+
+🟡 Step 5 -- Per-user cost guardrails
+  Cost entries can now carry an account tag and state/costStore.totalForAccount() exists to query
+  per-account spend (utils/costTracker.js, state/costStore.js). NOT done: threading `account` through
+  the ~20 existing cost-recording call sites across agent files, and no actual budget cap is enforced
+  anywhere yet -- tracking exists, enforcement doesn't. Moot for now per the single-user V0 decision.
+  Extend config/guardrails.js + state/costStore.js (both already real and working globally) to cap LLM
+  calls and image generations per account per period. Needed because this product's cost stack (research
+  + taste-aware writing + images) is heavier per user than a plain scheduler.
+
+✅ Step 5.5 -- Consolidate to a single Telegram bot identity (2026-09-12)
+  DONE. Titto's bot (TELEGRAM_BOT_TOKEN) is now the one Telegram bot for the user by default -- Heron
+  and Parrot both merge into it unless you deliberately opt into a dedicated bot for either. Heron
+  already had "same-bot mode"; the real gap was Parrot, which had no same-bot path at all and always
+  required its own PARROT_TELEGRAM_BOT_TOKEN (server/routes/parrotTelegram.js). Fixed in
+  server/routes/telegram.js: added a Parrot same-bot sender with its own explicit "Approve & Post to
+  LinkedIn" keyboard (never confusable with a plain draft-queue Approve), and taught the shared 'd|a'
+  callback handler to detect a LinkedIn draft (memory.getDraft(...).platform === 'linkedin') and run
+  the real parrot.postApprovedDraft() publish flow instead of the generic "queue" transition -- on
+  ANY chat, not just a dedicated Parrot one. server/index.js now falls back to telegram.js's Parrot
+  sender the same way it already did for Heron's.
+  Default behavior: leave HERON_TELEGRAM_BOT_TOKEN/HERON_TELEGRAM_CHAT_ID and
+  PARROT_TELEGRAM_BOT_TOKEN/PARROT_TELEGRAM_CHAT_ID all empty -> everything (Titto chat, Heron drafts,
+  Parrot/LinkedIn approvals) flows through ONE bot token and ONE chat. Setting a dedicated
+  *_CHAT_ID still lets you route Heron/Parrot content to a separate chat/channel on the SAME bot
+  (opt-in, not required); setting a dedicated *_BOT_TOKEN still spins up a fully separate bot
+  identity for that agent, for anyone who wants it kept apart. This is routing-only -- Parrot's and
+  Heron's agent logic (topic assignment, Koel calls, LinkedIn publish) is untouched.
+  NOTE: the user's own .env currently still has HERON_TELEGRAM_BOT_TOKEN and PARROT_TELEGRAM_BOT_TOKEN
+  set to real dedicated-bot tokens (all three chat IDs happen to already be the same number). Those
+  explicit tokens take precedence over the new same-bot default, so the merge won't visibly take
+  effect until those two lines are cleared/removed from .env.
+
+
+SUB-AGENT SCOPE FOR V0
+
+  - Koel -- keep, required. The actual per-platform writer (LinkedIn/X/Substack prompt packs);
+    everything else calls into it.
+  - Parrot -- keep, required. Owns the only real auto-publish integration (LinkedIn OAuth +
+    utils/linkedinClient.js) -- this is feature #5 (auto-post).
+  - Quill -- keep the logic, trim the volume. Its daily X topic-assignment -> Koel-drafts pipeline is
+    what makes X's "manual copy-paste" flow (see X decision above) feel like real automation to the user
+    -- drafts are just waiting in Telegram. Cut the default ~24 drafts/day down for v0 to reduce noise
+    and LLM cost; tune volume up later based on real usage.
+  - Heron -- defer, optional. Substack/long-form topic curation + draft-only hand-off. Not in the 4
+    stated v0 features, and since it never auto-posts it carries no safety risk sitting dormant. Revive
+    only if beta users specifically ask for newsletter/thought-leadership content.
+  - Analyst -- out of scope for v0 unless already load-bearing elsewhere; not mentioned in the 4 stated
+    features.
+
+
+OUTSTANDING FROM PRE-PIVOT WORK (pulled from the now-archived IMPLEMENTATION.md)
+
+  ⬜ Deploy to a 24/7 server. DEPLOY.md has a ready, free hosting plan (Oracle Cloud Always-Free ARM VM,
+    pm2, GitHub-push auto-deploy via scripts/update.sh, Telegram polling so no public ports needed,
+    dashboard via SSH tunnel). Never executed against a live VM. Right now the whole app only runs while
+    a laptop is on.
+  ⬜ Heron's manual queue -- paste your own already-written Substack post, Heron still preps an image
+    prompt for it. Designed, never built (deferred twice during the pre-pivot build).
+  ⬜ Parrot's own auto-run toggle is still OFF by default in the Scheduler's schedule-settings panel --
+    flip on when ready for LinkedIn's daily drop to run itself; posting still requires the LinkedIn
+    connection regardless.
+  ⬜ Security decision if the dashboard is ever used from more than this one machine: localhost-bind
+    stays the default; API_TOKEN (shared-secret gate on /api/*) already exists and works, just isn't
+    turned on. Decide before opening access beyond one trusted machine.
+  ⬜ (Optional) Reddit OAuth credentials (REDDIT_CLIENT_ID + REDDIT_SECRET) for full metadata -- the
+    public RSS fallback already works without them.
+  🟡 (Ongoing) Paste weekly top/bottom tweet stats via /perf so the performance-learning loop has real
+    engagement numbers to work from -- works without it, sharper with it.
+
+
+STUDIO & LANDING PAGE DECISIONS [SUPERSEDED 2026-09-12 -- see "LANDING PAGE + IA OVERHAUL" below]
+
+  - ✅ Studio stays the content-generation surface, still true -- Koel writes there, image
+    generation (tools/generateImage.js via MediaRail.jsx) is already wired into it.
+  - SUPERSEDED: "Landing page stays Control Center" -- this was about the in-app dashboard home screen,
+    before a real public /welcome marketing page existed. A dedicated public landing page was since built
+    (genNpost branding, hero, flow graphic, feature cards) and is now getting a further overhaul -- see
+    below. Studio is also being promoted to a more prominent nav position, superseding "no simplification
+    needed."
+
+
+BRANDING & VISUAL DESIGN ✅ (applied to web/src/styles/globals.css as CSS variables, verified live via
+screenshot. Revised 2026-09-12: see "LANDING PAGE + IA OVERHAUL" below for the added orange CTA color --
+green stays the foundation, buttons/CTAs now use a distinct orange instead of green.)
+
+Color theme locked in (sourced from a reference SaaS landing page the user shared), to be used
+consistently across the landing page, Studio, and the Scheduler:
+
+  Primary brand       Emerald/mint green (~#3AA876)
+                       Logo, nav active states, checkmarks/progress, canvas tint
+
+  Light surface        Pale mint-white (~#EAF6F0)
+                       Hero/card backgrounds, gradients into white
+
+  Base background      White (#FFFFFF)
+                       Cards, section backgrounds
+
+  Headline text         Near-black (~#15181E)
+                       Headings
+
+  Body text            Mid gray (~#6B7280)
+                       Descriptions, secondary copy
+
+  CTA/buttons          Orange (~#EF7D1A) -- added 2026-09-12, see below
+                       Every .btn.primary, app-wide and on the landing page
+
+  Accent (decorative)  Amber (~#F5B84C), purple (~#6C5CE7), coral (~#F2876B)
+                       Small badges/icons only -- never in primary UI chrome or buttons
+
+  Dark accent          Navy (~#1F2A44)
+                       Occasional dark card/illustration element
+
+Discipline: one primary green for nav/badges/canvas/checkmarks; one orange for every CTA/button; white/
+pale-mint for surfaces; near-black/gray for text; the three decorative accents stay in icons/badges only.
+
+⬜ Step 6 -- Invite-only beta launch
+  Ship to 5-10 users from a narrow ICP (solo B2B founders/consultants) using the stack as it stands:
+  LinkedIn real auto-post (now approval-gated), X/Substack one-tap-ready drafts, calendar, taste-memory,
+  Telegram control. No billing yet, no Instagram yet -- the pitch is the already-built
+  research->taste->multi-platform->calendar->chat-control loop.
+
+⬜ Step 7 -- Post-beta (scope by demand signal, not upfront)
+  Add Stripe billing once there's paying intent. Revisit real X API auto-posting only if users are
+  willing to absorb/pay the per-post cost. Build Instagram only if beta users specifically ask for it.
+
+
+VERIFICATION
+
+  - Step 0: manually schedule a test LinkedIn post via the calendar, confirm it now waits for a Telegram
+    approval tap before firing (instead of posting unattended at slot time).
+  - Step 1-2: generate a slot with the default-on image flag, confirm image + text both land in the slot;
+    message the bot from a second Telegram account and confirm it gets its own isolated account/state
+    rather than touching the existing user's data.
+  - Step 3: run concurrent writes from two tenant accounts and confirm no cross-contamination or
+    file-lock errors (compare against current JSON-file behavior).
+  - Step 4: connect a second LinkedIn account end-to-end and confirm the first account's token/posts are
+    unaffected.
+  - Step 5: exceed a test account's LLM/image cap and confirm it's blocked with a clear message, not a
+    silent failure.
+  - Step 6: run the full research -> generate -> schedule -> approve -> publish loop end-to-end for at
+    least one beta user outside the original account before calling the beta live.
+
+
+ADDITIONAL WORK DONE, NOT IN THE ORIGINAL STEP LIST ✅
+
+  - Settings page rebuilt as tabs (Profile & Voice / Content Pillars / Platforms / Expenses), replacing
+    one long unbroken scroll of ~40+ fields. web/src/pages/SettingsPage.jsx.
+  - AI-assisted first-run profile bootstrap: infers voice + 3 niche-fit starter pillars from a niche
+    description + optional pasted sample posts (one LLM call), instead of a blank manual form.
+    agents/bootstrap.js, prompts/bootstrapProfile.js, POST /api/profile/bootstrap.
+  - Product renamed genNpost (exact casing) across all user-visible text (page title, sidebar, nav
+    fallback, Parrot page copy). "Titto" stays the internal agent name.
+  - Public landing page built at /welcome (did not exist before) -- hero, flow graphic, feature cards.
+    Does not replace "/", which still loads the existing dashboard.
+  - Dashboard color theme: green (~#3AA876) applied as the accent everywhere (nav, buttons, badges) in
+    place of the prior purple, plus a soft mint canvas tint behind the whole app instead of flat white.
+  - Docs consolidated: IMPLEMENTATION.md (old engineering changelog) archived to
+    archive/IMPLEMENTATION.md; this file is now the single status tracker for the product.
+
+
+LANDING PAGE + IA OVERHAUL ✅ (2026-09-12 -- implemented and verified via screenshots: landing page
+sections, orange CTA color, reordered nav, and the merged Scheduler page (grid + expandable schedule
+settings, confirmed working by clicking "Show auto-run times" and seeing all toggles/slots render))
+
+Context: preparing for a "fantastic looking, smooth user flow, production grade" pass, informed by
+reviewing close competitors (ClimbX especially -- see MARKET FIT above; also Mira, Postiz, Hermes
+Agent). Borrowing proven structure, not content -- no fabricated testimonials/metrics/pricing, since
+genNpost has none of those yet.
+
+Decisions:
+  - Orange CTA color added: new --cta token (~#EF7D1A, white ink), used ONLY for .btn.primary
+    (buttons/CTAs). Green (--accent) stays the foundation for everything else (nav, badges, canvas,
+    checkmarks) -- unchanged.
+  - Landing page (/welcome) restructured: header -> hero (headline + flow graphic) -> "how it works" ->
+    "why genNpost" (honest differentiation, not fake testimonials) -> FAQ -> repeated final CTA -> footer.
+    Pricing, if shown, says "Free while in beta" -- no invented numbers.
+  - Nav restructure (web/src/lib/nav.js, web/src/App.jsx): Titto moves to the top-pinned nav slot
+    (was Control Center) -- reflects Titto as the main user-facing chat agent, on Telegram AND the web
+    app (TittoPage.jsx + the floating TittoDock already provide this). Studio and Library promoted to
+    the top group. Quill/Parrot/Heron/Article Writer/Analyst stay in nav (backend unchanged) but
+    reordered lower under a de-emphasized "Platforms" group -- kept per explicit decision, not removed.
+  - Control Center + the standalone Schedules (cron on/off toggles) page merge into ONE page named
+    "Scheduler" -- the SlotGrid weekly drag-drop view plus the schedule on/off/time settings together,
+    no separate route for the toggles anymore. Old /system/schedules redirects rather than 404s.
+
+
+INTERNAL DASHBOARD VISUAL REDESIGN ✅ (2026-09-12 -- landing page got a bold redesign; user then asked
+for the same professional treatment across the internal app. Mocked up 3 "restrained professional
+polish" directions -- deliberately calmer than the landing page, since these are pages used daily for
+real work, not viewed once -- against the Scheduler page as testbed. User picked "Structured & tinted":
+small color-coded icon badges on section headers, a soft green-tinted Titto panel, a solid (not just
+tinted) active nav state.)
+
+Implemented at the shared CSS level (web/src/styles/globals.css) so it cascades to every page
+automatically, not just Scheduler: sidebar gets a soft two-stop tint gradient, the brand mark and the
+active nav item switch from a light tint to a solid green fill with a soft shadow, the nav count badge
+switched from green to orange (matches the CTA/action color), and the Titto summary panel's gradient
+was refined. A new opt-in `.section-head.with-icon` + `.section-icon` pattern was added for small
+colored icon tiles before a section title, applied to the Scheduler page's three section headers
+(This week / Schedule settings / Team) since that's where it was mocked. Studio, Settings, Queue, and
+Library don't use the section-head pattern (different structures -- panels, tabs, lists) so they
+didn't need page-specific changes; verified via screenshots that the shared sidebar/nav/badge/card
+treatment already made them look consistent automatically.
+
+Verified: screenshots of Scheduler (collapsed + expanded schedule-settings panel), Studio, Settings,
+Queue, and Library all show the same sidebar, active-nav, and button styling; the expanded schedule
+settings panel still renders all its toggles/times correctly post-restyle (no functional regression).
+
+Verification for this section specifically: rebuild web, boot on a free port, screenshot /welcome (new
+sections + orange buttons) and / (merged Scheduler -- grid AND toggles both present and working), confirm
+reordered sidebar (Titto pinned top, Studio + Library above Scheduler, de-emphasized group lower),
+confirm old /system/schedules redirects (verified live via headless browser, does not 404).
+
+
+LANDING PAGE VISUAL REDESIGN ✅ (2026-09-12 -- the first /welcome build above was later judged "bland";
+redesigned against a real ClimbX screenshot the user shared, via a 3-direction design-canvas mockup the
+user picked from, then implemented into web/src/pages/LandingPage.jsx and verified live via screenshots)
+
+What changed from the first /welcome build: full-bleed gradient-glow hero (soft green/orange radial
+blobs) split into headline + a Telegram chat/draft-preview mockup card (shows a real Titto message +
+LinkedIn draft with Approve/Edit, not generic art); "How it works" steps now use solid orange numbered
+circle badges; "Why genNpost" cards gained decorative icon tiles in the palette's documented accent
+colors (purple/amber/coral, icons only); the final CTA band changed from a soft pale-green band to a
+high-contrast near-black band with a warm orange radial glow and bold white text. Copy is unchanged --
+same honest facts as before, only the visual treatment changed. Two other directions (minimal-centered,
+diagonal color-block hero) were mocked up and not chosen; not carried into the codebase.
+
+LANDING PAGE COPY UPDATE ✅ (2026-09-12 -- "it's a social media manager, don't limit any platform, and
+it's not just for founders" + "add that it's a multi-agent system working in parallel")
+
+web/src/pages/LandingPage.jsx: removed language that read as a hard 3-platform ceiling -- hero subhead,
+the "Multi-platform from one idea" card, and the "Drafts for every platform" step now speak to "every
+platform you show up on" / "everywhere you post" instead of enumerating LinkedIn/X/Substack as the whole
+list (the FAQ's specific, accurate platform breakdown -- LinkedIn auto-posts, X/Substack are copy-ready
+drafts -- stays intact for honesty, just reframed as "today, with more on the way" instead of a cap).
+Hero eyebrow pill changed from "Built for founders..." to "Built for anyone who doesn't have time to
+create and manage content" -- broadens the stated audience past founders specifically. Added a 4th "Why
+genNpost" card, "A team of agents, working in parallel," describing the real multi-agent architecture
+(research, voice-matching, and per-platform drafting as separate concurrent agents, not one model
+working platforms sequentially). Verified: clean build (npm run build:web) + live screenshots of the
+hero and the 4-card "Why" grid against the running server.
+
+
+STUDIO BUG FIX -- scheduling didn't work from an unsaved draft ✅ (2026-09-12)
+
+Reported as "why am I not able to add to calendar in Studio". Reproduced live (headless browser against
+the running dev server, http://127.0.0.1:3010/studio): write a new post and, before clicking "Save to
+library", the whole Schedule panel just said "Save it first." with no date/time control at all -- so
+picking a time on a fresh draft was never possible, which reads exactly like "can't add to calendar."
+Saved drafts scheduled fine via the API and the existing slot dropdown (verified directly against
+POST/PUT /api/schedule) -- the gap was specifically the unsaved-draft path.
+
+Fix in web/src/pages/StudioPage.jsx:
+  - save() now takes an optional onDone(id) callback, called after a successful create OR update.
+  - New scheduleAt(iso): if the asset is already saved and clean, reschedule directly; otherwise it
+    saves first (create or update, whichever applies) and schedules the result in the same action --
+    so picking a time on a brand-new, never-saved post now saves it and schedules it in one step.
+  - Schedule panel now renders as soon as there's text (gate changed from "Save it first" / !assetId to
+    "Write something first" / !text.trim()), and shows reschedule errors inline instead of failing silently.
+  - Added a free-pick datetime-local input + "Set" button next to the existing slot dropdown, per the
+    ask to "give any time" -- the dropdown only ever offered empty top-of-the-hour slots within the next
+    7 days; the backend (PUT /api/schedule/:assetId) already accepted any ISO instant, so this just
+    exposes that in the UI.
+
+Verified live: built web (npm run build:web), then drove Studio in a headless browser end-to-end --
+typed a brand-new post, picked a slot from the dropdown WITHOUT saving first, confirmed network calls
+were POST /api/assets (auto-save) immediately followed by PUT /api/schedule/:id (200 on both), and the
+panel updated to "Scheduled for ..." in green with the dropdown showing the picked time as current and
+the new custom date/time input beneath it. Test asset deleted afterward (DELETE /api/assets/:id) so no
+stray draft was left in the library.
+
+
+TELEGRAM: PHOTO-GROUNDED GENERATION + CHANGE-TIME FROM CHAT ✅ (2026-09-12)
+
+Reported: sending Titto a photo with an instruction caption ("write a x post for morning motivation
+based on this picture") just saved the photo+caption straight to the library instead of generating
+anything; and there was no way to change a scheduled post's time from Telegram at all.
+
+1. Photo + instruction now generates instead of just saving.
+   Root cause: server/routes/telegram.js's `bot.on('message')` treated EVERY photo as "finished
+   content, file it as-is" -- it never reached Titto's intent parser, and even if it had, nothing in
+   the codebase could actually look at an image (no vision-model call existed anywhere).
+   Fix: added utils/vision.js (describeImage() -- one gpt-4o-mini vision call via the existing
+   utils/llm.js pipeline, so it's cost-tracked and guarded like every other LLM call). telegram.js now
+   downloads the photo once and, when there's a caption, runs it through titto.handleMessage() WITH
+   the image attached; agents/titto.js's write_post and write_linkedin_post branches describe the
+   photo and fold that description into extraInstructions before calling Koel/Parrot, so the resulting
+   draft is actually grounded in what's in the picture. handleMessage() returns `imageUsed: true` when
+   this happened; telegram.js only falls back to the old save-to-library behavior when it's false
+   (plain captions, questions, chit-chat -- unchanged from before).
+   Found and fixed a real bug while testing this: the intent classifier read "based on this picture"
+   as a request to GENERATE an image (wrong branch) because it had no idea a photo was attached --
+   fixed by appending an explicit "(a photo is attached...)" hint to the text sent to the classifier
+   whenever an image is present.
+   Verified live with real API calls (not mocked): fed a real photo to utils/vision.describeImage()
+   directly (got back an accurate, specific description), then ran the full
+   titto.handleMessage({ text: '...based on this picture', image }) path end-to-end -- confirmed
+   intent=write_post, imageUsed=true, and Koel produced 3 real drafts that genuinely referenced the
+   photo's actual content, delivered via the same telegramSendDraft callback Telegram uses. Test
+   drafts + test conversation session removed from real app state afterward.
+
+2. Change a scheduled post's time from Telegram.
+   Added a "🕐 Change time" button to the asset-delivery card (telegramCore.js's assetKeyboard(),
+   alongside the existing Posted/Snooze buttons -- this is the card Telegram already sends when a
+   scheduled slot fires). Tapping it asks for a new time; the next plain message is parsed with
+   chrono-node (added as a new dependency) so "tomorrow 9am", "friday 6pm", "in 2 hours", or an
+   explicit "2026-09-20 14:00" all work, not just a bare HH:mm -- then calls the same
+   assetsStore.setSchedule() the Studio date picker uses (see the Studio fix above), so it's the exact
+   same reschedule path, just reachable from chat instead of only the dashboard.
+   Verified chrono-node's parsing directly against the app's real IST-based scheduling assumptions
+   (confirmed the dev machine's system timezone actually is IST, so no offset math needed) --
+   "tomorrow 9am", "friday 6pm", and an explicit date all resolved to the correct UTC instant.
+
+Both features require restarting the running server (`npm start`) to take effect -- code changes to an
+already-running Node process don't apply until it restarts, same as the earlier Telegram bot-token merge.
