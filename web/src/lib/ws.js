@@ -1,6 +1,7 @@
 // WebSocket singleton — connects once, dispatches typed events to subscribers.
 // Mirrors the event contract in public/index.html's connectWS()/onWSEvent().
 import { useEffect, useState } from 'react'
+import { getToken } from './api.js'
 
 let socket = null
 let status = 'offline' // offline | connecting | live
@@ -21,7 +22,12 @@ function connect() {
   if (socket) return
   setStatus('connecting')
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  socket = new WebSocket(`${proto}//${location.host}`)
+  // The WS channel broadcasts live draft/chat content — carries the same token the REST API uses
+  // (server/websocket.js checks it the same way server/index.js's /api middleware does), so it isn't
+  // wide open to anyone who can merely reach the port once an API_TOKEN is set.
+  const token = getToken()
+  const qs = token ? `?token=${encodeURIComponent(token)}` : ''
+  socket = new WebSocket(`${proto}//${location.host}${qs}`)
   socket.onopen = () => setStatus('live')
   socket.onclose = () => {
     setStatus('offline')

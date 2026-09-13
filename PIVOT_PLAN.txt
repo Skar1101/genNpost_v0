@@ -501,3 +501,113 @@ anything; and there was no way to change a scheduled post's time from Telegram a
 
 Both features require restarting the running server (`npm start`) to take effect -- code changes to an
 already-running Node process don't apply until it restarts, same as the earlier Telegram bot-token merge.
+
+
+SLOTDELIVERY BUG FIX + QUEUE -> HISTORY (WITH CALENDAR BRIDGE) ✅ (2026-09-12)
+
+Found while doing a "does everything work" pass: scheduler/slotDelivery.js called two functions,
+mediaPaths() and linkLine(), that were never defined ANYWHERE in the codebase -- meaning every
+scheduled LinkedIn auto-post AND every scheduled X/Substack Telegram handoff was silently failing
+(confirmed live in server.log: "slot delivery failed: linkLine is not defined"). Fixed both -- added a
+real mediaPaths() (mirrors the image/video lookup server/routes/telegram.js's sendAssetCard already
+does) and removed the dead linkLine() reference (the surrounding comment already said no link line
+belongs there any more). Also removed now-fully-unused imageLine()/PUBLIC_URL. Verified the image-path
+resolution against a real existing asset (no post triggered).
+
+Separately, answering "where do accepted/rejected Telegram drafts live" surfaced a real architecture
+gap: the draft-lifecycle queue (what Telegram Approve/Reject writes to) and the calendar (assetsStore,
+what the Scheduler page reads from) are two disconnected systems -- approving a draft in Telegram never
+put it on the calendar, and the web Queue page only ever showed unrated drafts; once decided, a draft
+had nowhere to be seen again except by scrolling Telegram history or reading the raw JSON file. Fixed:
+
+  - web/src/pages/Queue.jsx split into two tabs: "Queue" (unrated drafts, unchanged) and "Accepted &
+    Rejected" (fetches every state via the already-supported `GET /api/queue` with no filter, splits
+    client-side). Nav item renamed Queue -> History (web/src/lib/nav.js), page title/crumb updated to
+    match.
+  - web/src/components/DraftCard.jsx had a real bug for this reuse: it always initialized its local
+    view-state to "pending" regardless of the draft's actual saved state, which would have shown
+    Approve/Reject buttons again on an already-decided draft. Fixed to derive from draft.state. Also
+    now shows the actual reject reason inline for rejected drafts.
+  - Added the actual calendar bridge: an "Add to calendar" button on any accepted draft opens a
+    date/time picker, creates a real assetsStore asset from the draft's text (reusing the same
+    POST /api/assets + PUT /api/schedule/:id calls Studio's Set button uses), and lands on the
+    Scheduler page with that slot highlighted -- same flow, same code path, as Studio's Set button.
+  - Bonus fix while in nav.js/Sidebar.jsx: the History/Queue nav badge was a hardcoded literal (12),
+    never wired to the real unrated-draft count. Sidebar.jsx now fetches the real count and shows it.
+
+Verified live end-to-end against the running server with real data (462 generated / 24 queued / 8
+posted / 3 rejected at the time): both tabs render correctly with real drafts, rejected reasons show
+inline, and a full Add-to-calendar run (click -> pick a date 9 days out -> Set) produced a real
+POST /api/assets followed by a real PUT /api/schedule/:id, landed on the Scheduler page on the correct
+week with the new slot highlighted. Test asset deleted afterward.
+
+
+PRESENTATION SAFETY HARDENING ✅ (2026-09-13 -- before sharing a link so others can try the app)
+
+Three real gaps closed, all verified live (not just code review):
+
+1. LinkedIn posting kill-switch. New LINKEDIN_POSTING_DISABLED=true (.env) checked at the very top of
+   utils/linkedinClient.js:postToLinkedIn() -- the ONE function every real-post path in the app calls
+   (Telegram approve, the web Queue/History approve route, and the scheduled slot auto-post), so this
+   is a single, unbypassable choke point. Verified: a direct call throws "LinkedIn posting is
+   temporarily disabled" immediately, before even checking LinkedIn auth.
+
+2. Budget guard actually wired in. config/guardrails.js's MAX_DAILY_SPEND_USD existed before today but
+   was never checked anywhere (confirmed earlier this session). New utils/budgetGuard.js sums spend
+   over a rolling 24h window (global, not per-account -- most cost entries aren't account-tagged yet,
+   so a per-account cap would undercount) and throws once the cap is met; wired into utils/llm.js's
+   complete()/stream() (covers every text call -- koel, titto, vision, quill, heron, article writer,
+   all route through here) and tools/generateImage.js's generateFromPrompt() (covers image gen).
+   Verified both the pass-through case and the actually-blocks case (temporarily lowered the cap below
+   current spend and confirmed it throws with a clear message).
+
+3. API auth actually required, and extended to cover a real gap in it. Set a real API_TOKEN (.env) --
+   server/index.js's existing token middleware was already there but inert while unset. Also found and
+   fixed: that middleware only ever covered /api/* -- the WebSocket channel (server/websocket.js) had
+   NO auth at all, meaning anyone who could reach the port could see every live broadcast (draft text
+   as it's generated, chat replies, activity) regardless of the API token. Added the same token check
+   to the WS upgrade handshake (verifyClient). Frontend: lib/api.js already had unused token-storage
+   code; web/src/main.jsx now picks up ?token=... from a shared link and stores it BEFORE importing
+   App.jsx (deliberately dynamic import, not static -- lib/tittoDockStore.js opens its own WS
+   subscription at module-load time as a documented singleton pattern, which would otherwise connect
+   with no token before the bootstrap code ran, since ES module imports always evaluate before the
+   importing file's own statements). lib/ws.js now sends the stored token as a query param.
+   Verified with curl (no token -> 401, wrong token -> 401, correct token via header or query param ->
+   200) and a raw `ws` client (no/wrong token -> HTTP 401 on upgrade, correct token -> connects) and a
+   live headless-browser load via a `?token=...` link end to end (token stored, URL cleaned, single WS
+   connection, correctly authenticated on the first attempt, zero console errors).
+
+Share the app as `http://<host>:<port>/?token=<the API_TOKEN value>` -- no header configuration needed
+on the visitor's end. Reminder: this hardens against a stranger with the link; it does not add
+per-user accounts or data isolation (still one shared profile/LinkedIn/cost-ledger -- see the earlier
+"can I share this" conversation). Revert LINKEDIN_POSTING_DISABLED to false once the presentation is
+over and real posting is wanted again.
+
+
+STUDIO: GENERATE POST TEXT FROM AN UPLOADED PHOTO ✅ (2026-09-13)
+
+Telegram already had photo-grounded generation (send Titto a photo + instruction, it writes from what
+the photo actually shows -- see the earlier vision-grounding work). Studio's Media panel only ever
+worked the OTHER direction (text you already wrote -> a matching image). Added the missing direction:
+
+  - New POST /api/assets/generate-from-image (server/routes/api.js, right after the existing
+    /assets/generate) -- takes { imageId, platform, brief? }, loads the already-uploaded/generated
+    image via the existing imagesStore, runs the same utils/vision.js describeImage() call Telegram
+    uses, folds the description into koel.write()'s extraInstructions exactly like
+    agents/titto.js's write_post branch does, and hands back text -- same "nothing saved yet" contract
+    as /assets/generate. Automatically inherits the budget guard (vision + writing both go through
+    utils/llm.js, already gated).
+  - web/src/lib/queries.js: useGenerateTextFromImage() hook, same shape as useGenerateAssetText().
+  - web/src/components/MediaRail.jsx: a "✨ Write post from this photo" button appears once an image
+    is attached (uploaded, generated, or picked from the gallery) alongside the existing Generate/
+    Upload/Gallery row. web/src/pages/StudioPage.jsx wires its result into the same setText() path the
+    brief-based Generate button uses.
+
+Verified live end-to-end against the running server (not just code review): uploaded a real photo via
+the actual API, called the new endpoint directly and confirmed the returned text was genuinely grounded
+in the photo's real content (not generic), then repeated the full flow through the actual Studio UI in
+a headless browser -- picked an image from the gallery, clicked the new button, watched real grounded
+text land in the composer with zero console errors, matching preview render. Also reconfirmed live
+through the public presentation tunnel. Test image cleaned up afterward; two other images found in the
+store during cleanup were left alone -- their timestamps show they're the user's own real activity
+testing the existing Generate feature, not test artifacts.

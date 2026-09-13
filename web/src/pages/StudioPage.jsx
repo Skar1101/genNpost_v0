@@ -5,6 +5,7 @@ import PostPreview from '../components/PostPreview.jsx'
 import {
   useAssets, useCreateAsset, useUpdateAsset, usePreviewAsset, useGenerateAssetText,
   useSendAsset, useSchedule, useReschedule, useImages, useRevertAsset, useAdaptAsset, useProfile,
+  useGenerateTextFromImage,
 } from '../lib/queries.js'
 
 const PLATFORMS = [
@@ -36,6 +37,7 @@ export default function StudioPage() {
   const update = useUpdateAsset()
   const preview = usePreviewAsset()
   const genText = useGenerateAssetText()
+  const genTextFromImage = useGenerateTextFromImage()
   const send = useSendAsset()
   const reschedule = useReschedule()
   const revert = useRevertAsset()
@@ -123,10 +125,15 @@ export default function StudioPage() {
   // Schedule from anywhere, including a draft that was never explicitly saved — the Studio "Save it
   // first" gate meant picking a time on a fresh, unsaved post did nothing visible at all. Now picking
   // a time saves it (if needed) and schedules it in one step.
-  function scheduleAt(iso) {
-    if (assetId && !dirty) { reschedule.mutate({ assetId, scheduledFor: iso }); return }
+  // `onScheduled(iso)` fires only once the reschedule actually succeeds — used by the "Set" button
+  // below to jump to the Scheduler page and show the post really landed there, not just trust it did.
+  function scheduleAt(iso, { onScheduled } = {}) {
+    if (assetId && !dirty) {
+      reschedule.mutate({ assetId, scheduledFor: iso }, { onSuccess: () => iso && onScheduled?.(iso) })
+      return
+    }
     if (!iso) return // nothing to unschedule on a draft that was never saved/scheduled
-    save((id) => reschedule.mutate({ assetId: id, scheduledFor: iso }))
+    save((id) => reschedule.mutate({ assetId: id, scheduledFor: iso }, { onSuccess: () => onScheduled?.(iso) }))
   }
 
   function applyPolish() {
@@ -140,6 +147,14 @@ export default function StudioPage() {
   function generate() {
     genText.mutate({ brief, platform }, {
       onSuccess: (d) => { setText(d.text || ''); setDirty(true); setBrief(''); setNote('Generated — edit freely') },
+    })
+  }
+
+  // The reverse of MediaRail's "Generate" (text -> image): grounds a draft in a photo already
+  // attached, via the same vision pipeline Telegram's photo-grounded generation uses.
+  function generateFromImage(imageId) {
+    genTextFromImage.mutate({ imageId, platform }, {
+      onSuccess: (d) => { setText(d.text || ''); setDirty(true); setNote('Generated from photo — edit freely') },
     })
   }
 
@@ -217,6 +232,8 @@ export default function StudioPage() {
         <MediaRail
           platform={platform} text={text} image={image} video={video} link={link}
           onChange={(m) => edit(() => { setImage(m.image); setVideo(m.video); setLink(m.link) })}
+          onGenerateFromImage={generateFromImage}
+          generatingFromImage={genTextFromImage.isPending}
         />
 
         </div>
@@ -296,7 +313,11 @@ export default function StudioPage() {
                   <button
                     className="btn sm"
                     disabled={!customTime || reschedule.isPending || create.isPending || update.isPending}
-                    onClick={() => { scheduleAt(new Date(customTime).toISOString()); setCustomTime('') }}
+                    onClick={() => {
+                      const iso = new Date(customTime).toISOString()
+                      scheduleAt(iso, { onScheduled: () => navigate('/', { state: { highlightIso: iso } }) })
+                      setCustomTime('')
+                    }}
                   >
                     Set
                   </button>

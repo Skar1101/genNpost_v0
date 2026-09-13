@@ -64,7 +64,7 @@ function CTAButtons({ navigate, size = '', dark = false }) {
       <button
         className="btn primary"
         style={{ ...pad, boxShadow: '0 10px 24px rgba(239,125,26,0.35)' }}
-        onClick={() => navigate('/')}
+        onClick={() => navigate('/agent/titto')}
       >
         Start free
       </button>
@@ -170,7 +170,7 @@ export default function LandingPage() {
               your Telegram-based chief of staff.
             </p>
             <CTAButtons navigate={navigate} size="lg" />
-            <p className="hint" style={{ marginTop: 14 }}>No account system yet — both buttons take you straight into the dashboard.</p>
+            <p className="hint" style={{ marginTop: 14 }}>No account system yet — Start free opens a chat with Titto, Log in goes straight to the dashboard.</p>
           </div>
 
           <ProductPreview />

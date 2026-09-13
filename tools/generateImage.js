@@ -4,6 +4,7 @@ const imagesStore = require('../state/imagesStore')
 const models = require('../config/models')
 const { composePrompt, subjectFromPost } = require('../prompts/imagePrompt')
 const costTracker = require('../utils/costTracker')
+const budgetGuard = require('../utils/budgetGuard')
 const memory = require('../state/memory')
 const activityStore = require('../state/activityStore')
 const logger = require('../utils/logger')
@@ -24,6 +25,7 @@ const log = logger.source('image')
  */
 async function generateFromPrompt({ subject, raw = false, platform = 'x', modelId = null, account = null, sourceText = '', broadcast = null, triggerLabel = '🖼 Image' } = {}) {
   if (!subject?.trim()) throw new Error('generateImage needs a subject or prompt')
+  budgetGuard.assertBudget()
   const acct = account || memory.accounts.getActiveAccount()
   const prompt = raw ? subject.trim() : composePrompt(subject.trim())
 

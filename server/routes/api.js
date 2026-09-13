@@ -1,3 +1,4 @@
+const fs = require('fs')
 const express = require('express')
 const router = express.Router()
 const titto = require('../../agents/titto')
@@ -30,6 +31,7 @@ const keywordsStore = require('../../state/keywordsStore')
 const keywordSearch = require('../../tools/keywordSearch')
 const strategyStore = require('../../state/strategyStore')
 const imagesStore = require('../../state/imagesStore')
+const vision = require('../../utils/vision')
 const imageClient = require('../../utils/imageClient')
 const generateImage = require('../../tools/generateImage')
 const assetsStore = require('../../state/assetsStore')
@@ -809,6 +811,39 @@ router.post('/assets/generate', async (req, res) => {
     res.json({ ok: true, text, ...finishDraft.finish({ text, platform }) })
   } catch (err) {
     logger.source('api').error('studio generate failed', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/assets/generate-from-image  body: { imageId, platform, brief? }
+// The Studio counterpart to Telegram's photo-grounded generation (agents/titto.js's write_post/
+// write_linkedin_post branches): describe an already-uploaded image with the same vision call, fold
+// that into the writer's instructions, and hand back text — nothing saved or scheduled, same contract
+// as /assets/generate above. `brief` is optional extra direction ("morning motivation", a specific
+// angle); when omitted the draft is grounded in the photo alone.
+router.post('/assets/generate-from-image', async (req, res) => {
+  try {
+    const { imageId, platform = 'x', brief = '' } = req.body || {}
+    if (!imageId) return res.status(400).json({ error: 'imageId is required' })
+    const account = memory.accounts.getActiveAccount()
+    const img = imagesStore.get(account, imageId)
+    const imgPath = img && imagesStore.pathFor(account, imageId)
+    if (!imgPath) return res.status(404).json({ error: 'image not found' })
+
+    const buffer = fs.readFileSync(imgPath)
+    const description = await vision.describeImage({ buffer, contentType: img.contentType, instruction: brief })
+
+    const format = platform === 'linkedin' ? 'linkedin' : platform === 'substack' ? 'heronMid' : 'punch'
+    const written = await koel.write({
+      format, input: brief.trim() || 'the attached photo', inputType: 'freetext', count: 1,
+      extraInstructions: `What the attached photo actually shows: ${description}`,
+      account, broadcast: null, register: false, origin: 'quill',
+      triggerLabel: '🎬 Studio (photo)',
+    })
+    const text = written.drafts[0] || ''
+    res.json({ ok: true, text, description, ...finishDraft.finish({ text, platform }) })
+  } catch (err) {
+    logger.source('api').error('studio generate-from-image failed', err)
     res.status(500).json({ error: err.message })
   }
 })

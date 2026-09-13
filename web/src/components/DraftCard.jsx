@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useTransition } from '../lib/queries.js'
+import { useTransition, useCreateAsset, useReschedule } from '../lib/queries.js'
 
 const CheckIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M5 12l5 5L20 6" /></svg>
@@ -34,13 +34,27 @@ function describeOrigin(draft) {
   return 'Koel · direct'
 }
 
+// The persisted draft.state this card was loaded with, collapsed to what the UI actually
+// distinguishes: still-undecided ('pending'), or one of the three resolved outcomes below.
+// 'edited' reads as 'queued' — editing already implies approval (see saveEdit()).
+function initialLocalState(state) {
+  if (state === 'posted') return 'posted'
+  if (state === 'queued' || state === 'edited') return 'queued'
+  if (state === 'rejected') return 'rejected'
+  return 'pending'
+}
+
 export default function DraftCard({ draft }) {
-  const [localState, setLocalState] = useState('pending') // pending | queued | rejected — optimistic UI only
+  const [localState, setLocalState] = useState(() => initialLocalState(draft.state))
   const [mode, setMode] = useState('view') // view | reject | edit
   const [editText, setEditText] = useState(draft.editedText || draft.text)
   const [copied, setCopied] = useState(false)
   const [postError, setPostError] = useState(null)
+  const [schedOpen, setSchedOpen] = useState(false)
+  const [schedTime, setSchedTime] = useState('')
   const transition = useTransition()
+  const createAsset = useCreateAsset()
+  const reschedule = useReschedule()
   const navigate = useNavigate()
   const isHeronArticle = draft.origin === 'heron' && draft.meta?.kind === 'article' && draft.meta?.articleId
   const isLinkedIn = draft.platform === 'linkedin'
@@ -80,6 +94,22 @@ export default function DraftCard({ draft }) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch (_) { /* clipboard unavailable — no-op */ }
+  }
+
+  // Bridges an accepted Telegram/Queue draft into the Scheduler's calendar — a plain approve here
+  // never touches assetsStore (the calendar's own data), so an approved draft otherwise never shows
+  // up there at all. Reuses the same create-asset + reschedule calls Studio's Set button uses, then
+  // lands on the Scheduler page with that slot highlighted the same way.
+  function addToCalendar() {
+    if (!schedTime) return
+    const iso = new Date(schedTime).toISOString()
+    createAsset.mutate({ text, platform: draft.platform, origin: 'manual' }, {
+      onSuccess: (d) => {
+        reschedule.mutate({ assetId: d.asset.id, scheduledFor: iso }, {
+          onSuccess: () => navigate('/', { state: { highlightIso: iso } }),
+        })
+      },
+    })
   }
 
   return (
@@ -167,8 +197,36 @@ export default function DraftCard({ draft }) {
               ? '✓ Posted to LinkedIn'
               : localState === 'queued'
                 ? '✓ Approved — added to your queue'
-                : '✕ Rejected — Koel will avoid this angle'}
+                : `✕ Rejected${draft.reason ? ` (${draft.reason})` : ''} — Koel will avoid this angle`}
           </span>
+        </div>
+      )}
+
+      {localState === 'queued' && (
+        <div className="draft-actions" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+          {!schedOpen ? (
+            <button className="act" onClick={() => setSchedOpen(true)}>📅 Add to calendar</button>
+          ) : (
+            <>
+              <input
+                type="datetime-local" className="field" style={{ width: 190 }}
+                value={schedTime} onChange={(e) => setSchedTime(e.target.value)}
+              />
+              <button
+                className="act approve"
+                disabled={!schedTime || createAsset.isPending || reschedule.isPending}
+                onClick={addToCalendar}
+              >
+                {createAsset.isPending || reschedule.isPending ? 'Adding…' : 'Set'}
+              </button>
+              <button className="act" onClick={() => setSchedOpen(false)}>Cancel</button>
+            </>
+          )}
+          {(createAsset.isError || reschedule.isError) && (
+            <span className="hint" style={{ color: 'var(--crit)', width: '100%' }}>
+              {createAsset.error?.message || reschedule.error?.message}
+            </span>
+          )}
         </div>
       )}
     </div>

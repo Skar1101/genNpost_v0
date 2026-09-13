@@ -16,8 +16,6 @@ const log = logger.source('slots')
 //
 // Nothing here can post to X. There is no code path to it, by design.
 
-const PUBLIC_URL = process.env.PUBLIC_URL || ''
-
 function assetText(asset) {
   return asset.segments.map(s => s.text).join('\n\n')
 }
@@ -29,12 +27,17 @@ function copyReadyText(asset) {
   return asset.segments.map((s, i) => `[${i + 1}/${asset.segments.length}]\n${s.text}`).join('\n\n———\n\n')
 }
 
-function imageLine(account, asset) {
-  const id = asset.segments?.[0]?.imageId
-  if (!id) return ''
-  const img = imagesStore.get(account, id)
-  if (!img) return ''
-  return PUBLIC_URL ? `\n\n🖼 Image: ${PUBLIC_URL}${img.url}` : `\n\n🖼 Image attached (open the Library to download it)`
+// Resolve the asset's first segment's attached media (if any) to real filesystem paths, for
+// linkedinClient.postToLinkedIn's imagePath/videoPath — mirrors the same lookup
+// server/routes/telegram.js's sendAssetCard already does for the X/Substack handoff path below.
+function mediaPaths(account, asset) {
+  const seg = asset.segments?.[0] || {}
+  let imagePath = null, videoPath = null
+  try {
+    if (seg.videoId) videoPath = videosStore.pathFor(account, seg.videoId)
+    else if (seg.imageId) imagePath = imagesStore.pathFor(account, seg.imageId)
+  } catch (_) { /* fall through with whatever resolved */ }
+  return { imagePath, videoPath }
 }
 
 // One asset, delivered. Returns { ok, mode, error? }.
@@ -70,11 +73,10 @@ async function deliverAsset({ account, asset, telegramSend, telegramSendHeronDra
   const header = isSubstack
     ? `🦢 Substack slot — ready to publish`
     : `⏰ X slot — ready to post`
-  // No image/video URL line here any more: sendAssetCard attaches the real file, so a link would
-  // duplicate it (and PUBLIC_URL is usually unset, which made that line useless anyway).
+  // No image/video URL line here: sendAssetCard attaches the real file, so a link would duplicate it.
   const body = `${header}
 
-${copyReadyText(asset)}${linkLine(asset)}`
+${copyReadyText(asset)}`
 
   const send = isSubstack && telegramSendHeronDraft ? telegramSendHeronDraft : telegramSend
   if (!send) {

@@ -4,7 +4,7 @@ import { useImages, useGenerateImage, useUploadImage, useVideos, useUploadVideo,
 // Picture · video · link in one place, because they're alternatives to each other rather than
 // separate concerns — a post carries one of them. Image and video are mutually exclusive: picking
 // one clears the other, so the preview never has to guess which to show.
-export default function MediaRail({ platform, text, image, video, link, onChange }) {
+export default function MediaRail({ platform, text, image, video, link, onChange, onGenerateFromImage, generatingFromImage = false }) {
   const [tab, setTab] = useState('picture')
   const [gallery, setGallery] = useState(false)
   const [url, setUrl] = useState('')
@@ -91,6 +91,18 @@ export default function MediaRail({ platform, text, image, video, link, onChange
             <button className="btn sm" onClick={() => setGallery((g) => !g)}>Gallery ({images.data?.images?.length || 0})</button>
             <input ref={imgInput} type="file" accept="image/*" hidden onChange={(e) => pickImageFile(e.target.files?.[0])} />
           </div>
+          {/* Reverse of Generate above (image -> text instead of text -> image) — vision-grounded,
+              same pipeline Telegram's photo-grounded generation uses. Only makes sense once a photo
+              is actually attached. */}
+          {image && onGenerateFromImage && (
+            <button
+              className="btn sm primary" style={{ marginTop: 8 }}
+              disabled={busy || generatingFromImage}
+              onClick={() => onGenerateFromImage(image.id)}
+            >
+              {generatingFromImage ? 'Writing from photo…' : '✨ Write post from this photo'}
+            </button>
+          )}
           {gallery && (
             <div className="media-gallery">
               {(images.data?.images || []).slice(0, 24).map((im) => (

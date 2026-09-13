@@ -186,7 +186,8 @@ a { color: inherit; text-decoration: none; }
 .sidebar { background: linear-gradient(180deg, var(--canvas), var(--surface));
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
-.brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 14px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 14px; transition: opacity .12s; }
+.brand:hover { opacity: .8; }
 .brand .mark { width: 30px; height: 30px; flex: none; color: var(--accent-ink);
   background: var(--accent); border-radius: 9px; padding: 5px; box-shadow: 0 4px 10px var(--accent-soft); }
 .brand-name { font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
@@ -462,6 +463,11 @@ textarea.field { resize: vertical; line-height: 1.5; }
 .slot-cell:hover { background: var(--surface-2); }
 .slot-cell.past { background: var(--surface); opacity: .45; cursor: default; }
 .slot-cell.over { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+.slot-cell.highlighted { animation: slot-highlight-pulse 1.8s ease-out 2; border-radius: 4px; }
+@keyframes slot-highlight-pulse {
+  0%   { box-shadow: inset 0 0 0 2px var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
+  100% { box-shadow: inset 0 0 0 2px transparent; background: var(--surface); }
+}
 .slot-empty { height: 100%; display: grid; place-items: center; color: var(--faint); font-size: 15px; opacity: 0; transition: opacity .12s; }
 .slot-cell:hover .slot-empty { opacity: .7; }
 .slot-chip { display: flex; align-items: center; gap: 5px; padding: 6px 7px; border-radius: 7px;

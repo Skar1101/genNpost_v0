@@ -3,6 +3,7 @@ const OpenAI = require('openai')
 const models = require('../config/models')
 const guard = require('./llmGuard')
 const G = require('../config/guardrails')
+const budgetGuard = require('./budgetGuard')
 
 // Wrap a create() in an AbortController that fires after TIMEOUT_MS, so a hung/slow call (even a stalled
 // stream) is aborted rather than holding a concurrency slot forever.
@@ -71,6 +72,7 @@ function resolveModelId(modelId) {
 
 // Non-streaming completion. Returns { text, usage, modelUsed }.
 async function complete({ modelId, messages, temperature = 0.8, maxTokens = 4000, signal = null, responseFormat = null } = {}) {
+  budgetGuard.assertBudget()
   const client = getClient()
   const model = resolveModelId(modelId)
   const cappedTokens = Math.min(maxTokens, G.MAX_OUTPUT_TOKENS)
@@ -97,6 +99,7 @@ async function complete({ modelId, messages, temperature = 0.8, maxTokens = 4000
 // Note: usage is only present on the final chunk when stream_options.include_usage is honored (OpenRouter
 // + OpenAI support it). We also accumulate text so callers always get the full result.
 async function stream({ modelId, messages, temperature = 0.8, maxTokens = 4000, onToken, signal = null } = {}) {
+  budgetGuard.assertBudget()
   const client = getClient()
   const model = resolveModelId(modelId)
   const cappedTokens = Math.min(maxTokens, G.MAX_OUTPUT_TOKENS)

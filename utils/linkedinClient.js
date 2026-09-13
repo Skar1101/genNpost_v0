@@ -19,6 +19,13 @@ const LINKEDIN_API_VERSION = '202606'
 // scheduler/slotDelivery.js) or { text, imagePath, videoPath, account } to attach media and/or post
 // as a specific account. account defaults to the active account, same as before, when omitted.
 async function postToLinkedIn(input) {
+  // Presentation/demo kill-switch — every real-post path in the app (Telegram approve, the web
+  // Queue/History approve route, and the scheduled slot auto-post) calls this one function, so gating
+  // it here is the single choke point that can't be bypassed by any caller. Flip
+  // LINKEDIN_POSTING_DISABLED back to false/unset in .env to restore real posting.
+  if (String(process.env.LINKEDIN_POSTING_DISABLED || '').toLowerCase() === 'true') {
+    throw new Error('LinkedIn posting is temporarily disabled (LINKEDIN_POSTING_DISABLED=true in .env) — nothing was posted.')
+  }
   const { text, imagePath = null, videoPath = null, account = null } =
     typeof input === 'string' ? { text: input } : (input || {})
   const stored = linkedinAuth.getStoredToken(account)

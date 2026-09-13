@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 
 const PLATFORM_CLASS = { x: 'slot-x', linkedin: 'slot-li', substack: 'slot-su' }
 
@@ -19,9 +19,17 @@ function dayLabel(ymd) {
 // An hour holds as many posts as you put in it, across any mix of platforms: a bucket used to be a
 // single fixed slot that one post could occupy, so scheduling X at 13:00 blocked LinkedIn at 13:00,
 // and anything at 13:37 disappeared off the grid entirely.
-export default function SlotGrid({ data, todayYmd, onMove, onOpen, onFill, busyIso }) {
+export default function SlotGrid({ data, todayYmd, onMove, onOpen, onFill, busyIso, highlightIso }) {
   const [dragId, setDragId] = useState(null)
   const [overIso, setOverIso] = useState(null)
+
+  // Scroll a just-scheduled cell into view and flash it, so landing here from Studio's "Set" button
+  // actually shows you the post sitting on the calendar instead of just trusting it happened.
+  useEffect(() => {
+    if (!highlightIso) return
+    const el = document.querySelector(`[data-iso="${highlightIso}"]`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [highlightIso])
 
   if (!data?.grid?.length) return null
 
@@ -56,7 +64,8 @@ export default function SlotGrid({ data, todayYmd, onMove, onOpen, onFill, busyI
               return (
                 <div
                   key={cell.iso}
-                  className={`slot-cell ${cell.past && !here.length ? 'past' : ''} ${isOver ? 'over' : ''}`}
+                  data-iso={cell.iso}
+                  className={`slot-cell ${cell.past && !here.length ? 'past' : ''} ${isOver ? 'over' : ''} ${highlightIso === cell.iso ? 'highlighted' : ''}`}
                   onDragOver={(e) => { e.preventDefault(); setOverIso(cell.iso) }}
                   onDragLeave={() => setOverIso((c) => (c === cell.iso ? null : c))}
                   onDrop={(e) => {

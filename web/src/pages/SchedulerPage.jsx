@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import Sparrow from '../components/Sparrow.jsx'
 import SlotGrid from '../components/SlotGrid.jsx'
 import {
@@ -24,6 +24,10 @@ function addDays(ymd, n) {
   const dt = new Date(Date.UTC(y, m - 1, d))
   dt.setUTCDate(dt.getUTCDate() + n)
   return dt.toISOString().slice(0, 10)
+}
+// The IST calendar date an instant falls on — same math scheduleStore.js uses server-side.
+function istDateOfIso(iso) {
+  return new Date(new Date(iso).getTime() + (5 * 60 + 30) * 60 * 1000).toISOString().slice(0, 10)
 }
 
 // Write-into-slot composer. Deliberately minimal: a brief and a platform, because the point is to
@@ -179,7 +183,12 @@ function ScheduleSettingsPanel() {
 
 export default function SchedulerPage() {
   const navigate = useNavigate()
-  const [start, setStart] = useState(istToday())
+  const location = useLocation()
+  // Arriving here from Studio's "Set" button (see StudioPage.jsx's scheduleAt) — jump to the week
+  // that post landed in and flash its cell, so Set actually shows you it's on the calendar instead of
+  // just trusting it happened.
+  const highlightIso = location.state?.highlightIso || null
+  const [start, setStart] = useState(() => (highlightIso ? istDateOfIso(highlightIso) : istToday()))
   const [fillIso, setFillIso] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -242,6 +251,7 @@ export default function SchedulerPage() {
             data={schedule.data}
             todayYmd={istToday()}
             busyIso={generate.isPending ? fillIso : null}
+            highlightIso={highlightIso}
             onMove={(assetId, iso) => reschedule.mutate({ assetId, scheduledFor: iso })}
             onOpen={() => navigate('/library')}
             onFill={(iso) => setFillIso(iso)}

@@ -31,7 +31,10 @@ export const navSections = [
   {
     eyebrow: 'Good to have',
     items: [
-      { id: 'queue', label: 'Queue', to: '/queue', badge: 12 },
+      // badge is live (wired in Sidebar.jsx from the real unrated-draft count) — this is just the
+      // "has a badge at all" flag, not a real number; it was a hardcoded 12 before, which never
+      // matched the actual queue size.
+      { id: 'queue', label: 'History', to: '/queue', badge: true },
     ],
   },
   {
@@ -75,7 +78,7 @@ export function pageMetaFor(pathname, pendingCount) {
   }
   if (pathname === '/queue') {
     const n = pendingCount ?? 0
-    return { title: 'Queue', crumb: n > 0 ? `${n} waiting for review` : 'Nothing waiting for review' }
+    return { title: 'History', crumb: n > 0 ? `${n} waiting for review` : 'Nothing waiting for review' }
   }
   if (pathname === '/library') {
     return { title: 'Library', crumb: 'Finished work — editable, versioned, ready to schedule' }

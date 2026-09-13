@@ -462,6 +462,14 @@ export function useGenerateAssetText() {
   })
 }
 
+// Same contract, grounded in an already-uploaded photo instead of a typed brief (vision-described
+// server-side) — the Studio counterpart to Telegram's photo-grounded generation.
+export function useGenerateTextFromImage() {
+  return useMutation({
+    mutationFn: ({ imageId, platform, brief }) => api('/assets/generate-from-image', { method: 'POST', body: { imageId, platform, brief } }),
+  })
+}
+
 // Deliver an asset to Telegram right now, bypassing its slot.
 export function useSendAsset() {
   const queryClient = useQueryClient()
